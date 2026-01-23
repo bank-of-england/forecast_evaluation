@@ -46,10 +46,10 @@ All of the above features can be explored interactively in a dashboard.
 The forecasts should be in a `pandas` dataframe format with the following structure:
 ```
             date vintage_date variable       source frequency  forecast_horizon  value
-0     2014-12-31   2015-03-31      gdp        BVAR         Q                 0    100
-1     2015-03-31   2015-03-31      gdp        BVAR         Q                 1    101
-2     2015-06-30   2015-03-31      gdp        BVAR         Q                 2    102
-3     2015-09-30   2015-03-31      gdp        BVAR         Q                 3    103
+0     2014-12-31   2015-03-31      gdp        BVAR         Q                -1    100
+1     2015-03-31   2015-03-31      gdp        BVAR         Q                 0    101
+2     2015-06-30   2015-03-31      gdp        BVAR         Q                 1    102
+3     2015-09-30   2015-03-31      gdp        BVAR         Q                 2    103
 ```
 
 Outturns follow the same structure but do not contain a `source` column. 
@@ -60,7 +60,7 @@ The package's main object is the `ForecastData` class which holds the outturns, 
 ```python
 import forecast_evaluation as fe
 
-forecast_data = fe.ForecastData(forecasts=forecasts_dataframe, outturns=outturns_dataframe)
+forecast_data = fe.ForecastData(forecasts_data=forecasts_dataframe, outturns_data=outturns_dataframe)
 ```
 
 The package also comes with built-in data used in the Bank of England 2026 Forecast Evaluation Report which can be loaded with:
