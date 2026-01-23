@@ -63,9 +63,9 @@ The package also comes with built-in data used in the Bank of England 2026 Forec
 forecast_data = fe.ForecastData(load_fer=True) 
 ```
 
-The forecast_data object has methods to filter, analyse and visualise the data and resulting analysis. These are illustrated in the example notebook included in the repository: [notebooks/example_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/notebooks/example_notebook.ipynb)
+The forecast_data object has methods to filter, analyse and visualise the data and resulting analysis. These are illustrated in the example notebook included in the repository: [notebooks/example_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/example_notebook.ipynb)
 
-Results from the Bank of England 2026 Forecast Evaluation Macro Technical Paper can also be replicated with the following notebook: [notebooks/mtp_replication_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/notebooks/mtp_replication_notebook.ipynb)
+Results from the Bank of England 2026 Forecast Evaluation Macro Technical Paper can also be replicated with the following notebook: [notebooks/mtp_replication_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/mtp_replication_notebook.ipynb)
 
 
 ## Run the dashboard
