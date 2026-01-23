@@ -3,7 +3,7 @@
 A Python package for analysing and visualising economic forecast data.
 
 ### Features
-The package contains tools to inspect the accuracy, unbiasedness and efficiency of economic forecasts. It includes visualisation tools, statistical tests and accuracy metrics commonly used in forecast evaluation literature. In handles both point forecasts (with the `ForecastData` object) and density forecasts (with the `DensityForecastData` object).
+The package contains tools to inspect the accuracy, unbiasedness and efficiency of economic forecasts. It includes visualisation tools, statistical tests and accuracy metrics commonly used for forecast evaluation. In handles both point forecasts (with the `ForecastData` object) and density forecasts (with the `DensityForecastData` object).
 
 #### Visualisation for forecasts, outturns and errors:
 * Forecast vintages plot
