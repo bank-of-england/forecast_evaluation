@@ -2,17 +2,30 @@
 
 A Python package for analysing and visualising economic forecast data.
 
-### Features
+## Installation
+
+```sh
+# install from PyPI
+pip install forecast_evaluation
+```
+
+## Documentation
+
+The package documentation can be found [here](https://bank-of-england.github.io/forecast_evaluation/) with examples on how
+to use the package in this [notebook](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/example_notebook.ipynb).
+
+
+## Features
 The package contains tools to inspect the accuracy, unbiasedness and efficiency of economic forecasts. It includes visualisation tools, statistical tests and accuracy metrics commonly used for forecast evaluation. In handles both point forecasts (with the `ForecastData` object) and density forecasts (with the `DensityForecastData` object).
 
-#### Visualisation for forecasts, outturns and errors:
+### Visualisation for forecasts, outturns and errors:
 * Forecast vintages plot
 * Accuracy and bias plots (average and rolling averages)
 * Hedgehog plots
 * Outturn revisions
 * Forecast error distributions
 
-#### Statistical tests
+### Statistical tests
 * Accuracy analysis (Diebold-Mariano test)
 * Bias analysis (Mincer-Zarnowitz Regression)
 * Weak Efficiency analysis (Revision predictability)
@@ -20,24 +33,16 @@ The package contains tools to inspect the accuracy, unbiasedness and efficiency 
 * Testing correlation between forecast revisions and forecast errors
 * Rolling-window analysis of most tests with fluctuation tests.
 
-#### Accuracy metrics available
+### Accuracy metrics available
 * Root mean square error
 * Mean absolute error
 * Median absolute error
 
 All of the above features can be explored interactively in a dashboard.
 
-## Installation
+## Loading data
 
-#### Using pip
-```bash
-# install from PyPI
-pip install forecast_evaluation
-```
-
-### Loading data
-
-#### Data format
+### Data format
 The forecasts should be in a `pandas` dataframe format with the following structure:
 ```
             date vintage_date variable       source frequency  forecast_horizon  value
@@ -49,7 +54,7 @@ The forecasts should be in a `pandas` dataframe format with the following struct
 
 Outturns follow the same structure but do not contain a `source` column. 
 
-#### Creating a ForecastData instance
+### Creating a ForecastData instance
 The package's main object is the `ForecastData` class which holds the outturns, forecasts, transformed forecasts and forecast errors. You can create an instance of this class with:
 
 ```python
@@ -63,9 +68,9 @@ The package also comes with built-in data used in the Bank of England 2026 Forec
 forecast_data = fe.ForecastData(load_fer=True) 
 ```
 
-The forecast_data object has methods to filter, analyse and visualise the data and resulting analysis. These are illustrated in the example notebook included in the repository: [notebooks/example_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/example_notebook.ipynb)
+The forecast_data object has methods to filter, analyse and visualise the data and resulting analysis. These are illustrated in the [example notebook](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/example_notebook.ipynb).
 
-Results from the Bank of England 2026 Forecast Evaluation Macro Technical Paper can also be replicated with the following notebook: [notebooks/mtp_replication_notebook.ipynb](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/mtp_replication_notebook.ipynb)
+Results from the Bank of England 2026 Forecast Evaluation [Macro Technical Paper](https://www.bankofengland.co.uk/macro-technical-paper/2026/learning-from-forecast-errors-the-banks-enhanced-approach-to-forecast-evaluation) can also be replicated with [this notebook](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/mtp_replication_notebook.ipynb).
 
 
 ## Run the dashboard
