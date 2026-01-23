@@ -24,6 +24,9 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # Install the package and its dev dependencies in editable mode
+          pip install -e .[dev]
+          # Install Sphinx and other documentation dependencies
           pip install sphinx sphinx-rtd-theme sphinx-book-theme myst-parser
 
       - name: Build docs
