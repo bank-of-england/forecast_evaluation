@@ -1,0 +1,21 @@
+meta:
+  name: Bank of England Official Theme
+
+color:
+  palette:
+    boe-dark-blue: "#12273f"    # Primary brand colour
+    boe-mid-dark-blue: "#415265"   # Secondary accent
+    boe-aqua: "#3cd7d9"   # Secondary accent
+    boe-dark-aqua: "#34bcc1"   # Secondary accent
+    boe-stone: "#c4c9cf"          # Alert/critical
+  foreground: boe-dark-blue        # Main text colour
+  background: "#FFFFFF"         # Page background
+  primary: boe-mid-dark-blue
+  tertiary: boe-dark-aqua
+
+typography:
+  fonts:
+    - family: Arial
+      source: system
+  base: Arial                # Body text
+  monospace: JetBrains Mono  # Code blocks

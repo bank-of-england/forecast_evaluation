@@ -1,0 +1,101 @@
+[project]
+name = "forecast_evaluation"
+version = "0.1.0"
+
+description = "A package for Forecast Evaluation"
+authors = [
+    {name="James Hurley", email="James.Hurley@bankofengland.co.uk"},
+    {name="Paul Labonne", email="Paul.Labonne@bankofengland.co.uk"},
+    {name="Harry Li", email="Harry.Li@bankofengland.co.uk"},
+]
+maintainers = [
+    {name="James Hurley", email="James.Hurley@bankofengland.co.uk"},
+    {name="Paul Labonne", email="Paul.Labonne@bankofengland.co.uk"},
+    {name="Harry Li", email="Harry.Li@bankofengland.co.uk"},
+]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "pyarrow>=14.0.0",
+    "pandas>=1.5.3",
+    "tqdm>=4.65.0",
+    "matplotlib>=3.7.0",
+    "pandera>=0.24.0",
+    "numpy>=1.24.0",
+    "shiny[theme]>=0.6.0",
+    "statsmodels>=0.14.0",
+    "scipy>=1.10.0",
+    "linearmodels>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre_commit>=4.3.0",
+    "pytest>=8.4.1",
+    "ruff>=0.13.1",
+    "Sphinx>=8.2.3",
+    "sphinx-book-theme>=1.1.4",
+    "IPython>=9.4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bank-of-england/forecast_evaluation"
+Issues = "https://github.com/bank-of-england/forecast_evaluation/issues"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-data]
+forecast_evaluation = ["data/files/*.parquet", "dashboard/theme/*.yml", "dashboard/theme/*.png"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+# Enable specific rules
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+]
+
+# Ignore specific rules
+ignore = [
+    "D100", # Missing docstring in public module
+    "D104", # Missing docstring in public package,
+    "D213",
+    "D211"
+]
+
+# Exclude files and directories
+exclude = [
+    ".git",
+    ".ruff_cache",
+    "__pycache__",
+    "build",
+    "dist",
+    "notebooks",
+    "notebooks/**",
+    "src/forecast_evaluation/dashboard/**",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # Ignore unused imports in __init__.py files
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
