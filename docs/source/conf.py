@@ -52,4 +52,4 @@ exclude_patterns = ["api/generated/**"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "sphinx_book_theme"
-html_static_path = []
+html_static_path = ['_static']
