@@ -36,6 +36,7 @@ dependencies = [
     "statsmodels>=0.14.0",
     "scipy>=1.10.0",
     "linearmodels>=6.0",
+    "IPython>=9.4.0",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +46,6 @@ dev = [
     "ruff>=0.13.1",
     "Sphinx>=8.2.3",
     "sphinx-book-theme>=1.1.4",
-    "IPython>=9.4.0",
 ]
 
 [project.urls]
