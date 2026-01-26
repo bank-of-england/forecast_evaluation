@@ -392,7 +392,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
     )
 
     if return_plot:
-        return fig, axes
+        return fig, axes[0] if n_horizons == 1 else axes
     else:
         plt.show()
         return None

@@ -216,7 +216,7 @@ def plot_errors_across_time(
     fig.suptitle(suptitle)
 
     if return_plot:
-        return fig, axes
+        return fig, axes[0] if n_horizons == 1 else axes
     else:
         plt.show()
         return None

@@ -262,7 +262,7 @@ def plot_rolling_bias(
     fig.suptitle("Bias Estimate with 95% CI by Forecast Horizon")
 
     if return_plot:
-        return fig, axes
+        return fig, axes[0] if n_horizons == 1 else axes
     else:
         plt.show()
         return None
