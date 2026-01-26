@@ -1,6 +1,6 @@
 [project]
 name = "forecast_evaluation"
-version = "0.1.0"
+version = "0.2.0.dev0"
 
 description = "A package for Forecast Evaluation"
 authors = [
