@@ -23,7 +23,7 @@ from .tests import (
     strong_efficiency_analysis,
     weak_efficiency_analysis,
 )
-from .utils import covid_filter, reconstruct_id_cols_from_unique_id
+from .utils import covid_filter, filter_k, reconstruct_id_cols_from_unique_id
 from .visualisations import (
     plot_accuracy,
     plot_average_revision_by_period,
@@ -87,5 +87,6 @@ __all__ = [
     # Utility functions
     "covid_filter",
     "filter_fer_variables",
+    "filter_k",
     "reconstruct_id_cols_from_unique_id",
 ]
