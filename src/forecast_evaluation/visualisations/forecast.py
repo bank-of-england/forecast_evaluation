@@ -68,7 +68,7 @@ def plot_vintage(
     min_date = outturn_start_date if outturn_start_date is not None else outturns["date"].min()
 
     outturns = outturns[
-        (outturns["vintage_date"] == outturns["vintage_date"].max())
+        (outturns["vintage_date"] == vintage_date)
         & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
         & (outturns["metric"] == metric)
         & (outturns["date"] <= forecasts_filtered["date"].max())
