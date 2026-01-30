@@ -15,6 +15,7 @@ def plot_vintage(
     outturn_start_date: str | pd.Timestamp = None,
     frequency: Literal["Q", "M"] = "Q",
     metric: Literal["levels", "pop", "yoy"] = "levels",
+    k: int = 12,
     return_plot: bool = False,
 ) -> None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
@@ -51,9 +52,9 @@ def plot_vintage(
     vintage_date = pd.to_datetime(vintage_date)
 
     # filter forecasts
-    forecasts_filtered = data.copy()
+    filtered_data = data.copy()
 
-    forecasts_filtered.filter(
+    filtered_data.filter(
         variables=variable,
         metrics=metric,
         frequencies=frequency,
@@ -61,19 +62,35 @@ def plot_vintage(
         start_vintage=vintage_date,
         end_vintage=vintage_date,
     )
-    forecasts_filtered = forecasts_filtered.forecasts.copy()
+    forecasts_filtered = filtered_data.forecasts.copy()
 
     # filter outturns (they are not filtered with filter())(we select the last vintage only)
     outturns = data._outturns.copy()
     min_date = outturn_start_date if outturn_start_date is not None else outturns["date"].min()
 
-    outturns = outturns[
-        (outturns["vintage_date"] == vintage_date)
-        & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
-        & (outturns["metric"] == metric)
-        & (outturns["date"] <= forecasts_filtered["date"].max())
-        & (outturns["date"] >= min_date)
-    ].copy()
+    real_time_outturns = (
+        outturns[
+            (outturns["vintage_date"] == vintage_date)
+            & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
+            & (outturns["metric"] == metric)
+            & (outturns["date"] <= forecasts_filtered["date"].max())
+            & (outturns["date"] >= min_date)
+        ]
+        .copy()
+        .sort_values("date")
+    )
+
+    post_outturns = (
+        outturns[
+            (outturns["forecast_horizon"] == -k)
+            & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
+            & (outturns["metric"] == metric)
+            & (outturns["date"] <= forecasts_filtered["date"].max())
+            & (outturns["date"] >= min_date)
+        ]
+        .copy()
+        .sort_values("date")
+    )
 
     fig, ax = create_themed_figure()
 
@@ -83,11 +100,10 @@ def plot_vintage(
         ax.plot(source_df["date"], source_df["value"], marker="o", markersize=3, label=forecast_id, alpha=0.7)
 
     # Overlay the outturns series (forecast_horizon == -1)
-    outturns_data = outturns.sort_values("date")
-    if not outturns_data.empty:
+    if not real_time_outturns.empty:
         # Split outturns: solid before vintage_date, dashed from vintage_date onwards
-        solid_outturns = outturns_data[outturns_data["date"] < vintage_date]
-        dashed_outturns = outturns_data[outturns_data["date"] >= vintage_date]
+        solid_outturns = real_time_outturns[real_time_outturns["date"] < vintage_date]
+        dashed_outturns = post_outturns[post_outturns["date"] >= vintage_date]
 
         if not solid_outturns.empty:
             ax.plot(
@@ -96,7 +112,7 @@ def plot_vintage(
                 color="darkblue",
                 marker="o",
                 markersize=3,
-                label="Outturns (solid)",
+                label="Outturns (at the time of forecast)",
             )
         if not dashed_outturns.empty:
             ax.plot(
@@ -106,7 +122,7 @@ def plot_vintage(
                 marker="o",
                 markersize=3,
                 linestyle="--",
-                label="Outturns (dashed)",
+                label="Outturns (post forecast)",
             )
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")

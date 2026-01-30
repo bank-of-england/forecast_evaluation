@@ -510,13 +510,6 @@ def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Option
     # remove fully duplicated rows (same values and metadata)
     validated_df = validated_df.drop_duplicates().reset_index(drop=True)
 
-    if not forecast:
-        # Keep only horizon below zero
-        # this is necessary to avoid duplicates arising from
-        # models producing different forecasts but having the same data
-        # up until h - 1
-        validated_df = validated_df[validated_df["forecast_horizon"] < 0]
-
     # check that there is only one record per unique combination of metadata
     metadata_cols = [col for col in validated_df.columns if col != "value"]
 
