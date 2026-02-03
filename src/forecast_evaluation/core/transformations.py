@@ -86,15 +86,27 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
             df["metric"] = "levels"
         return df[df["forecast_horizon"] >= 0].copy()
 
-    forecasts = forecasts.drop(columns=id_columns)
+    # Split forecasts by metric type
+    levels_forecasts = forecasts[forecasts["metric"] == "levels"].copy()
+    non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
 
-    frequencies = forecasts["frequency"].unique()
-    forecast_id_list = forecasts["unique_id"].unique()
+    # Only transform 'levels' forecasts
+    if levels_forecasts.empty:
+        # reconstruct individual id columns from unique_id
+        # non_levels_forecasts = reconstruct_id_cols_from_unique_id(non_levels_forecasts, id_columns)
+        return non_levels_forecasts
+
+    levels_forecasts = levels_forecasts.drop(columns=id_columns)
+
+    frequencies = levels_forecasts["frequency"].unique()
+    forecast_id_list = levels_forecasts["unique_id"].unique()
 
     forecasts_all = []
 
     for frequency in frequencies:
-        forecasts_freq = forecasts[(forecasts["frequency"] == frequency) & (forecasts["forecast_horizon"] >= 0)].copy()
+        forecasts_freq = levels_forecasts[
+            (levels_forecasts["frequency"] == frequency) & (levels_forecasts["forecast_horizon"] >= 0)
+        ].copy()
         outturns_freq = outturns[outturns["frequency"] == frequency].copy()
 
         # YoY or MoM transform for the forecast mean it needs appending to outturns for that vintage first
@@ -112,18 +124,16 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
         # We compute all transformations now (levels, pop (period-on-period), yoy (year-on-year)
         forecasts_with_outturns = pd.concat(forecast_dfs, ignore_index=True)
 
-        # Levels
-        forecast_levels = transform_series(forecasts_with_outturns, transform="levels", frequency=frequency)
-        forecast_levels = forecast_levels[forecast_levels["forecast_horizon"] >= 0]
         # pop Change
         forecast_pop_change = transform_series(forecasts_with_outturns, transform="pop", frequency=frequency)
-        forecast_pop_change = forecast_pop_change[forecast_pop_change["forecast_horizon"] >= 0]
+
         # YoY Change
         forecast_yoy_change = transform_series(forecasts_with_outturns, transform="yoy", frequency=frequency)
-        forecast_yoy_change = forecast_yoy_change[forecast_yoy_change["forecast_horizon"] >= 0]
 
         # Append them all
-        forecasts_freq = pd.concat([forecast_levels, forecast_pop_change, forecast_yoy_change], ignore_index=True)
+        forecasts_freq = pd.concat(
+            [forecasts_with_outturns, forecast_pop_change, forecast_yoy_change], ignore_index=True
+        )
 
         forecasts_all.append(forecasts_freq)
 
@@ -131,6 +141,12 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
 
     # reconstruct individual id columns from unique_id
     df_forecasts = reconstruct_id_cols_from_unique_id(df_forecasts, id_columns)
+
+    # Combine transformed levels forecasts with pass-through non-levels forecasts
+    if not non_levels_forecasts.empty:
+        df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
+
+    df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= 0]
 
     return df_forecasts
 
@@ -149,23 +165,36 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
         Prepared outturn data with levels, period-on-period, and year-on-year transformations.
     """
 
-    frequencies = outturns["frequency"].unique()
+    # Split outturns by metric type
+    levels_outturns = outturns[outturns["metric"] == "levels"].copy()
+    non_levels_outturns = outturns[outturns["metric"] != "levels"].copy()
+
+    # Only transform 'levels' outturns
+    if levels_outturns.empty:
+        return non_levels_outturns
+
+    frequencies = levels_outturns["frequency"].unique()
     outturns_all = []
 
     for frequency in frequencies:
-        df = outturns[outturns["frequency"] == frequency].copy()
+        df = levels_outturns[levels_outturns["frequency"] == frequency].copy()
 
         # Transform outturns data
-        outturns_levels = transform_series(df, transform="levels", frequency=frequency)
         outturns_pop_change = transform_series(df, transform="pop", frequency=frequency)
         outturns_yoy_change = transform_series(df, transform="yoy", frequency=frequency)
 
-        # Append them all
-        outturns_freq = pd.concat([outturns_levels, outturns_pop_change, outturns_yoy_change], ignore_index=True)
+        # Combine transformed outturns
+        outturns_freq = pd.concat([levels_outturns, outturns_pop_change, outturns_yoy_change], ignore_index=True)
 
         outturns_all.append(outturns_freq)
 
-    return pd.concat(outturns_all, ignore_index=True)
+    df_outturns = pd.concat(outturns_all, ignore_index=True)
+
+    # Combine transformed levels outturns with pass-through non-levels outturns
+    if not non_levels_outturns.empty:
+        df_outturns = pd.concat([df_outturns, non_levels_outturns], ignore_index=True)
+
+    return df_outturns
 
 
 def transform_forecast_to_levels(
