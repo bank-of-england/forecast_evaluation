@@ -80,9 +80,16 @@ def plot_vintage(
         .sort_values("date")
     )
 
+    # Use -(k+1) if it exists, otherwise use max(forecast_horizon)
+    post_outturns = outturns.copy()
+
+    post_outturns["max_feasible_horizon"] = post_outturns.groupby("date")["forecast_horizon"].transform(
+        lambda x: -(k + 1) if -(k + 1) in x.values else x.min()
+    )
+
     post_outturns = (
         outturns[
-            (outturns["forecast_horizon"] == -k)
+            (outturns["forecast_horizon"] == post_outturns["max_feasible_horizon"])
             & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
             & (outturns["metric"] == metric)
             & (outturns["date"] <= forecasts_filtered["date"].max())
@@ -102,8 +109,8 @@ def plot_vintage(
     # Overlay the outturns series (forecast_horizon == -1)
     if not real_time_outturns.empty:
         # Split outturns: solid before vintage_date, dashed from vintage_date onwards
-        solid_outturns = real_time_outturns[real_time_outturns["date"] < vintage_date]
-        dashed_outturns = post_outturns[post_outturns["date"] >= vintage_date]
+        solid_outturns = real_time_outturns[real_time_outturns["date"] <= vintage_date]
+        dashed_outturns = post_outturns[post_outturns["date"] > vintage_date]
 
         if not solid_outturns.empty:
             ax.plot(

@@ -61,7 +61,7 @@ class ForecastData:
             self.add_fer_data()
 
         if outturns_data is not None:
-            self.add_outturns(outturns_data)
+            self.add_outturns(outturns_data, metric=metric)
 
         if forecasts_data is not None:
             self.add_forecasts(forecasts_data, extra_ids=extra_ids, metric=metric)
@@ -78,16 +78,33 @@ class ForecastData:
         """Return a deep copy of the ForecastData object."""
         return copy.deepcopy(self)
 
-    def add_outturns(self, df: pd.DataFrame) -> None:
+    def add_outturns(self, df: pd.DataFrame, *, metric: Literal["levels", "pop", "yoy"] = "levels") -> None:
         """Validate new outturns and add them to the outturns dataset
 
         Parameters
         ----------
         df : pd.DataFrame
             DataFrame containing new outturn records to add.
+        metric : str, optional
+            Metric to assign to the outturns if 'metric' column is not present or contains null values.
+            Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        # Handle metric column: use column values if present, otherwise use parameter
+        if "metric" not in df.columns:
+            df["metric"] = metric
+        else:
+            # Fill any null values in metric column with the parameter value
+            df["metric"] = df["metric"].fillna(metric)
+
+        # Validate that all metrics are valid
+        valid_metrics = ["levels", "pop", "yoy"]
+        invalid_metrics = df[~df["metric"].isin(valid_metrics)]["metric"].unique()
+        if len(invalid_metrics) > 0:
+            raise ValueError(f"Invalid metric values found: {invalid_metrics}. Valid options: {valid_metrics}")
+
         # Validate records using the ForecastRecord model
-        df_validated = _validate_records(df)
+        # Include 'metric' as an optional column in validation
+        df_validated = _validate_records(df, optional_columns=["metric"])
 
         # Check for duplicates if there are already some records stored
         if not self._raw_outturns.empty:
@@ -95,11 +112,11 @@ class ForecastData:
         else:
             df_validated_unique = df_validated
 
-        # If no duplicates, add the new outturns
-        self._raw_outturns = pd.concat([self._raw_outturns, df_validated_unique], ignore_index=True)
+        # Transform outturns (prepare_outturns handles metric-specific logic)
+        outturns = prepare_outturns(df_validated_unique)
 
-        # Transform outturns
-        self._outturns = prepare_outturns(self._raw_outturns)
+        self._outturns = pd.concat([self._outturns, outturns], ignore_index=True)
+        self._raw_outturns = pd.concat([self._raw_outturns, df_validated_unique], ignore_index=True)
 
     def add_forecasts(
         self,
@@ -204,22 +221,8 @@ class ForecastData:
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
-        # Split forecasts by metric type
-        levels_forecasts = df[df["metric"] == "levels"].copy()
-        non_levels_forecasts = df[df["metric"] != "levels"].copy()
-        non_levels_forecasts = non_levels_forecasts[non_levels_forecasts["forecast_horizon"] >= 0].copy()
-
-        # Transform only 'levels' forecasts through prepare_forecasts
-        if not levels_forecasts.empty:
-            levels_forecasts = prepare_forecasts(levels_forecasts, self._raw_outturns, self._id_columns)
-
-        # Combine all forecasts
-        if not levels_forecasts.empty and not non_levels_forecasts.empty:
-            forecasts = pd.concat([levels_forecasts, non_levels_forecasts], ignore_index=True)
-        elif not levels_forecasts.empty:
-            forecasts = levels_forecasts
-        else:
-            forecasts = non_levels_forecasts
+        # Transform forecasts (prepare_forecasts handles metric-specific logic)
+        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns)
 
         # Compute main table
         main_table = build_main_table(forecasts, self._outturns, self._id_columns)

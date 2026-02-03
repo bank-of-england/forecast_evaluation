@@ -627,3 +627,15 @@ def test_monthly_dates_forced_to_month_end(sample_outturns):
     actual_dates = fd._raw_forecasts["date"].sort_values().reset_index(drop=True)
 
     pd.testing.assert_series_equal(actual_dates, pd.Series(expected_dates, name="date"))
+
+
+# test when using outturns not in levels
+def test_outturns_not_in_levels(sample_outturns):
+    """If the user supplies a metric column, add_forecasts() should use it."""
+    sample_outturns["metric"] = "pop"
+
+    df = _make_minimal_forecasts_df(include_metric=True, metric_value="pop")
+
+    fd = ForecastData(outturns_data=sample_outturns, forecasts_data=df)
+
+    assert len(fd.outturns) == len(sample_outturns)
