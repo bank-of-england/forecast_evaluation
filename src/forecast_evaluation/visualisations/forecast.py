@@ -109,8 +109,8 @@ def plot_vintage(
     # Overlay the outturns series (forecast_horizon == -1)
     if not real_time_outturns.empty:
         # Split outturns: solid before vintage_date, dashed from vintage_date onwards
-        solid_outturns = real_time_outturns[real_time_outturns["date"] <= vintage_date]
-        dashed_outturns = post_outturns[post_outturns["date"] > vintage_date]
+        solid_outturns = real_time_outturns[real_time_outturns["date"] < vintage_date]
+        dashed_outturns = post_outturns[post_outturns["date"] >= vintage_date]
 
         if not solid_outturns.empty:
             ax.plot(
