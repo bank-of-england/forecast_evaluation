@@ -37,7 +37,9 @@ def compute_k(df: pd.DataFrame, frequency: str) -> pd.DataFrame:
     else:
         raise ValueError("Unsupported frequency")
 
-    df = df[df["k"].notna() & (df["k"] >= 0)]
+    df = df[df["k"].notna() & (df["k"] >= -1)]
+    # -1 instead of 0 because some surveys can be released before the end of the period
+    # so we get the data the same period. Plus can cause issue when constructing artificial vintages
     df["k"] = df["k"].astype(int)
     return df
 
@@ -103,9 +105,10 @@ def build_main_table(
     # Join using index (faster than merge for large data)
     merged = forecasts_indexed.join(outturns_indexed, lsuffix="_forecast", rsuffix="_outturn").reset_index()
 
-    # Keep only outturns after the forecasted date
-    merged = merged[merged["vintage_date_outturn"] > merged["date"]]
-
+    # Keep only outturns fro; the forecasted date
+    # >= and not > because some data can be released before the end of the period
+    # e.g. some surveys. Plus this line can be problematic when constructing artificial vintages
+    merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
     merged = merged.rename(columns={"id_forecast": "unique_id", "forecast_horizon_forecast": "forecast_horizon"})
 
     merged = merged[
