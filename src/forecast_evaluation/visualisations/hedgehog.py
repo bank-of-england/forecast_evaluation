@@ -114,7 +114,9 @@ def plot_hedgehog(
         )
 
     # Overlay the actuals series (forecast_horizon == 0)
-    actuals_data = df_outturns_filtered[df_outturns_filtered["forecast_horizon"] == 0].sort_values("date")
+    actuals_data = df_outturns_filtered
+    actuals_data = actuals_data[["date", "value_outturn"]].drop_duplicates().sort_values("date")
+
     if not actuals_data.empty:
         ax.plot(
             actuals_data["date"],
