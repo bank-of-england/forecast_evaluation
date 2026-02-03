@@ -44,7 +44,7 @@ def time_machine(input, output, session, data):
             vintage_date=input.vintage(),
             outturn_start_date=input.start_date(),
             metric=input.transform(),
-            k=int(input.k()) + 1,
+            k=int(input.k()),
             return_plot=True,
         )
         return fig, ax
