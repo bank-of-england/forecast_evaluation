@@ -34,6 +34,7 @@ def create_sidebar(data):
         # Get frequency label from data
         freq_code = data.forecasts["frequency"].iloc[0] if not data.forecasts["frequency"].empty else "Q"
         period_label = frequency_labels.get(freq_code, "periods")
+        horizons = set(data.forecasts["forecast_horizon"].dropna().unique().tolist())
     else:
         vintages_set = set()
         outturn_dates_set = set()
@@ -50,6 +51,7 @@ def create_sidebar(data):
         sources_set.update(data._density_forecasts["source"].unique().tolist())
         unique_ids_set.update(data._density_forecasts["unique_id"].unique().tolist())
         transformations_set.update(data._density_forecasts["metric"].unique().tolist())
+        horizons.update(data._density_forecasts["forecast_horizon"].dropna().unique().tolist())
 
     vintages = sorted(list(vintages_set))
     outturn_dates = sorted(list(outturn_dates_set))
@@ -57,8 +59,8 @@ def create_sidebar(data):
     sources = sorted(list(sources_set))
     unique_ids = sorted(list(unique_ids_set))
     transformations = sorted(list(transformations_set))
+    horizons = sorted(list(horizons))
 
-    horizons = list(range(0, 13))
     loss_functions = ["rmse", "rmedse", "mean_abs_error"]
     loss_functions_tests = ["mse", "mae"]
     k_values = list(range(len(vintages) + 1))
@@ -366,11 +368,17 @@ def create_sidebar(data):
             + rolling_errors_tab
             + _or
             + errors_tab,
-            ui.input_selectize("horizons", "Horizons:", choices=horizons, multiple=True, selected=[0, 1, 4]),
+            ui.input_selectize(
+                "horizons",
+                "Horizons:",
+                choices=horizons,
+                multiple=True,
+                selected=horizons[:3] if len(horizons) >= 3 else horizons,
+            ),
         ),
         ui.panel_conditional(
             error_dist_tab,
-            ui.input_select("horizon", "Horizon:", choices=horizons, selected=0),
+            ui.input_select("horizon", "Horizon:", choices=horizons, selected=horizons[0]),
         ),
         # Benchmark
         ui.panel_conditional(
