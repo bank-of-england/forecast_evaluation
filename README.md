@@ -4,9 +4,16 @@ A Python package for analysing and visualising economic forecast data.
 
 ## Installation
 
+#### Installing from PyPI
 ```sh
-# install from PyPI
 pip install forecast_evaluation
+```
+
+#### Installing the development version
+```sh
+git clone https://github.com/bank-of-england/forecast_evaluation.git
+cd forecast_evaluation
+pip install -e .
 ```
 
 ## Documentation
