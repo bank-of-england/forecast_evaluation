@@ -351,6 +351,18 @@ class ForecastData:
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
+        self._outturns = self._apply_filter_with_standardized_columns(
+            self._outturns,
+            rename_cols=True,
+            start_date=start_date,
+            end_date=end_date,
+            start_vintage=start_vintage,
+            end_vintage=end_vintage,
+            variables=variables,
+            metrics=metrics,
+            frequencies=frequencies,
+            custom_filter=custom_filter,
+        )
         self._main_table = self._apply_filter_with_standardized_columns(
             self._main_table,
             rename_cols=False,
@@ -374,6 +386,7 @@ class ForecastData:
         outturns = prepare_outturns(self._raw_outturns)
 
         self._forecasts = forecasts
+        self._outturns = outturns
         self._main_table = build_main_table(forecasts, outturns, self._id_columns)
 
     @property
