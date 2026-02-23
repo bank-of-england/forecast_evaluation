@@ -7,3 +7,4 @@
 - Updated documentation.
 - Fixed legend issue with rolling plots when showing only one horizon.
 - Added filtering of outturns in the filtering methods.
+- Removed method-chaining with filter() and merge() methods.

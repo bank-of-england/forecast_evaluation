@@ -250,11 +250,6 @@ class DensityForecastData(ForecastData):
             Whether to apply the filter to point forecasts. Default is True.
         filter_density_forecasts : bool, optional
             Whether to apply the filter to density forecasts. Default is True.
-
-        Returns
-        -------
-        ForecastData
-            The filtered ForecastData object (for method chaining).
         """
         # Call parent filter for regular forecasts (only if they exist)
         if not self._forecasts.empty and filter_point_forecasts:
@@ -285,8 +280,6 @@ class DensityForecastData(ForecastData):
                 frequencies=frequencies,
                 custom_filter=custom_filter,
             )
-
-        return self
 
     def clear_filter(self) -> None:
         """Reset both parent forecasts and density forecasts to include all original data."""
@@ -436,8 +429,6 @@ class DensityForecastData(ForecastData):
         if isinstance(other, DensityForecastData):
             if not other._density_df.empty:
                 self.add_density_forecasts(other._density_df, extra_ids=other._id_columns)
-
-        return self
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""

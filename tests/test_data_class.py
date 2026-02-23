@@ -505,7 +505,8 @@ def test_merge_with_empty_instance(sample_outturns, sample_forecasts):
     fd1 = ForecastData(outturns_data=sample_outturns, forecasts_data=sample_forecasts)
     fd2 = ForecastData()
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     assert len(merged.forecasts) == len(fd1.forecasts)
     assert len(merged.outturns) == len(fd1.outturns)
@@ -516,7 +517,8 @@ def test_merge_empty_with_populated(sample_outturns, sample_forecasts):
     fd1 = ForecastData()
     fd2 = ForecastData(outturns_data=sample_outturns, forecasts_data=sample_forecasts)
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     assert len(merged.forecasts) == len(fd2.forecasts)
     assert len(merged.outturns) == len(fd2.outturns)
@@ -528,7 +530,8 @@ def test_merge_with_duplicate_forecasts(sample_outturns, sample_forecasts):
     fd2 = ForecastData(outturns_data=sample_outturns, forecasts_data=sample_forecasts)
 
     with pytest.warns(UserWarning, match="Removed .* duplicate records with identical values"):
-        merged = fd1.merge(fd2)
+        merged = fd1.copy()
+        merged.merge(fd2)
 
     # Should have same length as original since duplicates are removed
     assert len(merged.forecasts) == len(fd1.forecasts)
@@ -547,7 +550,8 @@ def test_merge_with_different_extra_ids():
     fd1 = ForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_1, extra_ids=["label1"])
     fd2 = ForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_2, extra_ids=["label2"])
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     # Both id columns should exist in merged data
     assert "label1" in merged.forecasts.columns
@@ -572,7 +576,8 @@ def test_merge_with_different_outturns():
     fd1 = ForecastData(outturns_data=outturns_df_1, forecasts_data=forecast_df_1)
     fd2 = ForecastData(outturns_data=outturns_df_2, forecasts_data=forecast_df_2)
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     # Should have outturns for both variables
     assert "gdpkp" in merged.outturns["variable"].values

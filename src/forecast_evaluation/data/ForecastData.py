@@ -331,11 +331,6 @@ class ForecastData:
         custom_filter : Callable[[pd.DataFrame], pd.DataFrame], optional
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
-
-        Returns
-        -------
-        ForecastData
-            The filtered ForecastData object (for method chaining).
         """
 
         self._forecasts = self._apply_filter_with_standardized_columns(
@@ -376,8 +371,6 @@ class ForecastData:
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
-
-        return self
 
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
@@ -477,8 +470,6 @@ class ForecastData:
             extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
             extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
             self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids)
-
-        return self
 
 
 def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Optional[list[str]] = None) -> pd.DataFrame:

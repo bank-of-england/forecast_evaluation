@@ -321,7 +321,9 @@ def test_merge_density_with_empty_instance(sample_outturns, sample_density_forec
     fd1 = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
     fd2 = DensityForecastData()
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+
+    merged.merge(fd2)
 
     assert len(merged.density_forecasts) == len(fd1.density_forecasts)
     assert len(merged.outturns) == len(fd1.outturns)
@@ -332,7 +334,8 @@ def test_merge_empty_density_with_populated(sample_outturns, sample_density_fore
     fd1 = DensityForecastData()
     fd2 = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     assert len(merged.density_forecasts) == len(fd2.density_forecasts)
     assert len(merged.outturns) == len(fd2.outturns)
@@ -351,7 +354,8 @@ def test_merge_density_with_different_extra_ids():
     fd1 = DensityForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_1, extra_ids=["label1"])
     fd2 = DensityForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_2, extra_ids=["label2"])
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     # Both id columns should exist in merged data
     assert "label1" in merged.density_forecasts.columns
@@ -376,7 +380,8 @@ def test_merge_density_with_different_outturns():
     fd1 = DensityForecastData(outturns_data=outturns_df_1, forecasts_data=forecast_df_1)
     fd2 = DensityForecastData(outturns_data=outturns_df_2, forecasts_data=forecast_df_2)
 
-    merged = fd1.merge(fd2)
+    merged = fd1.copy()
+    merged.merge(fd2)
 
     # Should have outturns for both variables
     assert "gdpkp" in merged.outturns["variable"].values
