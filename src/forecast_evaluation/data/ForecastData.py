@@ -297,24 +297,22 @@ class ForecastData:
         )
 
         # Build expanded dataset: for each vintage, include all data available at that time
+        # Add lags column for vectorized filtering
+        df_with_lags = df.copy()
+        df_with_lags["lag"] = df_with_lags["variable"].map(publication_lags)
+        df_with_lags["first_appearance"] = df_with_lags["date"] + df_with_lags["lag"]
+
+        # Loop through vintages and filter data vectorized for each vintage
         expanded_rows = []
-        for _, row in df.iterrows():
-            data_date = row["date"]
-            variable = row["variable"]
-            lag = publication_lags[variable]
-
-            # First vintage where this data point appears
-            first_appearance = data_date + lag
-
-            # Add this data point to all vintages where it's available
-            for vintage in vintage_dates:
-                if vintage >= first_appearance:
-                    new_row = row.copy()
-                    new_row["vintage_date"] = vintage
-                    expanded_rows.append(new_row)
+        for vintage in vintage_dates:
+            # Vectorized filtering: keep rows where vintage >= first_appearance
+            mask = vintage >= df_with_lags["first_appearance"]
+            filtered_rows = df_with_lags[mask].copy()
+            filtered_rows["vintage_date"] = vintage
+            expanded_rows.append(filtered_rows)
 
         # Create expanded dataframe
-        expanded_df = pd.DataFrame(expanded_rows).reset_index(drop=True)
+        expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["lag", "first_appearance"])
 
         # Update raw outturns
         self._raw_outturns = expanded_df
@@ -742,4 +740,6 @@ if __name__ == "__main__":
 
     # launch dashboard
     forecast_data = fe.ForecastData(load_fer=True)
+    forecast_data.create_pseudo_vintages(first_vintage_date="2000-01-01", vintage_frequency="Q")
+    breakpoint()
     forecast_data.run_dashboard()
