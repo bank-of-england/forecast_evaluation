@@ -232,6 +232,102 @@ class ForecastData:
         self._forecasts = pd.concat([self._forecasts, forecasts], ignore_index=True)
         self._main_table = pd.concat([self._main_table, main_table], ignore_index=True)
 
+    def create_pseudo_vintages(
+        self,
+        first_vintage_date: str,
+        vintage_frequency: Literal["M", "Q"] = "Q",
+    ) -> None:
+        """Create pseudo vintage datasets for outturns when only latest values are available.
+
+        This method computes the publication lag from existing data and creates a full vintage
+        structure where each vintage contains all data available at that point in time.
+        A vintage at date X contains all data up to (X - publication_lag).
+
+        Parameters
+        ----------
+        first_vintage_date : str
+            The first vintage date to create. Format 'YYYY-MM-DD'.
+        vintage_frequency : str, optional
+            Frequency at which to create vintages. Default is 'Q' (quarterly).
+            Options: 'M' (monthly), 'Q' (quarterly).
+
+        Notes
+        -----
+        - Computes publication lag per variable from existing data (max_vintage - max_date)
+        - Expands the dataset by creating multiple vintage records for each data point
+        - Each vintage V includes all data points D where (D + lag) <= V
+        - Requires outturns to already have vintage_date values to compute the lag
+        """
+        if self._raw_outturns.empty:
+            raise ValueError("No outturns data available. Add outturns before creating pseudo vintages.")
+
+        # check that vintage_frequency is valid
+        if vintage_frequency not in ["M", "Q"]:
+            raise ValueError(
+                f"Invalid vintage_frequency: {vintage_frequency}."
+                f"Valid options are 'M' for monthly and 'Q' for quarterly."
+            )
+
+        # replace with period end
+        vintage_frequency = f"{vintage_frequency}E"
+
+        df = self._raw_outturns.copy()
+
+        # Compute publication lag for each variable
+        # lag = max(vintage_date) - max(date) for each variable
+        publication_lags = {}
+        for variable in df["variable"].unique():
+            var_data = df[df["variable"] == variable]
+            max_vintage = var_data["vintage_date"].max()
+            max_date = var_data["date"].max()
+            lag = max_vintage - max_date
+            publication_lags[variable] = lag
+
+        # Generate vintage dates from first_vintage_date to latest required
+        first_vintage = pd.to_datetime(first_vintage_date).normalize()
+        latest_vintage = df["vintage_date"].max()
+
+        # Check the first_vintage_date is before the first available vintage date in the data
+        if first_vintage >= latest_vintage:
+            raise ValueError(f"first_vintage_date {first_vintage_date} must be before {latest_vintage.date()}. ")
+
+        # Create range of vintage dates
+        vintage_dates = pd.date_range(
+            start=first_vintage, end=latest_vintage, freq=pd.tseries.frequencies.to_offset(vintage_frequency)
+        )
+
+        # Build expanded dataset: for each vintage, include all data available at that time
+        expanded_rows = []
+        for _, row in df.iterrows():
+            data_date = row["date"]
+            variable = row["variable"]
+            lag = publication_lags[variable]
+
+            # First vintage where this data point appears
+            first_appearance = data_date + lag
+
+            # Add this data point to all vintages where it's available
+            for vintage in vintage_dates:
+                if vintage >= first_appearance:
+                    new_row = row.copy()
+                    new_row["vintage_date"] = vintage
+                    expanded_rows.append(new_row)
+
+        # Create expanded dataframe
+        expanded_df = pd.DataFrame(expanded_rows).reset_index(drop=True)
+
+        # Update raw outturns
+        self._raw_outturns = expanded_df
+
+        # Recompute transformed outturns
+        outturns = prepare_outturns(self._raw_outturns)
+        self._outturns = outturns
+
+        # Recompute main table if forecasts exist
+        if not self._forecasts.empty:
+            main_table = build_main_table(self._forecasts, self._outturns, self._id_columns)
+            self._main_table = main_table
+
     def add_fer_outturns(self) -> None:
         """Load and add FER outturn data to existing records."""
         fer_outturns = load_fer_outturns()

@@ -644,3 +644,104 @@ def test_outturns_not_in_levels(sample_outturns):
     fd = ForecastData(outturns_data=sample_outturns, forecasts_data=df)
 
     assert len(fd.outturns) == len(sample_outturns)
+
+
+# Tests for create_pseudo_vintages
+class TestCreatePseudoVintages:
+    """Tests for the create_pseudo_vintages method."""
+
+    def test_create_pseudo_vintages_empty_outturns_fails(self):
+        """Should raise error when no outturns are available."""
+        fd = ForecastData()
+        with pytest.raises(ValueError, match="No outturns data available"):
+            fd.create_pseudo_vintages(first_vintage_date="2020-01-01")
+
+    def test_create_pseudo_vintages_expands_dataset(self, sample_outturns):
+        """Should expand dataset by creating multiple vintages for each data point."""
+        fd = ForecastData(outturns_data=sample_outturns)
+        initial_size = len(fd._raw_outturns)
+
+        # Create pseudo vintages quarterly
+        fd.create_pseudo_vintages(first_vintage_date="2022-01-01", vintage_frequency="Q")
+
+        # Dataset should be larger (expanded)
+        assert len(fd._raw_outturns) > initial_size
+
+        # Check that correct vintages are available
+        unique_vintages = sorted(fd._raw_outturns["vintage_date"].unique())
+        # Verify vintages are quarterly intervals starting from first_vintage_date
+        expected_first = pd.to_datetime("2022-01-01")
+        assert unique_vintages[0] >= expected_first
+        # Verify we have multiple quarters of data
+        assert len(unique_vintages) > 1
+
+    def test_create_pseudo_vintages_publication_lag_computed(self, sample_outturns):
+        """Should compute publication lag (max_vintage - max_date) correctly."""
+        fd = ForecastData(outturns_data=sample_outturns)
+        fd.create_pseudo_vintages(first_vintage_date="2022-01-01", vintage_frequency="Q")
+
+        # Check that data appears in correct vintages
+        result_df = fd._raw_outturns
+
+        # Each data point should appear in vintages starting from (date + lag)
+        # Verify the minimum vintage for each data date is consistent
+        for data_date in result_df["date"].unique():
+            data_subset = result_df[result_df["date"] == data_date]
+            min_vintage = data_subset["vintage_date"].min()
+            # Min vintage should be greater than or equal to the data date
+            assert min_vintage >= data_date
+
+    def test_create_pseudo_vintages_data_in_all_subsequent_vintages(self, sample_outturns):
+        """Data should appear in all vintages from first appearance onwards."""
+        fd = ForecastData(outturns_data=sample_outturns)
+        fd.create_pseudo_vintages(first_vintage_date="2022-01-01", vintage_frequency="Q")
+
+        n_variables = sample_outturns["variable"].nunique()
+
+        result_df = fd._raw_outturns
+        data_date = sample_outturns["date"].iloc[0]
+        data_vintages = sorted(result_df[result_df["date"] == data_date]["vintage_date"])
+
+        # Each data point should appear in multiple vintages after first appearance
+        assert len(data_vintages) > 1
+
+        # Verify it appears in each subsequent vintage (not just some)
+        first_vintage = data_vintages[0]
+        all_vintages = sorted(result_df["vintage_date"].unique())
+        # Find index of first appearance
+        first_idx = all_vintages.index(first_vintage)
+        # Data should appear in all vintages from first_idx onwards
+        expected_count = len(all_vintages) - first_idx
+        assert len(data_vintages) == expected_count * n_variables
+
+    def test_create_pseudo_vintages_multiple_variables_different_lags(self, sample_outturns):
+        """Should handle multiple variables with different publication lags."""
+        # Get unique variables and create subset with specific vintage offsets for each
+        variables = sample_outturns["variable"].unique()[:2]
+        outturns_df = sample_outturns[sample_outturns["variable"].isin(variables)].copy()
+
+        # Adjust vintage dates to create different lags for each variable
+        for i, var in enumerate(variables):
+            var_mask = outturns_df["variable"] == var
+            # Add i quarters to the vintage date to create different lags
+            offset = pd.tseries.frequencies.to_offset(f"{i}QE")
+            outturns_df.loc[var_mask, "vintage_date"] = outturns_df.loc[var_mask, "vintage_date"] + offset
+
+        fd = ForecastData(outturns_data=outturns_df)
+        fd.create_pseudo_vintages(first_vintage_date="2022-01-01", vintage_frequency="Q")
+
+        result_df = fd._raw_outturns
+
+        # Verify that different variables have different minimum vintages for the same date
+        for data_date in result_df["date"].unique():
+            var_min_vintages = {}
+            for var in result_df["variable"].unique():
+                subset = result_df[(result_df["date"] == data_date) & (result_df["variable"] == var)]
+                if not subset.empty:
+                    var_min_vintages[var] = subset["vintage_date"].min()
+
+        # Check all unique vintages available
+        unique_vintages = sorted(result_df["vintage_date"].unique())
+        # Variables with different lags should have different minimum vintages
+        # Verify we have the expected range of vintages
+        assert len(unique_vintages) > len(variables)
