@@ -1,0 +1,47 @@
+# serializer version: 1
+# name: test_main_table_snapshot
+  dict({
+    'date': dict({
+      0: Timestamp('2025-03-31 00:00:00'),
+    }),
+    'forecast_error': dict({
+      0: 0.0,
+    }),
+    'forecast_horizon': dict({
+      0: 0,
+    }),
+    'frequency': dict({
+      0: 'Q',
+    }),
+    'k': dict({
+      0: 1,
+    }),
+    'latest_vintage': dict({
+      0: Timestamp('2025-09-30 00:00:00'),
+    }),
+    'metric': dict({
+      0: 'levels',
+    }),
+    'source': dict({
+      0: 'mpr2',
+    }),
+    'unique_id': dict({
+      0: 'mpr2',
+    }),
+    'value_forecast': dict({
+      0: 112.0,
+    }),
+    'value_outturn': dict({
+      0: 112.0,
+    }),
+    'variable': dict({
+      0: 'gdpkp',
+    }),
+    'vintage_date_forecast': dict({
+      0: Timestamp('2025-03-31 00:00:00'),
+    }),
+    'vintage_date_outturn': dict({
+      0: Timestamp('2025-09-30 00:00:00'),
+    }),
+  })
+# ---
