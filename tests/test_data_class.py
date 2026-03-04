@@ -646,6 +646,12 @@ def test_outturns_not_in_levels(sample_outturns):
     assert len(fd.outturns) == len(sample_outturns)
 
 
+def test_main_table_snapshot(sample_outturns, sample_forecasts, snapshot):
+    """Check that main table is computed correctly by comparing to a snapshot."""
+    fd = ForecastData(outturns_data=sample_outturns, forecasts_data=sample_forecasts)
+    assert fd._main_table.to_dict() == snapshot
+
+
 # Tests for create_pseudo_vintages
 class TestCreatePseudoVintages:
     """Tests for the create_pseudo_vintages method."""
