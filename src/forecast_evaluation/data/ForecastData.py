@@ -740,6 +740,4 @@ if __name__ == "__main__":
 
     # launch dashboard
     forecast_data = fe.ForecastData(load_fer=True)
-    forecast_data.create_pseudo_vintages(first_vintage_date="2000-01-01", vintage_frequency="Q")
-    breakpoint()
     forecast_data.run_dashboard()
