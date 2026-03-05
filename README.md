@@ -1,3 +1,5 @@
+![PyPI](https://img.shields.io/pypi/v/forecast_evaluation?label=pypi%20package)
+
 # Forecast Evaluation Package
 
 A Python package for analysing and visualising economic forecast data.
