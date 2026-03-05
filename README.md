@@ -1,4 +1,5 @@
 [![PyPI](https://img.shields.io/pypi/v/forecast_evaluation?label=pypi%20package)](https://pypi.org/project/forecast-evaluation/)
+![PyPI - Downloads](https://img.shields.io/pypi/dm/forecast_evaluation)
 
 # Forecast Evaluation Package
 
