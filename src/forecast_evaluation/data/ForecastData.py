@@ -314,6 +314,11 @@ class ForecastData:
         # Create expanded dataframe
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["lag", "first_appearance"])
 
+        # recompute forecast_horizon
+        expanded_df["forecast_horizon"] = (
+            expanded_df["date"].dt.to_period("Q") - expanded_df["vintage_date"].dt.to_period("Q")
+        ).apply(lambda x: x.n)
+
         # Update raw outturns
         self._raw_outturns = expanded_df
 
