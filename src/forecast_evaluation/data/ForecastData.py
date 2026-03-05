@@ -426,20 +426,21 @@ class ForecastData:
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         """
+        if not self._forecasts.empty:
+            self._forecasts = self._apply_filter_with_standardized_columns(
+                self._forecasts,
+                rename_cols=True,
+                start_date=start_date,
+                end_date=end_date,
+                start_vintage=start_vintage,
+                end_vintage=end_vintage,
+                variables=variables,
+                metrics=metrics,
+                sources=sources,
+                frequencies=frequencies,
+                custom_filter=custom_filter,
+            )
 
-        self._forecasts = self._apply_filter_with_standardized_columns(
-            self._forecasts,
-            rename_cols=True,
-            start_date=start_date,
-            end_date=end_date,
-            start_vintage=start_vintage,
-            end_vintage=end_vintage,
-            variables=variables,
-            metrics=metrics,
-            sources=sources,
-            frequencies=frequencies,
-            custom_filter=custom_filter,
-        )
         self._outturns = self._apply_filter_with_standardized_columns(
             self._outturns,
             rename_cols=True,
@@ -452,19 +453,21 @@ class ForecastData:
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
-        self._main_table = self._apply_filter_with_standardized_columns(
-            self._main_table,
-            rename_cols=False,
-            start_date=start_date,
-            end_date=end_date,
-            start_vintage=start_vintage,
-            end_vintage=end_vintage,
-            variables=variables,
-            metrics=metrics,
-            sources=sources,
-            frequencies=frequencies,
-            custom_filter=custom_filter,
-        )
+
+        if not self._main_table.empty:
+            self._main_table = self._apply_filter_with_standardized_columns(
+                self._main_table,
+                rename_cols=False,
+                start_date=start_date,
+                end_date=end_date,
+                start_vintage=start_vintage,
+                end_vintage=end_vintage,
+                variables=variables,
+                metrics=metrics,
+                sources=sources,
+                frequencies=frequencies,
+                custom_filter=custom_filter,
+            )
 
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
