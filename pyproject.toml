@@ -43,6 +43,7 @@ dependencies = [
 dev = [
     "pre_commit>=4.3.0",
     "pytest>=8.4.1",
+    "syrupy",
     "ruff>=0.13.1",
     "Sphinx>=8.2.3",
     "sphinx-book-theme>=1.1.4",

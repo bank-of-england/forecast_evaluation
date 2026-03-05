@@ -10,3 +10,5 @@
 - Removed method-chaining with filter() and merge() methods.
 
 ## [0.1.2.dev0] - Unreleased
+- added construct_pseudo_vintages() method to ForecastData
+- optimised the merging inside build_main_table function

@@ -97,13 +97,22 @@ def build_main_table(
     forecasts_filtered = forecasts[forecasts["variable"].isin(variables) & forecasts["unique_id"].isin(forecast_ids)]
     outturns_filtered = outturns[outturns["variable"].isin(variables)]
 
-    # Set multi-index for faster merge on large datasets
+    # Pre-select only needed columns to reduce memory footprint
     merge_cols = ["date", "variable", "frequency", "metric"]
-    forecasts_indexed = forecasts_filtered.set_index(merge_cols)
-    outturns_indexed = outturns_filtered.set_index(merge_cols)
+    forecast_cols = merge_cols + ["vintage_date", "value", "unique_id", "forecast_horizon"]
+    outturn_cols = merge_cols + ["vintage_date", "value"]
 
-    # Join using index (faster than merge for large data)
-    merged = forecasts_indexed.join(outturns_indexed, lsuffix="_forecast", rsuffix="_outturn").reset_index()
+    forecasts_slim = forecasts_filtered[[c for c in forecast_cols if c in forecasts_filtered.columns]]
+    outturns_slim = outturns_filtered[[c for c in outturn_cols if c in outturns_filtered.columns]]
+
+    # Inner merge avoids creating rows with NaN that get filtered out later
+    merged = pd.merge(
+        forecasts_slim,
+        outturns_slim,
+        on=merge_cols,
+        how="inner",
+        suffixes=("_forecast", "_outturn"),
+    )
 
     # Keep only outturns fro; the forecasted date
     # >= and not > because some data can be released before the end of the period
