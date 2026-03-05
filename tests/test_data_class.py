@@ -8,6 +8,7 @@ from forecast_evaluation.data.ForecastData import (
     _check_duplicates,
     _validate_records,
 )
+from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.sample_data import create_sample_forecasts, create_sample_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS
 
@@ -23,6 +24,19 @@ def sample_outturns() -> pd.DataFrame:
 @pytest.fixture
 def sample_forecasts() -> pd.DataFrame:
     return create_sample_forecasts()
+
+
+# load minimal data
+@pytest.fixture
+def fer_outturns_minimal():
+    fer_outturns_minimal = load_fer_outturns(minimal=True)
+    return fer_outturns_minimal
+
+
+@pytest.fixture
+def fer_forecasts_minimal():
+    fer_forecasts_minimal = load_fer_forecasts(minimal=True)
+    return fer_forecasts_minimal
 
 
 @pytest.fixture
@@ -646,14 +660,8 @@ def test_outturns_not_in_levels(sample_outturns):
     assert len(fd.outturns) == len(sample_outturns)
 
 
-def test_main_table_snapshot(sample_outturns, sample_forecasts, snapshot):
+def test_main_table_snapshot(fer_outturns_minimal, fer_forecasts_minimal, snapshot):
     """Check that main table is computed correctly by comparing to a snapshot."""
-    from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
-
-    # load minimal data
-    fer_outturns_minimal = load_fer_outturns(minimal=True)
-    fer_forecasts_minimal = load_fer_forecasts(minimal=True)
-
     fd = ForecastData(outturns_data=fer_outturns_minimal, forecasts_data=fer_forecasts_minimal)
 
     # select a random subset of the main table rows
@@ -762,3 +770,22 @@ class TestCreatePseudoVintages:
         # Variables with different lags should have different minimum vintages
         # Verify we have the expected range of vintages
         assert len(unique_vintages) > len(variables)
+
+
+def test_benchmark_addition_invalid_model(fer_outturns_minimal):
+    """Test that benchmarks can be added to ForecastData."""
+    fd = ForecastData(outturns_data=fer_outturns_minimal)
+
+    with pytest.raises(ValueError, match=r"Invalid model\(s\) specified in models argument."):
+        fd.add_benchmarks(variable="gdpkp", metric="pop", models=["invalid_model"])
+
+
+def test_benchmark_addition_AR_RW(fer_outturns_minimal):
+    """Test that benchmarks can be added to ForecastData."""
+    fd = ForecastData(outturns_data=fer_outturns_minimal)
+    fd.add_benchmarks(variable="gdpkp", metric="pop", models=["AR", "random_walk"])
+
+    # Check that benchmark forecasts have been added
+    assert not fd._raw_forecasts.empty
+    # NO AR because it fails if less than two years of data
+    assert set(fd._raw_forecasts["source"].unique()) == {"baseline random walk model", "baseline ar(p) model"}

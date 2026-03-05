@@ -1,6 +1,7 @@
 import copy
 import re
 import warnings
+from collections.abc import Iterable
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
@@ -11,6 +12,8 @@ from forecast_evaluation.core.transformations import prepare_forecasts, prepare_
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
+
+BENCHMARK_MODELS = ["AR", "random_walk"]
 
 
 class ForecastData:
@@ -572,6 +575,53 @@ class ForecastData:
             extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
             extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
             self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids)
+
+    def add_benchmarks(
+        self,
+        models: list[str] | str = BENCHMARK_MODELS,
+        variable: str | Iterable[str] | None = None,
+        metric: Literal["levels", "diff", "pop", "yoy"] = "levels",
+        frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
+        forecast_periods: int = 13,
+        *,
+        estimation_start_date: pd.Timestamp = None,
+    ):
+        """Add benchmark models to the ForecastData instance."""
+
+        # validate models arg
+        if isinstance(models, str):
+            models = [models]
+
+        if not all(model in BENCHMARK_MODELS for model in models):
+            # which model is invalid
+            invalid_models = [model for model in models if model not in BENCHMARK_MODELS]
+            raise ValueError(
+                f"Invalid model(s) specified in models argument."
+                f"Valid options are {BENCHMARK_MODELS}. Got: {invalid_models}"
+            )
+
+        if "AR" in models:
+            from forecast_evaluation.core.ar_p_model import add_ar_p_forecasts
+
+            add_ar_p_forecasts(
+                self,
+                variable=variable,
+                metric=metric,
+                frequency=frequency,
+                forecast_periods=forecast_periods,
+                estimation_start_date=estimation_start_date,
+            )
+
+        if "random_walk" in models:
+            from forecast_evaluation.core.random_walk_model import add_random_walk_forecasts
+
+            add_random_walk_forecasts(
+                self,
+                variable=variable,
+                metric=metric,
+                frequency=frequency,
+                forecast_periods=forecast_periods,
+            )
 
 
 def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Optional[list[str]] = None) -> pd.DataFrame:
