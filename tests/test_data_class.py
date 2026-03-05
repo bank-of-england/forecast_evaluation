@@ -777,15 +777,14 @@ def test_benchmark_addition_invalid_model(fer_outturns_minimal):
     fd = ForecastData(outturns_data=fer_outturns_minimal)
 
     with pytest.raises(ValueError, match=r"Invalid model\(s\) specified in models argument."):
-        fd.add_benchmarks(variable="gdpkp", metric="pop", models=["invalid_model"])
+        fd.add_benchmarks(variables="gdpkp", metric="pop", models=["invalid_model"])
 
 
 def test_benchmark_addition_AR_RW(fer_outturns_minimal):
     """Test that benchmarks can be added to ForecastData."""
     fd = ForecastData(outturns_data=fer_outturns_minimal)
-    fd.add_benchmarks(variable="gdpkp", metric="pop", models=["AR", "random_walk"])
+    fd.add_benchmarks(variables="gdpkp", metric="pop", models=["AR", "random_walk"])
 
     # Check that benchmark forecasts have been added
     assert not fd._raw_forecasts.empty
-    # NO AR because it fails if less than two years of data
     assert set(fd._raw_forecasts["source"].unique()) == {"baseline random walk model", "baseline ar(p) model"}

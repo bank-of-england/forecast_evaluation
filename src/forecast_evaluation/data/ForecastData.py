@@ -579,12 +579,13 @@ class ForecastData:
     def add_benchmarks(
         self,
         models: list[str] | str = BENCHMARK_MODELS,
-        variable: str | Iterable[str] | None = None,
+        variables: str | Iterable[str] | None = None,
         metric: Literal["levels", "diff", "pop", "yoy"] = "levels",
         frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
         forecast_periods: int = 13,
         *,
         estimation_start_date: pd.Timestamp = None,
+        show_progress: bool = False,
     ):
         """Add benchmark models to the ForecastData instance."""
 
@@ -605,11 +606,12 @@ class ForecastData:
 
             add_ar_p_forecasts(
                 self,
-                variable=variable,
+                variable=variables,
                 metric=metric,
                 frequency=frequency,
                 forecast_periods=forecast_periods,
                 estimation_start_date=estimation_start_date,
+                show_progress=show_progress,
             )
 
         if "random_walk" in models:
@@ -617,10 +619,11 @@ class ForecastData:
 
             add_random_walk_forecasts(
                 self,
-                variable=variable,
+                variable=variables,
                 metric=metric,
                 frequency=frequency,
                 forecast_periods=forecast_periods,
+                show_progress=show_progress,
             )
 
 
