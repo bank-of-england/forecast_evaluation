@@ -73,6 +73,7 @@ class DensityForecastData(ForecastData):
         forecasts_data: Optional[pd.DataFrame] = None,
         load_fer: Optional[bool] = False,
         extra_ids: Optional[list[str]] = None,
+        compute_levels: bool = True,
     ):
         """Initialise DensityForecastData.
 
@@ -81,7 +82,9 @@ class DensityForecastData(ForecastData):
         included as an identification column.
         """
         # Initialise parent class without forecasts
-        super().__init__(outturns_data=outturns_data, load_fer=load_fer, extra_ids=extra_ids)
+        super().__init__(
+            outturns_data=outturns_data, load_fer=load_fer, extra_ids=extra_ids, compute_levels=compute_levels
+        )
 
         # Add density-specific attribute
         self._density_forecasts = pd.DataFrame()
@@ -406,25 +409,29 @@ class DensityForecastData(ForecastData):
 
         super().add_forecasts(forecast_df)
 
-    def merge(self, other: "ForecastData") -> "ForecastData":
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> "ForecastData":
         """Merge another ForecastData or DensityForecastData instance into this one.
 
         Parameters
         ----------
         other : ForecastData or DensityForecastData
             Another ForecastData or DensityForecastData instance to merge with this one.
-
+        compute_levels : bool, optional
+            Whether to automatically transform non-levels forecasts from `other`
+            to levels if outturns data is available.
+            When True, forecasts in 'pop' and 'yoy' metrics will be converted to
+            levels using the available outturns data.
+            Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
+            If the transformation fails for specific groups (e.g., due to insufficient
+            historical data), those groups will be skipped with a warning message.
+            Default is True.
         Returns
         -------
         DensityForecastData
            Updated DensityForecastData instance containing merged data from both instances.
         """
 
-        if not other._raw_outturns.empty:
-            self.add_outturns(other._raw_outturns)
-
-        if not other._raw_forecasts.empty:
-            self.add_forecasts(other._raw_forecasts, extra_ids=other._id_columns)
+        super().merge(other, compute_levels=compute_levels)
 
         if isinstance(other, DensityForecastData):
             if not other._density_df.empty:

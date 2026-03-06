@@ -413,5 +413,5 @@ def test_merge_with_regular_forecast_data(sample_outturns, sample_density_foreca
 
     # Point forecasts from the regular instance should be added to the density object
     assert not fd_density.forecasts.empty
-    assert len(fd_density.forecasts) == len(point_forecasts[point_forecasts["forecast_horizon"] >= 0])
+    assert len(fd_density.forecasts) == fd_regular.forecasts.shape[0]
     assert "point_source" in fd_density.forecasts["source"].unique()

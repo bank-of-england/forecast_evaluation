@@ -60,7 +60,7 @@ def unbiased_forecast_data():
     forecasts_df = pd.DataFrame(forecasts_data)
     outturns_df = pd.DataFrame(outturns_data)
 
-    return ForecastData(outturns_data=outturns_df, forecasts_data=forecasts_df)
+    return ForecastData(outturns_data=outturns_df, forecasts_data=forecasts_df, compute_levels=False)
 
 
 @pytest.fixture
