@@ -100,9 +100,13 @@ def prepare_forecasts(
 
     # Auto-transform non-levels forecasts to levels if requested
     if compute_levels:
+        non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
+
         # Add levels forecasts
-        new_level_forecasts = transform_forecast_to_levels(outturns, forecasts)
-        forecasts = pd.concat([forecasts, new_level_forecasts], ignore_index=True)
+        updated_level_forecasts = transform_forecast_to_levels(outturns, forecasts)
+
+        # add back non-levels forecasts
+        forecasts = pd.concat([updated_level_forecasts, non_levels_forecasts], ignore_index=True)
 
     # Split forecasts by metric type
     non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
