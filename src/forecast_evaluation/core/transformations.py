@@ -41,12 +41,6 @@ def transform_series(
         df["metric"] = "levels"
         return df
 
-    # store the data already transformed
-    df_already_transformed = df[df["metric"] == transform].copy()
-
-    # filter out the data that needs to be transformed
-    df = df[df["metric"] != transform]
-
     if transform == "diff":
         df["value"] = df.groupby(grouping_cols)["value"].diff(periods=1)
         df["metric"] = "diff"
@@ -59,9 +53,6 @@ def transform_series(
         df["metric"] = "yoy"
 
     df = df[df["value"].notna()]
-
-    # add back the already transformed forecasts that we set aside at the start
-    df = pd.concat([df, df_already_transformed]).reset_index(drop=True)
 
     return df
 
