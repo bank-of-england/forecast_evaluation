@@ -98,6 +98,8 @@ def prepare_forecasts(
     if forecasts is None or forecasts.empty:
         return pd.DataFrame() if forecasts is None else forecasts.copy()
 
+    forecasts = forecasts.copy()
+
     if outturns is None or outturns.empty:
         # Keep only valid forecast horizons; do not attempt transformations.
         df = forecasts.copy()
@@ -107,15 +109,13 @@ def prepare_forecasts(
 
     # Auto-transform non-levels forecasts to levels if requested
     if compute_levels:
-        # Transform non-levels forecasts to levels
-        transformed_forecasts = transform_forecast_to_levels(outturns, forecasts)
-
-        # Combine with levels forecasts
-        forecasts = pd.concat([forecasts, transformed_forecasts], ignore_index=True)
+        # Add levels forecasts
+        new_level_forecasts = transform_forecast_to_levels(outturns, forecasts)
+        forecasts = pd.concat([forecasts, new_level_forecasts], ignore_index=True)
 
     # Split forecasts by metric type
-    levels_forecasts = forecasts[forecasts["metric"] == "levels"].copy()
     non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
+    levels_forecasts = forecasts[forecasts["metric"] == "levels"].copy()
 
     # Only transform 'levels' forecasts
     if levels_forecasts.empty:
@@ -257,7 +257,26 @@ def transform_forecast_to_levels(
     if "unique_id" in forecasts_to_transform.columns:
         group_cols.append("unique_id")
 
+    # Pre-compute set of existing level groups for O(1) lookup inside the loop
+    level_key_cols = group_cols.copy()
+    level_key_cols.remove("metric")
+
+    existing_level_groups = (
+        set(forecasts_levels[level_key_cols].itertuples(index=False, name=None))
+        if not forecasts_levels.empty
+        else set()
+    )
+
     for keys, group in forecasts_to_transform.groupby(group_cols):
+        # keys order: source(0), variable(1), metric(2), frequency(3), vintage_date(4), [unique_id(5)]
+        lookup_key = (keys[0], keys[1], keys[3], keys[4])
+        if "unique_id" in group_cols:
+            lookup_key = lookup_key + (keys[5],)
+
+        if lookup_key in existing_level_groups:
+            # If we already have levels for this group, skip transformation
+            continue
+
         try:
             key_dict = dict(zip(group_cols, keys))
             variable = key_dict["variable"]
