@@ -16,9 +16,9 @@ def plot_average_revision_by_period(data, source, variable, metric, frequency, r
     source : str
         Forecast source identifier (e.g., 'mpr').
     variable : str
-        Variable to analyze (e.g., 'gdpkp', 'cpisa').
+        Variable to analyse (e.g., 'gdpkp', 'cpisa').
     metric : str
-        Metric to analyze ('levels', 'pop', or 'yoy').
+        Metric to analyse ('levels', 'pop', or 'yoy').
     frequency : str
         Data frequency ('Q' for quarterly or 'M' for monthly).
     return_plot : bool, default False

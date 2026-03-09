@@ -35,7 +35,7 @@ def compute_accuracy_statistics(
     k : int, optional, default=12
         Number of revisions used to define the outturns.
     same_date_range : bool, optional, default=True
-        If True, ensures consistent date ranges across sources when multiple sources are analyzed.
+        If True, ensures consistent date ranges across sources when multiple sources are analysed.
         If False, uses all available data for each source independently.
 
     Returns
@@ -234,9 +234,9 @@ def create_comparison_table(
         - 'mean_abs_error' : float - Mean Absolute Error
         - 'n_observations' : int - Number of observations
     variable : str
-        Variable to analyze (e.g., 'aweagg', 'cpisa', 'gdpkp', 'unemp').
+        Variable to analyse (e.g., 'aweagg', 'cpisa', 'gdpkp', 'unemp').
     metric : str
-        Metric to analyze (e.g., 'yoy', 'levels').
+        Metric to analyse (e.g., 'yoy', 'levels').
     benchmark_model : str
         The forecast source to use as the benchmark for comparison (e.g., 'mpr').
     statistic : str, optional

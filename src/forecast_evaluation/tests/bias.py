@@ -40,13 +40,13 @@ def evaluate_bias(
         - 'forecast_error' : float - Forecast errors (actual - forecast)
         - 'date' : datetime - Date for time series ordering
     variable : str
-        Variable to analyze (must exist in df['variable'])
+        Variable to analyse (must exist in df['variable'])
     source : str
-        Forecast source to analyze (must exist in df['source'])
+        Forecast source to analyse (must exist in df['source'])
     metric : str
-        Metric to analyze (must exist in df['metric'])
+        Metric to analyse (must exist in df['metric'])
     forecast_horizon : int
-        Forecast horizon to analyze (must exist in df['forecast_horizon'])
+        Forecast horizon to analyse (must exist in df['forecast_horizon'])
     verbose : bool, default=True
         If True, prints detailed test results including bias estimate, p-value,
         and conclusion. If False, returns results silently.
@@ -158,7 +158,7 @@ def bias_analysis(
     k : int, default=12
         Number of revisions used to define the outturns.
     same_date_range : bool, default=True
-        If True, ensures consistent date ranges across sources when multiple sources are analyzed.
+        If True, ensures consistent date ranges across sources when multiple sources are analysed.
         If False, uses all available data for each source independently.
     verbose : bool, default=False
         If True, prints detailed results for each individual bias test.

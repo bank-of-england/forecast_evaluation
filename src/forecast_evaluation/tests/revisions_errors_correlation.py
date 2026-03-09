@@ -135,7 +135,7 @@ def revisions_errors_correlation_analysis(
         Number of revisions used to define the outturns.
 
     same_date_range : bool, default=True
-        If True, ensures consistent date ranges across sources when multiple sources are analyzed.
+        If True, ensures consistent date ranges across sources when multiple sources are analysed.
         If False, uses all available data for each source independently.
 
     Returns

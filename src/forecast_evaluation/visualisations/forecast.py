@@ -30,7 +30,7 @@ def plot_vintage(
         List of forecast sources to include in the plot.
     vintage_date : str or pd.Timestamp
         The vintage date to plot, either as string or pandas Timestamp.
-    outturn_start_data : str or pd.Timestamp, optional
+    outturn_start_date : str or pd.Timestamp, optional
         Start date for outturn data to display (inclusive). If None, all available outturns are used.
     frequency : {"Q", "M"}, default "Q"
         Frequency of the data, either quarterly or monthly.

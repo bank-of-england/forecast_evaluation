@@ -30,7 +30,7 @@ def diebold_mariano_test(
     Parameters
     ----------
     error_difference : pandas.Series
-        Differential if forecast errors from the model being evaluated.
+        Difference in forecast errors from the model being evaluated.
         error = (actual - forecast)
         error_difference = (errors_model)**2 - (errors_benchmark)**2; doesnt have to be square func
 

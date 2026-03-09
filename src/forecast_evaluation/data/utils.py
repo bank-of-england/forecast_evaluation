@@ -92,16 +92,16 @@ def filter_tables(
         DataFrame containing forecast data with 'date' and 'vintage_date' columns
     start_date : str, optional
         Start date to filter forecasts (inclusive). Format 'YYYY-MM-DD'.
-        Default is None in which case the analysis start with the initial date.
+        Default is None in which case the analysis starts with the initial date.
     end_date : str, optional
         End date to filter forecasts (inclusive). Format 'YYYY-MM-DD'. Default is None.
-        Default is None in which case the analysis ends with the initial date.
+        Default is None in which case the analysis ends with the final date.
     start_vintage : str, optional
         Start vintage date to filter forecasts (inclusive). Format 'YYYY-MM-DD'.
-        Default is None in which case the analysis start with the initial vintage.
+        Default is None in which case the analysis starts with the initial vintage.
     end_vintage : str, optional
         End vintage date to filter forecasts (inclusive). Format 'YYYY-MM-DD'.
-        Default is None in which case the analysis ends with the initial vintage.
+        Default is None in which case the analysis ends with the final vintage.
     variables: Optional[Union[list[str], str]] = None
         List of variable identifiers to filter. Default is None (no filtering).
     metrics: Optional[list[str]] = None

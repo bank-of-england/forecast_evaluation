@@ -32,18 +32,18 @@ def plot_errors_across_time(
     data : ForecastData
         ForecastData object containing forecast and outturn data.
     variable : str
-        The variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp')
+        The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     metric : str
-        The metric to analyze (e.g., 'yoy', 'pop', 'levels')
+        The metric to analyse (e.g., 'yoy', 'pop', 'levels')
     error : str, default='raw'
         The type of error to plot. Options are 'raw', 'absolute', or 'squared'.
     horizons : int or list[int], default=None
-        The forecast horizon(s) to analyze. If None, the minimum horizon in the data is used.
+        The forecast horizon(s) to analyse. If None, the minimum horizon in the data is used.
         If a list is provided, creates faceted subplots by horizon.
     sources : str or list[str], default=None
         The source(s) of the forecasts (e.g., 'compass conditional', 'mpr'). If None, all sources in the data are used.
     frequency : str, default=None
-        The frequency to analyze (e.g., 'Q', 'M'). If None the most prevalent frequency in the data is used.
+        The frequency to analyse (e.g., 'Q', 'M'). If None the most prevalent frequency in the data is used.
     k : int, default=12
         Number of revisions used to define the outturns.
     ma_window : int, default=1

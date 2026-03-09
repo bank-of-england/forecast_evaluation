@@ -32,10 +32,10 @@ def plot_accuracy(
         'n_observations', 'start_date', 'end_date'.
 
     variable : str
-        Variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp').
+        Variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp').
 
     metric : str
-        Metric to analyze ('levels', 'pop', or 'yoy').
+        Metric to analyse ('levels', 'pop', or 'yoy').
 
     frequency : str
         Data frequency ('Q' for quarterly or 'M' for monthly).
@@ -140,9 +140,9 @@ def plot_compare_to_benchmark(
         'frequency', 'forecast_horizon', 'rmse', 'rmedse', 'mean_abs_error',
         'n_observations', 'start_date', 'end_date'.
     variable : str
-        Variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp').
+        Variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp').
     metric : str
-        Metric to analyze (e.g., 'yoy', 'levels').
+        Metric to analyse (e.g., 'yoy', 'levels').
     frequency : str
         Data frequency ('Q' for quarterly or 'M' for monthly).
     benchmark_model : str

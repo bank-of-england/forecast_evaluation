@@ -45,17 +45,17 @@ def weak_efficiency_test(
         - 'value_outturn' : float - Actual observed values
 
     variable : str
-        Variable to analyze (must exist in df['variable'])
+        Variable to analyse (must exist in df['variable'])
 
     source : str
-        Forecast source to analyze (must exist in df['source'])
+        Forecast source to analyse (must exist in df['source'])
 
     metric : Literal['levels', 'pop', 'yoy']
-        Metric to analyze: 'levels' for raw values, 'pop' for period-on-period percentage change,
+        Metric to analyse: 'levels' for raw values, 'pop' for period-on-period percentage change,
         'yoy' for year-on-year percentage change (must exist in df['metric'])
 
     forecast_horizon : int
-        Forecast horizon to analyze (must exist in df['forecast_horizon'])
+        Forecast horizon to analyse (must exist in df['forecast_horizon'])
 
     verbose : bool, default=True
         If True, prints detailed test results including coefficient estimates,
@@ -209,7 +209,7 @@ def weak_efficiency_analysis(
         Number of revisions used to define the outturns.
 
     same_date_range : bool, default=True
-        If True, ensures consistent date ranges across sources when multiple sources are analyzed.
+        If True, ensures consistent date ranges across sources when multiple sources are analysed.
         If False, uses all available data for each source independently.
 
     verbose : bool, default=False

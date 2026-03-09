@@ -126,11 +126,11 @@ def revision_predictability_analysis(
     Parameters:
     -----------
     data: An instance of the ForecastData class containing ForecastData._forecasts.
-    variable: Single variable name or list of variable names to analyze.
+    variable: Single variable name or list of variable names to analyse.
     source: Single source or list of forecast sources to include.
     frequency: Frequency of the data, either quarterly ("Q") or monthly ("M").
     n_revisions: Maximum number of forecast horizons/revisions to include in each test
-    same_date_range: If True, ensures consistent date ranges across sources when multiple sources are analyzed.
+    same_date_range: If True, ensures consistent date ranges across sources when multiple sources are analysed.
 
     Returns
     -------

@@ -63,7 +63,7 @@ def build_main_table(
     id_columns : list of str
         List of columns that uniquely identify a forecast.
     variables : str or list of str, optional
-        Name of the variable to analyze, or list of variable names.
+        Name of the variable to analyse, or list of variable names.
     forecast_ids : str or list of str, optional
         Single identifier or list of forecast identifier to include.
         Can be elements of column 'source' or extra_ids columns.

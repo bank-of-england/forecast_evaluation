@@ -19,7 +19,7 @@
    ```bash
    pre-commit install
    ```
-These hooks insure that the code is formatted, tested and documented.
+These hooks ensure that the code is formatted, tested and documented.
 
 4. **Verify installation**
    ```bash

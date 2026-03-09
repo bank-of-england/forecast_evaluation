@@ -30,11 +30,11 @@ def plot_outturn_revisions(
     data : ForecastData
         ForecastData object containing forecast and outturn data.
     variable : str
-        The variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp')
+        The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     metric : str
-        The metric to analyze (e.g., 'yoy', 'pop', 'levels')
+        The metric to analyse (e.g., 'yoy', 'pop', 'levels')
     frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
+        The frequency to analyse (e.g., 'Q', 'M')
     k : int or list of int, default=12
         Number of revisions used to define the outturns. Can be a single integer
         or a list of integers to compare multiple revision horizons on the same plot.
@@ -177,11 +177,11 @@ def plot_outturns(
     data : ForecastData
         ForecastData object containing forecast and outturn data.
     variable : str
-        The variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp')
+        The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     metric : str
-        The metric to analyze (e.g., 'yoy', 'pop', 'levels')
+        The metric to analyse (e.g., 'yoy', 'pop', 'levels')
     frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
+        The frequency to analyse (e.g., 'Q', 'M')
     start_date : date or str, default=None
         The start date for the plot. If None, uses the earliest date in the data.
     end_date : date or str, default=None
