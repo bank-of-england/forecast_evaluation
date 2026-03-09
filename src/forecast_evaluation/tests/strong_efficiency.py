@@ -169,7 +169,7 @@ def strong_efficiency_analysis(
     source : str
         Source of the forecasts (e.g., 'MPR', 'OBR').
     outcome_variable : str
-        Name of the outcome variable for which forecast errors are analyzed.
+        Name of the outcome variable for which forecast errors are analysed.
     outcome_metric : Literal["levels", "pop", "yoy"]
         Metric type for the outcome variable:
         - "levels": Raw values

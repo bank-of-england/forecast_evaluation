@@ -29,17 +29,17 @@ def plot_forecast_errors(
     data : ForecastData
         ForecastData object containing forecast accuracy data
     variable : str
-        The variable to analyze (e.g., 'gdpkp')
+        The variable to analyse (e.g., 'gdpkp')
     metric : str
-        The metric to analyze (e.g., 'yoy', 'pop', 'levels')
+        The metric to analyse (e.g., 'yoy', 'pop', 'levels')
     frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
+        The frequency to analyse (e.g., 'Q', 'M')
     source : str
         The source of the forecasts (e.g., 'compass')
     vintage_date_forecast : str
         The vintage_date of the forecasts (e.g., '2022-03-31')
     k : int
-        The k to analyze (e.g., 12)
+        The k to analyse (e.g., 12)
     convert_to_percentage : bool, default=False
         If True, multiplies values on the y-axis by 100
     return_plot : bool, default=False

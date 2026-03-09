@@ -28,13 +28,13 @@ def plot_bias_by_horizon(
     df : pd.DataFrame or TestResult
         Bias summary dataset generated with `bias_analysis()` or a BiasResults object.
     variable : str
-        The variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp')
+        The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     source : str
         The source of the forecasts (e.g., 'compass conditional', 'mpr')
     metric : str
-        The metric to analyze (e.g., 'yoy', 'pop', 'levels')
+        The metric to analyse (e.g., 'yoy', 'pop', 'levels')
     frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
+        The frequency to analyse (e.g., 'Q', 'M')
     convert_to_percentage : bool, default=False
         If True, multiplies values on the y-axis by 100
     return_plot : bool, default=False
