@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.optimize import minimize
+from tqdm import tqdm
 
 from forecast_evaluation.core.transformations import transform_forecast_to_levels, transform_series
 from forecast_evaluation.data import ForecastData
@@ -18,6 +19,7 @@ def build_ar_p_model(
     forecast_periods: int = 13,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
+    show_progress: bool = False,
 ):
     """
     Build an AR(p) forecast model for the specified variable, metric, and frequency.
@@ -37,6 +39,8 @@ def build_ar_p_model(
     estimation_start_date : pd.Timestamp, optional
         The date from which to start including data for model estimation. Default is '1997-07-01'.
         Set to None to include all data.
+    show_progress : bool, optional
+        Whether to show a progress bar. Default is False.
 
     Returns
     -------
@@ -83,7 +87,9 @@ def build_ar_p_model(
     date_freq = "QE" if frequency == "Q" else "ME"
     date_offset = pd.offsets.QuarterEnd() if frequency == "Q" else pd.offsets.MonthEnd()
 
-    for (grp_variable, grp_metric, grp_frequency, grp_vintage_date), group in grouped:
+    for (grp_variable, grp_metric, grp_frequency, grp_vintage_date), group in tqdm(
+        grouped, desc=f"Building AR(p) model for {variable} ({frequency})", disable=not show_progress
+    ):
         group = group.sort_values("date")
 
         try:
@@ -516,6 +522,7 @@ def add_ar_p_forecasts(
     forecast_periods: int = 13,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
+    show_progress: bool = False,
 ):
     """
     Wrapper function to build AR(p) model and add forecasts to ForecastData.
@@ -537,6 +544,8 @@ def add_ar_p_forecasts(
     estimation_start_date : pd.Timestamp, optional
         The date from which to start including data for model estimation. Default is '1997-07-01'.
         Set to None to include all data.
+    show_progress : bool, optional
+        Whether to show progress bars. Default is False.
 
     Returns
     -------
@@ -580,6 +589,7 @@ def add_ar_p_forecasts(
             frequency=freq,
             forecast_periods=forecast_periods,
             estimation_start_date=estimation_start_date,
+            show_progress=show_progress,
         )
         for (var, freq) in pairs
     ]

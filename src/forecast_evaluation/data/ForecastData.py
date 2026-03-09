@@ -1,6 +1,7 @@
 import copy
 import re
 import warnings
+from collections.abc import Iterable
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
@@ -11,6 +12,8 @@ from forecast_evaluation.core.transformations import prepare_forecasts, prepare_
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
+
+BENCHMARK_MODELS = ["AR", "random_walk"]
 
 
 class ForecastData:
@@ -333,6 +336,11 @@ class ForecastData:
         # Create expanded dataframe
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["lag", "first_appearance"])
 
+        # recompute forecast_horizon
+        expanded_df["forecast_horizon"] = (
+            expanded_df["date"].dt.to_period("Q") - expanded_df["vintage_date"].dt.to_period("Q")
+        ).apply(lambda x: x.n)
+
         # Update raw outturns
         self._raw_outturns = expanded_df
 
@@ -445,20 +453,21 @@ class ForecastData:
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         """
+        if not self._forecasts.empty:
+            self._forecasts = self._apply_filter_with_standardized_columns(
+                self._forecasts,
+                rename_cols=True,
+                start_date=start_date,
+                end_date=end_date,
+                start_vintage=start_vintage,
+                end_vintage=end_vintage,
+                variables=variables,
+                metrics=metrics,
+                sources=sources,
+                frequencies=frequencies,
+                custom_filter=custom_filter,
+            )
 
-        self._forecasts = self._apply_filter_with_standardized_columns(
-            self._forecasts,
-            rename_cols=True,
-            start_date=start_date,
-            end_date=end_date,
-            start_vintage=start_vintage,
-            end_vintage=end_vintage,
-            variables=variables,
-            metrics=metrics,
-            sources=sources,
-            frequencies=frequencies,
-            custom_filter=custom_filter,
-        )
         self._outturns = self._apply_filter_with_standardized_columns(
             self._outturns,
             rename_cols=True,
@@ -471,19 +480,21 @@ class ForecastData:
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
-        self._main_table = self._apply_filter_with_standardized_columns(
-            self._main_table,
-            rename_cols=False,
-            start_date=start_date,
-            end_date=end_date,
-            start_vintage=start_vintage,
-            end_vintage=end_vintage,
-            variables=variables,
-            metrics=metrics,
-            sources=sources,
-            frequencies=frequencies,
-            custom_filter=custom_filter,
-        )
+
+        if not self._main_table.empty:
+            self._main_table = self._apply_filter_with_standardized_columns(
+                self._main_table,
+                rename_cols=False,
+                start_date=start_date,
+                end_date=end_date,
+                start_vintage=start_vintage,
+                end_vintage=end_vintage,
+                variables=variables,
+                metrics=metrics,
+                sources=sources,
+                frequencies=frequencies,
+                custom_filter=custom_filter,
+            )
 
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
@@ -592,6 +603,56 @@ class ForecastData:
             extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
             extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
             self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels)
+
+    def add_benchmarks(
+        self,
+        models: list[str] | str = BENCHMARK_MODELS,
+        variables: str | Iterable[str] | None = None,
+        metric: Literal["levels", "diff", "pop", "yoy"] = "levels",
+        frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
+        forecast_periods: int = 13,
+        *,
+        estimation_start_date: pd.Timestamp = None,
+        show_progress: bool = False,
+    ):
+        """Add benchmark models to the ForecastData instance."""
+
+        # validate models arg
+        if isinstance(models, str):
+            models = [models]
+
+        if not all(model in BENCHMARK_MODELS for model in models):
+            # which model is invalid
+            invalid_models = [model for model in models if model not in BENCHMARK_MODELS]
+            raise ValueError(
+                f"Invalid model(s) specified in models argument."
+                f"Valid options are {BENCHMARK_MODELS}. Got: {invalid_models}"
+            )
+
+        if "AR" in models:
+            from forecast_evaluation.core.ar_p_model import add_ar_p_forecasts
+
+            add_ar_p_forecasts(
+                self,
+                variable=variables,
+                metric=metric,
+                frequency=frequency,
+                forecast_periods=forecast_periods,
+                estimation_start_date=estimation_start_date,
+                show_progress=show_progress,
+            )
+
+        if "random_walk" in models:
+            from forecast_evaluation.core.random_walk_model import add_random_walk_forecasts
+
+            add_random_walk_forecasts(
+                self,
+                variable=variables,
+                metric=metric,
+                frequency=frequency,
+                forecast_periods=forecast_periods,
+                show_progress=show_progress,
+            )
 
 
 def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Optional[list[str]] = None) -> pd.DataFrame:

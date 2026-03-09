@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from typing import Literal
 
 import pandas as pd
+from tqdm import tqdm
 
 from forecast_evaluation.core.transformations import transform_forecast_to_levels, transform_series
 from forecast_evaluation.data import ForecastData
@@ -13,6 +14,7 @@ def build_random_walk_model(
     metric: Literal["levels", "pop", "yoy"],
     frequency: Literal["Q", "M"] = "Q",
     forecast_periods: int = 13,
+    show_progress: bool = False,
 ):
     """
     Build a random walk forecast model for the specified variable, metric, and frequency.
@@ -29,6 +31,8 @@ def build_random_walk_model(
         The frequency of the data ('Q' for quarterly, 'M' for monthly). Default is 'Q'.
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
+    show_progress : bool, optional
+        Whether to show a progress bar. Default is False.
 
     Returns
     -------
@@ -67,7 +71,9 @@ def build_random_walk_model(
     # Group by unique combinations
     grouped = df.groupby(["variable", "metric", "frequency", "vintage_date"])
 
-    for (variable, metric, frequency, vintage_date), group in grouped:
+    for (variable, metric, frequency, vintage_date), group in tqdm(
+        grouped, desc=f"Building random walk model for {variable} ({frequency})", disable=not show_progress
+    ):
         group = group.sort_values("date")
 
         try:
@@ -132,6 +138,7 @@ def add_random_walk_forecasts(
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
     forecast_periods: int = 13,
+    show_progress: bool = False,
 ) -> None:
     """
     Add random walk forecasts to the ForecastData object.
@@ -150,6 +157,8 @@ def add_random_walk_forecasts(
         If None, frequencies are inferred from the outturns' `frequency` column for the requested variable(s).
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
+    show_progress : bool, optional
+        Whether to show progress bars. Default is False.
 
     Returns
     -------
@@ -192,6 +201,7 @@ def add_random_walk_forecasts(
             metric=metric,
             frequency=freq,
             forecast_periods=forecast_periods,
+            show_progress=show_progress,
         )
         for (var, freq) in pairs
     ]
