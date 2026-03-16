@@ -135,6 +135,8 @@ def prepare_forecasts(
         # Note we filter outturns first on the latest 4 values
         # as no point brining in everything for change space metrics
         outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -5].copy()
+        outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
+
         # We need to loop through each id and concat to the outturns
         forecast_dfs = []
         for f_id in forecast_id_list:
@@ -169,6 +171,11 @@ def prepare_forecasts(
         df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
 
     df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= 0]
+
+    # drop duplicates TODO: ideally we shouldn't have any duplicates
+    # these are introduced because pop and yoy are always computed, even if
+    # they are already present
+    df_forecasts = df_forecasts.drop_duplicates(subset=[col for col in df_forecasts.columns if col != "value"])
 
     return df_forecasts
 
