@@ -89,7 +89,7 @@ def sample_forecast_data():
     outturns_df = pd.DataFrame(outturns_data)
 
     # Create ForecastData object
-    forecast_data = ForecastData(outturns_data=outturns_df, forecasts_data=forecasts_df)
+    forecast_data = ForecastData(outturns_data=outturns_df, forecasts_data=forecasts_df, compute_levels=False)
 
     return forecast_data
 

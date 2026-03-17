@@ -36,6 +36,7 @@ class ForecastData:
         *,
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
+        compute_levels: bool = True,
     ):
         """Initialise with user data, FER data or null.
 
@@ -52,6 +53,14 @@ class ForecastData:
         metric : str, optional
             Metric to assign to the forecasts if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
+        compute_levels : bool, optional
+            Whether to automatically transform non-levels forecasts to levels if outturns data is available.
+            When True, forecasts in 'pop' and 'yoy' metrics will be converted to levels
+            using the available outturns data.
+            Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
+            If the transformation fails for specific groups (e.g., due to insufficient
+            historical data), those groups will be skipped with a warning message.
+            Default is True.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -67,7 +76,7 @@ class ForecastData:
             self.add_outturns(outturns_data, metric=metric)
 
         if forecasts_data is not None:
-            self.add_forecasts(forecasts_data, extra_ids=extra_ids, metric=metric)
+            self.add_forecasts(forecasts_data, extra_ids=extra_ids, metric=metric, compute_levels=compute_levels)
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""
@@ -127,6 +136,7 @@ class ForecastData:
         *,
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
+        compute_levels: bool = True,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -140,12 +150,21 @@ class ForecastData:
         metric : str, optional
             Metric to assign to the forecasts if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
-
+        compute_levels : bool, optional
+            Whether to automatically transform non-levels forecasts to levels if outturns data is available.
+            When True, forecasts in 'pop' and 'yoy' metrics will be converted to levels
+            using the available outturns data.
+            Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
+            If the transformation fails for specific groups (e.g., due to insufficient
+            historical data), those groups will be skipped with a warning message.
+            Default is True.
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
         All forecasts added to a ForecastData instance must have the same frequency. To work with forecasts of
         different frequencies, create separate ForecastData instances for each frequency.
+        When compute_levels is True, sufficient historical outturn data is required for transformation,
+        especially for 'yoy' metrics which need data from one year prior.
         """
 
         if self._raw_outturns is None or self._raw_outturns.empty:
@@ -224,8 +243,8 @@ class ForecastData:
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
-        # Transform forecasts (prepare_forecasts handles metric-specific logic)
-        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns)
+        # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
+        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns, compute_levels=compute_levels)
 
         # Compute main table
         main_table = build_main_table(forecasts, self._outturns, self._id_columns)
@@ -553,13 +572,22 @@ class ForecastData:
         else:
             app.run(host=host, port=port)
 
-    def merge(self, other: "ForecastData") -> "ForecastData":
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> "ForecastData":
         """Merge another ForecastData instance into this one.
 
         Parameters
         ----------
         other : ForecastData
             Another ForecastData instance to merge with this one.
+        compute_levels : bool, optional
+            Whether to automatically transform non-levels forecasts from `other`
+            to levels if outturns data is available.
+            When True, forecasts in 'pop' and 'yoy' metrics will be converted to levels
+            using the available outturns data.
+            Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
+            If the transformation fails for specific groups (e.g., due to insufficient
+            historical data), those groups will be skipped with a warning message.
+            Default is True.
 
         Returns
         -------
@@ -574,7 +602,7 @@ class ForecastData:
             # Filter out 'source' from id_columns to get only the extra_ids
             extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
             extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
-            self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids)
+            self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels)
 
     def add_benchmarks(
         self,

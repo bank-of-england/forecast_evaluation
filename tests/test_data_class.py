@@ -660,9 +660,10 @@ def test_outturns_not_in_levels(sample_outturns):
     assert len(fd.outturns) == len(sample_outturns)
 
 
-def test_main_table_snapshot(fer_outturns_minimal, fer_forecasts_minimal, snapshot):
+def test_main_table_snapshot(fer_minimal_fd, snapshot):
     """Check that main table is computed correctly by comparing to a snapshot."""
-    fd = ForecastData(outturns_data=fer_outturns_minimal, forecasts_data=fer_forecasts_minimal)
+    # load minimal data
+    fd = fer_minimal_fd
 
     # select a random subset of the main table rows
     # to avoid a big snapshot file.

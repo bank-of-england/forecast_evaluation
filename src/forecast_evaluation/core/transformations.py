@@ -57,7 +57,9 @@ def transform_series(
     return df
 
 
-def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame:
+def prepare_forecasts(
+    forecasts: pd.DataFrame, outturns: pd.DataFrame, id_columns: list[str], compute_levels: bool = True
+) -> pd.DataFrame:
     """Prepare forecast data for evaluation by combining with outturns and applying transformations.
 
     Parameters
@@ -68,6 +70,14 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
         Validated DataFrame containing outturns data.
     id_columns : list of str
         List of columns that uniquely identify a forecast.
+    compute_levels : bool, optional
+        Whether to automatically transform non-levels forecasts to levels if outturns data is available.
+        When True, forecasts in 'pop' and 'yoy' metrics will be converted to levels
+        using the available outturns data.
+        Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
+        If the transformation fails for specific groups (e.g., due to insufficient
+        historical data), those groups will be skipped with a warning message.
+        Default is True.
 
     Returns
     -------
@@ -79,6 +89,8 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
     if forecasts is None or forecasts.empty:
         return pd.DataFrame() if forecasts is None else forecasts.copy()
 
+    forecasts = forecasts.copy()
+
     if outturns is None or outturns.empty:
         # Keep only valid forecast horizons; do not attempt transformations.
         df = forecasts.copy()
@@ -86,9 +98,19 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
             df["metric"] = "levels"
         return df[df["forecast_horizon"] >= 0].copy()
 
+    # Auto-transform non-levels forecasts to levels if requested
+    if compute_levels:
+        non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
+
+        # Add levels forecasts
+        updated_level_forecasts = transform_forecast_to_levels(outturns, forecasts)
+
+        # add back non-levels forecasts
+        forecasts = pd.concat([updated_level_forecasts, non_levels_forecasts], ignore_index=True)
+
     # Split forecasts by metric type
-    levels_forecasts = forecasts[forecasts["metric"] == "levels"].copy()
     non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
+    levels_forecasts = forecasts[forecasts["metric"] == "levels"].copy()
 
     # Only transform 'levels' forecasts
     if levels_forecasts.empty:
@@ -113,6 +135,8 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
         # Note we filter outturns first on the latest 4 values
         # as no point brining in everything for change space metrics
         outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -5].copy()
+        outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
+
         # We need to loop through each id and concat to the outturns
         forecast_dfs = []
         for f_id in forecast_id_list:
@@ -147,6 +171,11 @@ def prepare_forecasts(forecasts: pd.DataFrame, outturns: pd.DataFrame, id_column
         df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
 
     df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= 0]
+
+    # drop duplicates TODO: ideally we shouldn't have any duplicates
+    # these are introduced because pop and yoy are always computed, even if
+    # they are already present
+    df_forecasts = df_forecasts.drop_duplicates(subset=[col for col in df_forecasts.columns if col != "value"])
 
     return df_forecasts
 
@@ -230,7 +259,26 @@ def transform_forecast_to_levels(
     if "unique_id" in forecasts_to_transform.columns:
         group_cols.append("unique_id")
 
+    # Pre-compute set of existing level groups for O(1) lookup inside the loop
+    level_key_cols = group_cols.copy()
+    level_key_cols.remove("metric")
+
+    existing_level_groups = (
+        set(forecasts_levels[level_key_cols].itertuples(index=False, name=None))
+        if not forecasts_levels.empty
+        else set()
+    )
+
     for keys, group in forecasts_to_transform.groupby(group_cols):
+        # keys order: source(0), variable(1), metric(2), frequency(3), vintage_date(4), [unique_id(5)]
+        lookup_key = (keys[0], keys[1], keys[3], keys[4])
+        if "unique_id" in group_cols:
+            lookup_key = lookup_key + (keys[5],)
+
+        if lookup_key in existing_level_groups:
+            # If we already have levels for this group, skip transformation
+            continue
+
         try:
             key_dict = dict(zip(group_cols, keys))
             variable = key_dict["variable"]
@@ -242,7 +290,11 @@ def transform_forecast_to_levels(
             group["vintage_date"] = pd.to_datetime(group["vintage_date"]).dt.normalize()
 
             outturns_subset = (
-                outturns[(outturns["variable"] == variable) & (outturns["vintage_date"] == vintage_date)]
+                outturns[
+                    (outturns["variable"] == variable)
+                    & (outturns["vintage_date"] == vintage_date)
+                    & (outturns["metric"] == "levels")
+                ]
                 .sort_values("date")
                 .copy()
             )
