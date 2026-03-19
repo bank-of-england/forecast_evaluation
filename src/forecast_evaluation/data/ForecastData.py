@@ -881,7 +881,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
 
             if relative_diff > 10:
                 warnings.warn(
-                    f"{_YELLOW}[Data check] {label}: first forecast value at horizon 0 deviates from last outturn by "
+                    f"{_YELLOW}[Data check] {label}: first forecast value deviates from last outturn by "
                     f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
                     UserWarning,
                     stacklevel=4,
