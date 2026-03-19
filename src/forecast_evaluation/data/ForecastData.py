@@ -849,11 +849,8 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
             # normalise shouldnt be allowed, but for now leave it here
             continue
 
-        outturn_std = outturns_group["value"].std()
-        if not outturn_std or pd.isna(outturn_std):
-            continue
-
-        label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
+        label = f"vintage_date='{vintage_date}', source='{source}', variable='{variable}', "
+        label += f"metric='{metric}', frequency='{frequency}'"
 
         # Check 1: horizon -1 vs outturns
         forecast_h1 = forecast_group[forecast_group["forecast_horizon"] == -1]
@@ -871,19 +868,24 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
             continue  # skip check 2 whether or not h=-1 matched
 
         # Check 2: relative difference between first forecast and last outturn
-        last_outturn = outturns_group["value"].values[-1]
-        first_forecast = forecast_group["value"].values[0]
+        if outturns_group.shape[0] > 10:  # need enough data points to compute a meaningful std
+            first_forecast_id = min(forecast_group["forecast_horizon"].min(), 0)
+            last_outturn_id = max(outturns_group["forecast_horizon"].max(), -1)
 
-        diff = first_forecast - last_outturn
-        relative_diff = abs(diff / last_outturn)
+            last_outturn = outturns_group[outturns_group["forecast_horizon"] == last_outturn_id]["value"].values[0]
+            first_forecast = forecast_group[forecast_group["forecast_horizon"] == first_forecast_id]["value"].values[0]
 
-        if relative_diff > 2:
-            warnings.warn(
-                f"{_YELLOW}[Data check] {label}: first forecast value at horizon 0 deviates from last outturn by "
-                f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
-                UserWarning,
-                stacklevel=4,
-            )
+            outturn_std = outturns_group["value"].diff().dropna().std()
+            diff = first_forecast - last_outturn
+            relative_diff = abs(diff) / outturn_std
+
+            if relative_diff > 10:
+                warnings.warn(
+                    f"{_YELLOW}[Data check] {label}: first forecast value at horizon 0 deviates from last outturn by "
+                    f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
+                    UserWarning,
+                    stacklevel=4,
+                )
 
 
 def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame):
