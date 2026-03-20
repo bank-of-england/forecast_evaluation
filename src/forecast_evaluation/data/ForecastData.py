@@ -37,6 +37,7 @@ class ForecastData:
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
+        data_check: bool = True,
     ):
         """Initialise with user data, FER data or null.
 
@@ -61,6 +62,9 @@ class ForecastData:
             If the transformation fails for specific groups (e.g., due to insufficient
             historical data), those groups will be skipped with a warning message.
             Default is True.
+        data_check : bool, optional
+            Whether to run data checks when adding forecasts. See :meth:`add_forecasts` for details.
+            Default is True.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -76,7 +80,13 @@ class ForecastData:
             self.add_outturns(outturns_data, metric=metric)
 
         if forecasts_data is not None:
-            self.add_forecasts(forecasts_data, extra_ids=extra_ids, metric=metric, compute_levels=compute_levels)
+            self.add_forecasts(
+                forecasts_data,
+                extra_ids=extra_ids,
+                metric=metric,
+                compute_levels=compute_levels,
+                data_check=data_check,
+            )
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""
@@ -137,6 +147,7 @@ class ForecastData:
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
+        data_check: bool = True,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -157,6 +168,24 @@ class ForecastData:
             Useful if you add 'pop' and want to analyse 'yoy' forecasts and vice versa.
             If the transformation fails for specific groups (e.g., due to insufficient
             historical data), those groups will be skipped with a warning message.
+            Default is True.
+        data_check : bool, optional
+            Whether to run data checks on the forecasts against outturns. When True, two checks
+            are performed per (source, variable, metric, frequency) group:
+
+        data_check : bool, optional
+            Whether to run data checks comparing forecast values to outturns
+            per (source, variable, metric, frequency, vintage_date) group. When True:
+
+            - **Horizon -1 check**: if ``forecast_horizon == -1`` rows exist, warns if
+              mean deviation from outturns exceeds 0.5 standard deviations.
+            - **Scale/mean check** (fallback): over overlapping dates, warns if forecast
+              mean differs from outturns by >2 std, or spread ratio >5× (larger/smaller).
+
+            Detects common user errors: wrong ``metric`` column, scaling mistakes
+            (e.g. ``pct*100`` instead of ``pct``), or non-real-time vintages.
+
+            Warnings only; never raises errors. Set to ``False`` to disable.
             Default is True.
         Notes
         -----
@@ -239,6 +268,10 @@ class ForecastData:
 
         # Check if forecasts have corresponding outturns
         _check_missing_outturns(df, self._raw_outturns)
+
+        # data-check forecast values against outturns
+        if data_check:
+            _check_forecast_data(df, self._outturns)
 
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
@@ -602,7 +635,9 @@ class ForecastData:
             # Filter out 'source' from id_columns to get only the extra_ids
             extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
             extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
-            self.add_forecasts(other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels)
+            self.add_forecasts(
+                other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels, data_check=False
+            )
 
     def add_benchmarks(
         self,
@@ -779,6 +814,78 @@ def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> pd.Data
     optional_columns = sanitized_optional_columns
 
     return df, optional_columns
+
+
+def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) -> None:
+    """data-check forecast values against outturns, per (source, variable, frequency, metric) group.
+
+    Check 1 — horizon -1 (if available): mean absolute deviation vs outturns > 0.5 std.
+    Check 2 — fallback: mean or spread of positive-horizon forecasts differs markedly from outturns
+    (mean > 2 std away, or spread ratio > 5×) over overlapping dates.
+
+    Issues are reported as UserWarnings, never errors.
+    """
+    _YELLOW = "\033[93m"
+    _RESET = "\033[0m"
+    _TIP = (
+        " Possible causes: wrong 'metric' column, incorrect scaling "
+        "(e.g. pct*100 instead of pct for 'pop'/'yoy'), "
+        "or not using real-time vintages for level forecasts."
+    )
+
+    outturns = outturns_df.copy()
+    forecasts = forecasts_df.copy()
+
+    key_cols = ["variable", "source", "frequency", "metric", "vintage_date"]
+    for (variable, source, frequency, metric, vintage_date), forecast_group in forecasts.groupby(key_cols):
+        outturns_group = outturns[
+            (outturns["variable"] == variable)
+            & (outturns["frequency"] == frequency)
+            & (outturns["metric"] == metric)
+            & (outturns["vintage_date"] == vintage_date)
+        ]
+
+        if outturns_group.empty:
+            # normalise shouldnt be allowed, but for now leave it here
+            continue
+
+        label = f"vintage_date='{vintage_date}', source='{source}', variable='{variable}', "
+        label += f"metric='{metric}', frequency='{frequency}'"
+
+        # Check 1: horizon -1 vs outturns
+        forecast_h1 = forecast_group[forecast_group["forecast_horizon"] == -1]
+        outturns_h1 = outturns_group[outturns_group["forecast_horizon"] == -1]
+
+        if not forecast_h1.empty:
+            discrepancy = forecast_h1["value"].values - outturns_h1["value"].values
+            if discrepancy > 1e-4:
+                warnings.warn(
+                    f"{_YELLOW}[Data check] {label}: horizon -1 forecasts deviate from outturns "
+                    f"by {discrepancy}" + _TIP + f"{_RESET}",
+                    UserWarning,
+                    stacklevel=4,
+                )
+            continue  # skip check 2 whether or not h=-1 matched
+
+        # Check 2: relative difference between first forecast and last outturn
+        if outturns_group.shape[0] > 10:  # need enough data points to compute a meaningful std
+            first_forecast_id = min(forecast_group["forecast_horizon"].min(), 0)
+            last_outturn_id = max(outturns_group["forecast_horizon"].max(), -1)
+
+            last_outturn = outturns_group[outturns_group["forecast_horizon"] == last_outturn_id]["value"].values[0]
+            first_forecast = forecast_group[forecast_group["forecast_horizon"] == first_forecast_id]["value"].values[0]
+
+            outturn_std = outturns_group["value"].diff().dropna().std()
+            diff = first_forecast - last_outturn
+            relative_diff = abs(diff) / outturn_std
+
+            if relative_diff > 10:
+                warnings.warn(
+                    f"{_YELLOW}[Data check] {label}: first forecast value deviates from last outturn by "
+                    f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
+                    UserWarning,
+                    stacklevel=4,
+                )
 
 
 def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame):
