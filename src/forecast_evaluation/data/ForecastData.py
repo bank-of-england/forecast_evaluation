@@ -386,7 +386,10 @@ class ForecastData:
         ).apply(lambda x: x.n)
 
         # Update raw outturns
-        self._raw_outturns = expanded_df
+        self._raw_outturns = pd.concat([self._raw_outturns, expanded_df], ignore_index=True)
+
+        # remove duplicates
+        self._raw_outturns = self._raw_outturns.drop_duplicates().reset_index(drop=True)
 
         # Recompute transformed outturns
         outturns = prepare_outturns(self._raw_outturns)
@@ -947,4 +950,5 @@ if __name__ == "__main__":
 
     # launch dashboard
     forecast_data = fe.ForecastData(load_fer=True)
+    forecast_data.forecasts
     forecast_data.run_dashboard()

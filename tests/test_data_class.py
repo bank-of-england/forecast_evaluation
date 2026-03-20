@@ -775,7 +775,7 @@ class TestCreatePseudoVintages:
     def test_create_pseudo_vintages_end_date_limits_range(self, sample_outturns):
         """Vintages should not exceed end_date."""
         fd = ForecastData(outturns_data=sample_outturns)
-        end_date = "2023-06-30"
+        end_date = "2026-06-30"
         fd.create_pseudo_vintages(start_date="2022-01-01", end_date=end_date, vintage_frequency="Q")
 
         unique_vintages = fd._raw_outturns["vintage_date"].unique()
