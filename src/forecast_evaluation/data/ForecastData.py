@@ -289,10 +289,13 @@ class ForecastData:
 
     def create_pseudo_vintages(
         self,
-        first_vintage_date: str,
+        start_date: str,
+        end_date: str = None,
         vintage_frequency: Literal["M", "Q"] = "Q",
     ) -> None:
-        """Create pseudo vintage datasets for outturns when only latest values are available.
+        """Create pseudo vintages for outturns.
+
+        It will fill in vintages between start_date and end_date.
 
         This method computes the publication lag from existing data and creates a full vintage
         structure where each vintage contains all data available at that point in time.
@@ -300,8 +303,11 @@ class ForecastData:
 
         Parameters
         ----------
-        first_vintage_date : str
+        start_date : str
             The first vintage date to create. Format 'YYYY-MM-DD'.
+        end_date : str, optional
+            The last vintage date to create. Format 'YYYY-MM-DD'.
+            If None, uses the first available vintage date in the data.
         vintage_frequency : str, optional
             Frequency at which to create vintages. Default is 'Q' (quarterly).
             Options: 'M' (monthly), 'Q' (quarterly).
@@ -338,17 +344,22 @@ class ForecastData:
             lag = max_vintage - max_date
             publication_lags[variable] = lag
 
-        # Generate vintage dates from first_vintage_date to latest required
-        first_vintage = pd.to_datetime(first_vintage_date).normalize()
-        latest_vintage = df["vintage_date"].max()
+        # Generate vintage dates from start_date to end_date
+        start_vintage = pd.to_datetime(start_date).normalize()
 
-        # Check the first_vintage_date is before the first available vintage date in the data
-        if first_vintage >= latest_vintage:
-            raise ValueError(f"first_vintage_date {first_vintage_date} must be before {latest_vintage.date()}. ")
+        if end_date is None:
+            # If end_date is not provided, use the first available vintage date in the data
+            end_vintage = df["vintage_date"].min()
+        else:
+            end_vintage = pd.to_datetime(end_date).normalize()
+
+        # Check the start_vintage is before the end_vintage
+        if start_vintage >= end_vintage:
+            raise ValueError(f"start_date {start_date} must be before end_date {end_date}. ")
 
         # Create range of vintage dates
         vintage_dates = pd.date_range(
-            start=first_vintage, end=latest_vintage, freq=pd.tseries.frequencies.to_offset(vintage_frequency)
+            start=start_vintage, end=end_vintage, freq=pd.tseries.frequencies.to_offset(vintage_frequency)
         )
 
         # Build expanded dataset: for each vintage, include all data available at that time
