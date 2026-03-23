@@ -16,3 +16,5 @@
 - Optimised merging inside `build_main_table` function
 
 ## [0.1.3.dev0] - Unreleased
+- Added option to plot multiple sources in `plot_forecast_errors_by_horizon()`
+- Added optional argument `convert_to_percentage` to `plot_vintage()`, similar to other plotting functions

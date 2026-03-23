@@ -111,7 +111,7 @@ def plot_forecast_errors(
 def plot_forecast_errors_by_horizon(
     data: ForecastData,
     variable: str,
-    source: str,
+    source: Union[str, list[str]],
     metric: Literal["levels", "pop", "yoy"],
     frequency: Literal["Q", "M"],
     k: int = 12,
@@ -127,8 +127,9 @@ def plot_forecast_errors_by_horizon(
         ForecastData object containing forecast accuracy data
     variable : str
         The variable to analyze (e.g., 'gdpkp', 'cpisa', 'unemp')
-    source : str
-        The source of the forecasts (e.g., 'compass conditional', 'mpr')
+    source : str or list of str
+        The source(s) of the forecasts (e.g., 'compass conditional', or ['compass conditional', 'mpr']).
+        When a list is provided, each source is plotted as a separate line on the same axes.
     metric : str
         The metric to analyze (e.g., 'yoy', 'pop', 'levels')
     frequency : str
@@ -148,13 +149,16 @@ def plot_forecast_errors_by_horizon(
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
+    # Normalise source to a list
+    sources = [source] if isinstance(source, str) else source
+
     df = data._main_table.copy()
     df = filter_k(df, k)
 
-    # Filter data for the specific variable, source and metric
+    # Filter data for the specific variable, sources and metric
     mask = (
         (df["variable"] == variable)
-        & (df["unique_id"] == source)
+        & (df["unique_id"].isin(sources))
         & (df["metric"] == metric)
         & (df["frequency"] == frequency)
     )
@@ -163,50 +167,58 @@ def plot_forecast_errors_by_horizon(
 
     if len(subset) == 0:
         raise ValueError(
-            f"No data available for {variable} from {source} with metric {metric} and frequency {frequency}"
+            f"No data available for {variable} from {sources} with metric {metric} and frequency {frequency}"
         )
 
     # Multiply by 100 if convert_to_percentage = True
     if convert_to_percentage:
         subset["forecast_error"] = 100 * subset["forecast_error"]
 
-    # Calculate average forecast error by forecast horizon
-    avg_errors_by_horizon = (
-        subset.groupby("forecast_horizon")["forecast_error"].agg(["mean", "std", "count"]).reset_index()
-    )
-    avg_errors_by_horizon.columns = ["forecast_horizon", "avg_forecast_error", "std_error", "n_observations"]
-
-    # Sort by forecast horizon for better visualization
-    avg_errors_by_horizon = avg_errors_by_horizon.sort_values("forecast_horizon")
-
     # Create the plot using themed figure
     fig, ax = create_themed_figure()
 
-    # Plot: Average errors by horizon as a line chart
-    ax.plot(
-        avg_errors_by_horizon["forecast_horizon"],
-        avg_errors_by_horizon["avg_forecast_error"],
-        marker="o",
-        linewidth=2,
-        markersize=6,
-        label="Average Forecast Error",
-    )
+    for src in sources:
+        src_subset = subset[subset["unique_id"] == src].copy()
 
-    # Add shaded error region if we have standard deviation data
-    if not avg_errors_by_horizon["std_error"].isna().all():
-        ax.fill_between(
-            avg_errors_by_horizon["forecast_horizon"],
-            avg_errors_by_horizon["avg_forecast_error"] - avg_errors_by_horizon["std_error"],
-            avg_errors_by_horizon["avg_forecast_error"] + avg_errors_by_horizon["std_error"],
-            alpha=0.3,
-            label="± 1 Standard Deviation",
+        if src_subset.empty:
+            continue
+
+        # Calculate average forecast error by forecast horizon
+        avg_errors_by_horizon = (
+            src_subset.groupby("forecast_horizon")["forecast_error"].agg(["mean", "std", "count"]).reset_index()
         )
+        avg_errors_by_horizon.columns = ["forecast_horizon", "avg_forecast_error", "std_error", "n_observations"]
+        avg_errors_by_horizon = avg_errors_by_horizon.sort_values("forecast_horizon")
+
+        # Plot: Average errors by horizon as a line chart
+        line = ax.plot(
+            avg_errors_by_horizon["forecast_horizon"],
+            avg_errors_by_horizon["avg_forecast_error"],
+            marker="o",
+            linewidth=2,
+            markersize=6,
+            label=src,
+        )
+
+        # Add shaded error region only when a single source is plotted
+        if len(sources) == 1 and not avg_errors_by_horizon["std_error"].isna().all():
+            color = line[0].get_color()
+            ax.fill_between(
+                avg_errors_by_horizon["forecast_horizon"],
+                avg_errors_by_horizon["avg_forecast_error"] - avg_errors_by_horizon["std_error"],
+                avg_errors_by_horizon["avg_forecast_error"] + avg_errors_by_horizon["std_error"],
+                alpha=0.2,
+                color=color,
+            )
 
     # Add zero reference line
     ax.axhline(y=0, color="red", linestyle="--", linewidth=1, alpha=0.7, label="Zero Error")
 
     # Customize plot
-    ax.set_title(f"Average Forecast Errors by Forecast Horizon\n{variable.upper()} - {source} ({metric})", fontsize=14)
+    source_label = sources[0] if len(sources) == 1 else "Multiple Sources"
+    ax.set_title(
+        f"Average Forecast Errors by Forecast Horizon\n{variable.upper()} - {source_label} ({metric})", fontsize=14
+    )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
 
     # Update y-axis label based on whether values were multiplied

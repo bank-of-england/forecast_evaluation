@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parents[2] / "src"))
 project = "Forecast Evaluation"
 copyright = "2026, Bank of England"
 author = "James Hurley, Paul Labonne, Harry Li"
-release = "0.1.2"
+release = "0.1.3"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

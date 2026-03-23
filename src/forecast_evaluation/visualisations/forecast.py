@@ -16,6 +16,7 @@ def plot_vintage(
     frequency: Literal["Q", "M"] = "Q",
     metric: Literal["levels", "pop", "yoy"] = "levels",
     k: int = 12,
+    convert_to_percentage: bool = False,
     return_plot: bool = False,
 ) -> None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
@@ -36,6 +37,8 @@ def plot_vintage(
         Frequency of the data, either quarterly or monthly.
     metric : {"levels", "pop", "yoy"}, default "levels"
         Type of transformation to apply to the data.
+    convert_to_percentage : bool, default False
+        If True, multiplies values on the y-axis by 100.
     return_plot : bool, default False
         If True, returns the matplotlib figure and axis objects.
 
@@ -99,12 +102,18 @@ def plot_vintage(
         .sort_values("date")
     )
 
+    multiplier = 100 if convert_to_percentage else 1
+
     fig, ax = create_themed_figure()
 
     # Plot each source separately
     for forecast_id in forecasts_filtered["unique_id"].unique():
         source_df = forecasts_filtered[forecasts_filtered["unique_id"] == forecast_id].sort_values("date")
-        ax.plot(source_df["date"], source_df["value"], marker="o", markersize=3, label=forecast_id, alpha=0.7)
+        ax.plot(source_df["date"], 
+                multiplier * source_df["value"], 
+                marker="o", markersize=3, 
+                label=forecast_id, 
+                alpha=0.7)
 
     # Overlay the outturns series (forecast_horizon == -1)
     if not real_time_outturns.empty:
@@ -115,7 +124,7 @@ def plot_vintage(
         if not solid_outturns.empty:
             ax.plot(
                 solid_outturns["date"],
-                solid_outturns["value"],
+                multiplier * solid_outturns["value"],
                 color="darkblue",
                 marker="o",
                 markersize=3,
@@ -124,7 +133,7 @@ def plot_vintage(
         if not dashed_outturns.empty:
             ax.plot(
                 dashed_outturns["date"],
-                dashed_outturns["value"],
+                multiplier * dashed_outturns["value"],
                 color="darkblue",
                 marker="o",
                 markersize=3,
@@ -133,7 +142,8 @@ def plot_vintage(
             )
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
-    ax.set_ylabel(f"{variable} ({metric})")
+    y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
+    ax.set_ylabel(y_label)
     ax.legend(title="unique_id")
 
     # Return or show the plot
