@@ -680,7 +680,7 @@ class TestCreatePseudoVintages:
         """Should raise error when no outturns are available."""
         fd = ForecastData()
         with pytest.raises(ValueError, match="No outturns data available"):
-            fd.create_pseudo_vintages(start_date="2020-01-01")
+            fd.create_pseudo_vintages(fill_to="2020-01-01")
 
     def test_create_pseudo_vintages_expands_dataset(self, sample_outturns):
         """Should expand dataset by creating multiple vintages for each data point."""
@@ -688,7 +688,7 @@ class TestCreatePseudoVintages:
         initial_size = len(fd._raw_outturns)
 
         # Create pseudo vintages quarterly
-        fd.create_pseudo_vintages(start_date="2022-01-01", vintage_frequency="Q")
+        fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
 
         # Dataset should be larger (expanded)
         assert len(fd._raw_outturns) > initial_size
@@ -704,7 +704,7 @@ class TestCreatePseudoVintages:
     def test_create_pseudo_vintages_publication_lag_computed(self, sample_outturns):
         """Should compute publication lag (max_vintage - max_date) correctly."""
         fd = ForecastData(outturns_data=sample_outturns)
-        fd.create_pseudo_vintages(start_date="2022-01-01", vintage_frequency="Q")
+        fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
 
         # Check that data appears in correct vintages
         result_df = fd._raw_outturns
@@ -720,7 +720,7 @@ class TestCreatePseudoVintages:
     def test_create_pseudo_vintages_data_in_all_subsequent_vintages(self, sample_outturns):
         """Data should appear in all vintages from first appearance onwards."""
         fd = ForecastData(outturns_data=sample_outturns)
-        fd.create_pseudo_vintages(start_date="2022-01-01", vintage_frequency="Q")
+        fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
 
         n_variables = sample_outturns["variable"].nunique()
 
@@ -754,7 +754,7 @@ class TestCreatePseudoVintages:
             outturns_df.loc[var_mask, "vintage_date"] = outturns_df.loc[var_mask, "vintage_date"] + offset
 
         fd = ForecastData(outturns_data=outturns_df)
-        fd.create_pseudo_vintages(start_date="2022-01-01", vintage_frequency="Q")
+        fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
 
         result_df = fd._raw_outturns
 
@@ -772,20 +772,36 @@ class TestCreatePseudoVintages:
         # Verify we have the expected range of vintages
         assert len(unique_vintages) > len(variables)
 
-    def test_create_pseudo_vintages_end_date_limits_range(self, sample_outturns):
-        """Vintages should not exceed end_date."""
+    def test_create_pseudo_vintages_stops_at_earliest_real_vintage(self, sample_outturns):
+        """Pseudo vintages for each variable should stop before that variable's earliest real vintage."""
         fd = ForecastData(outturns_data=sample_outturns)
-        end_date = "2026-06-30"
-        fd.create_pseudo_vintages(start_date="2022-01-01", end_date=end_date, vintage_frequency="Q")
 
-        unique_vintages = fd._raw_outturns["vintage_date"].unique()
-        assert all(v <= pd.Timestamp(end_date) for v in unique_vintages)
+        # Record the per-variable earliest real vintage before calling the method
+        earliest_real = {
+            var: sample_outturns[sample_outturns["variable"] == var]["vintage_date"].min()
+            for var in sample_outturns["variable"].unique()
+        }
 
-    def test_create_pseudo_vintages_start_date_after_end_date_raises(self, sample_outturns):
-        """Should raise ValueError when start_date is not before end_date."""
+        fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
+        result_df = fd._raw_outturns
+
+        # No pseudo vintage (i.e. a vintage that was not in the original data) should
+        # be >= the variable's earliest real vintage
+        original_vintages = set(sample_outturns["vintage_date"].unique())
+        for var, earliest in earliest_real.items():
+            var_df = result_df[result_df["variable"] == var]
+            pseudo_vintages = var_df[~var_df["vintage_date"].isin(original_vintages)]["vintage_date"]
+            assert (pseudo_vintages < earliest).all(), (
+                f"Variable '{var}' has pseudo vintages on or after its earliest real vintage {earliest.date()}"
+            )
+
+    def test_create_pseudo_vintages_fill_to_after_earliest_vintage_raises(self, sample_outturns):
+        """Should raise ValueError when fill_to is not before the per-variable earliest vintage."""
         fd = ForecastData(outturns_data=sample_outturns)
-        with pytest.raises(ValueError, match="start_date"):
-            fd.create_pseudo_vintages(start_date="2025-01-01", end_date="2022-01-01", vintage_frequency="Q")
+        # sample_outturns has a single vintage_date of 2025-09-30 for all variables,
+        # so fill_to on or after that date must raise
+        with pytest.raises(ValueError, match="fill_to"):
+            fd.create_pseudo_vintages(fill_to="2025-09-30", vintage_frequency="Q")
 
 
 def test_benchmark_addition_invalid_model(fer_outturns_minimal):

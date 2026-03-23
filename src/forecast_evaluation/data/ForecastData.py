@@ -289,13 +289,12 @@ class ForecastData:
 
     def create_pseudo_vintages(
         self,
-        start_date: str,
-        end_date: str = None,
+        fill_to: str,
         vintage_frequency: Literal["M", "Q"] = "Q",
     ) -> None:
         """Create pseudo vintages for outturns.
 
-        It will fill in vintages between start_date and end_date.
+        Starts from the earliest available vintage in the data and fills backward to ``fill_to``.
 
         This method computes the publication lag from existing data and creates a full vintage
         structure where each vintage contains all data available at that point in time.
@@ -303,11 +302,9 @@ class ForecastData:
 
         Parameters
         ----------
-        start_date : str
-            The first vintage date to create. Format 'YYYY-MM-DD'.
-        end_date : str, optional
-            The last vintage date to create. Format 'YYYY-MM-DD'.
-            If None, uses the first available vintage date in the data.
+        fill_to : str
+            The earliest vintage date to create (i.e. how far back to fill). Format 'YYYY-MM-DD'.
+            Vintages are generated from this date up to the earliest existing vintage in the data.
         vintage_frequency : str, optional
             Frequency at which to create vintages. Default is 'Q' (quarterly).
             Options: 'M' (monthly), 'Q' (quarterly).
@@ -329,56 +326,59 @@ class ForecastData:
                 f"Valid options are 'M' for monthly and 'Q' for quarterly."
             )
 
-        # replace with period end
-        vintage_frequency = f"{vintage_frequency}E"
-
         df = self._raw_outturns.copy()
 
-        # Compute publication lag for each variable
-        # lag = max(vintage_date) - max(date) for each variable
-        publication_lags = {}
-        for variable in df["variable"].unique():
-            var_data = df[df["variable"] == variable]
-            max_vintage = var_data["vintage_date"].max()
-            max_date = var_data["date"].max()
-            lag = max_vintage - max_date
-            publication_lags[variable] = lag
+        # Create the dataframe that will be propagated to the new vintages
+        # For each variable, select only the rows from the earliest available vintage
+        df_propagate = df[df["vintage_date"] == df.groupby("variable")["vintage_date"].transform("min")]
 
-        # Generate vintage dates from start_date to end_date
-        start_vintage = pd.to_datetime(start_date).normalize()
+        # Compute publication lag per variable in units of vintage_frequency
+        lag_diff = (
+            df_propagate["vintage_date"].dt.to_period(vintage_frequency)
+            - df_propagate["date"].dt.to_period(vintage_frequency)
+        ).apply(lambda x: x.n)
+        df_propagate["publication_lag"] = lag_diff.groupby(df_propagate["variable"]).transform("min")
 
-        if end_date is None:
-            # If end_date is not provided, use the first available vintage date in the data
-            end_vintage = df["vintage_date"].min()
-        else:
-            end_vintage = pd.to_datetime(end_date).normalize()
+        # Precompute publication_date: earliest vintage at which each data point becomes available
+        offset = pd.tseries.frequencies.to_offset(f"{vintage_frequency}E")
+        df_propagate["publication_date"] = df_propagate.apply(
+            lambda row: row["date"] + row["publication_lag"] * offset, axis=1
+        )
+
+        # Generate vintage dates from fill_to up to the earliest real vintage in the data.
+        # The per-variable mask (vintage < earliest_vintage) handles each variable's own cutoff.
+        start_vintage = pd.to_datetime(fill_to).normalize()
+        end_vintage = df_propagate["vintage_date"].max()
 
         # Check the start_vintage is before the end_vintage
         if start_vintage >= end_vintage:
-            raise ValueError(f"start_date {start_date} must be before end_date {end_date}. ")
+            raise ValueError(
+                f"fill_to ({fill_to}) must be earlier than the latest per-variable earliest vintage "
+                f"({end_vintage.date()})."
+            )
 
         # Create range of vintage dates
+        # replace with period end
+        offset_freq = f"{vintage_frequency}E"
         vintage_dates = pd.date_range(
-            start=start_vintage, end=end_vintage, freq=pd.tseries.frequencies.to_offset(vintage_frequency)
+            start=start_vintage, end=end_vintage, freq=pd.tseries.frequencies.to_offset(offset_freq)
         )
 
-        # Build expanded dataset: for each vintage, include all data available at that time
-        # Add lags column for vectorized filtering
-        df_with_lags = df.copy()
-        df_with_lags["lag"] = df_with_lags["variable"].map(publication_lags)
-        df_with_lags["first_appearance"] = df_with_lags["date"] + df_with_lags["lag"]
+        # Convert to match df["vintage_date"] type (datetime64[ns] without frequency)
+        vintage_dates = pd.DatetimeIndex(vintage_dates)
 
         # Loop through vintages and filter data vectorized for each vintage
         expanded_rows = []
         for vintage in vintage_dates:
-            # Vectorized filtering: keep rows where vintage >= first_appearance
-            mask = vintage >= df_with_lags["first_appearance"]
-            filtered_rows = df_with_lags[mask].copy()
+            # Keep rows where data was available at this vintage (publication_date <= vintage)
+            mask = df_propagate["publication_date"] <= vintage
+            mask = mask & (vintage < df_propagate["vintage_date"])  # only propagate to earlier vintages
+            filtered_rows = df_propagate[mask].copy()
             filtered_rows["vintage_date"] = vintage
             expanded_rows.append(filtered_rows)
 
         # Create expanded dataframe
-        expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["lag", "first_appearance"])
+        expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
         # recompute forecast_horizon
         expanded_df["forecast_horizon"] = (
@@ -386,7 +386,7 @@ class ForecastData:
         ).apply(lambda x: x.n)
 
         # Update raw outturns
-        self._raw_outturns = pd.concat([self._raw_outturns, expanded_df], ignore_index=True)
+        self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
 
         # remove duplicates
         self._raw_outturns = self._raw_outturns.drop_duplicates().reset_index(drop=True)
