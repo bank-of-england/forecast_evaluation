@@ -388,9 +388,6 @@ class ForecastData:
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
 
-        # remove duplicates
-        self._raw_outturns = self._raw_outturns.drop_duplicates().reset_index(drop=True)
-
         # Recompute transformed outturns
         outturns = prepare_outturns(self._raw_outturns)
         self._outturns = outturns
