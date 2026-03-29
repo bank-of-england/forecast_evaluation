@@ -700,6 +700,122 @@ class ForecastData:
                 show_progress=show_progress,
             )
 
+    def summary(self):
+        """Print a summary of the forecast and outturns datasets.
+
+        For each dataset, displays:
+        - Number of variables
+        - List of variables with their properties
+        - For each variable: frequency, date range, and first vintage date
+        """
+        print("\n" + "=" * 80)
+        print("DATA SUMMARY")
+        print("=" * 80)
+
+        if not self._outturns.empty:
+            self._print_outturn_summary()
+        else:
+            print("\n[OUTTURNS] No data loaded")
+
+        if not self._forecasts.empty:
+            self._print_forecast_summary()
+        else:
+            print("\n[FORECASTS] No data loaded")
+
+        print("=" * 80 + "\n")
+
+    def _print_variable_table(self, df, show_horizon=False, group_label=None):
+        """Print a table of variables with date/vintage/horizon info."""
+        if group_label:
+            print(f"\n  {group_label}")
+
+        variables = sorted(df["variable"].unique())
+        max_var_len = max(len(var) for var in variables) if variables else 0
+        var_col_width = max(max_var_len, 8)
+
+        # Build header
+        header_parts = [f"  {'Variable':<{var_col_width}}", "Freq", f"{'Date':<24}", f"{'Vintage':<24}"]
+        if show_horizon:
+            header_parts.append(f"{'Horizon':<8}")
+
+        header = " | ".join(header_parts)
+        separator = "  " + "-" * (len(header) - 2)
+
+        print(header)
+        print(separator)
+
+        # Print rows for each variable
+        for var in variables:
+            var_data = df[df["variable"] == var]
+            frequency = var_data["frequency"].iloc[0]
+            date_range = (
+                f"{var_data['date'].min().strftime('%Y-%m-%d')} to {var_data['date'].max().strftime('%Y-%m-%d')}"
+            )
+            vintage_range = f"{var_data['vintage_date'].min().strftime('%Y-%m-%d')} "
+            vintage_range += f"to {var_data['vintage_date'].max().strftime('%Y-%m-%d')}"
+
+            row_parts = [f"  {var:<{var_col_width}}", f"{frequency:4}", f"{date_range:<24}", f"{vintage_range:<24}"]
+            if show_horizon:
+                horizon_range = f"{var_data['forecast_horizon'].min()} to {var_data['forecast_horizon'].max()}"
+                row_parts.append(f"{horizon_range:<8}")
+
+            print(" | ".join(row_parts))
+
+        print(separator)
+
+    def _print_outturn_summary(self):
+        """Print summary statistics for outturns data."""
+        print("\n[OUTTURNS]")
+        df = self._outturns
+
+        variables = sorted(df["variable"].unique())
+        print(f"  Number of variables: {len(variables)}")
+        print(f"  Variables: {', '.join(variables)}\n")
+
+        self._print_variable_table(df)
+
+    def _print_forecast_summary(self):
+        """Print summary statistics for forecasts data."""
+        print("\n[FORECASTS]")
+        df = self._forecasts
+
+        variables = sorted(df["variable"].unique())
+        print(f"  Number of variables: {len(variables)}")
+        print(f"  Variables: {', '.join(variables)}\n")
+
+        sources = sorted(df["source"].unique())
+        print(f"  Number of sources: {len(sources)}")
+        print(f"  Sources: {', '.join(sources)}")
+
+        # Identify extra ID columns
+        extra_id_cols = []
+        if self._id_columns:
+            extra_id_cols = [
+                col
+                for col in self._id_columns
+                if col not in ["date", "vintage_date", "variable", "frequency", "forecast_horizon", "value", "source"]
+            ]
+
+        if extra_id_cols:
+            for col in extra_id_cols:
+                vals = sorted(df[col].astype(str).unique())
+                print(f"  {col}: {', '.join(vals)}")
+
+        # One table per unique (source, extra_id_cols) combination
+        group_cols = ["source"] + extra_id_cols
+        for group_key, group_data in df.groupby(group_cols, observed=True):
+            keys = (group_key,) if not isinstance(group_key, tuple) else group_key
+            source = keys[0]
+            id_values = keys[1:]
+
+            # Print group header
+            group_label = source
+            if extra_id_cols:
+                id_label = "  ".join(f"{col}: {val}" for col, val in zip(extra_id_cols, id_values))
+                group_label = f"{source}  [{id_label}]"
+
+            self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
+
 
 def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Optional[list[str]] = None) -> pd.DataFrame:
     """Validate a DataFrame of forecast records using the Pandera ForecastSchema.
@@ -947,5 +1063,7 @@ if __name__ == "__main__":
 
     # launch dashboard
     forecast_data = fe.ForecastData(load_fer=True)
-    forecast_data.forecasts
+    forecast_data.summary()
+    breakpoint()
+
     forecast_data.run_dashboard()

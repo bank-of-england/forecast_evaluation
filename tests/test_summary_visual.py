@@ -1,0 +1,67 @@
+"""Visual test for ForecastData.summary() with extra ID columns.
+
+Run with: python tests/test_summary_visual.py
+"""
+
+import pandas as pd
+
+from forecast_evaluation.data.ForecastData import ForecastData
+
+
+def make_outturns(variables, dates):
+    rows = []
+    for var in variables:
+        for i, date in enumerate(dates):
+            rows.append(
+                {
+                    "variable": var,
+                    "date": date,
+                    "vintage_date": date + pd.offsets.MonthEnd(i % 3 + 1),
+                    "frequency": "Q",
+                    "forecast_horizon": 0,
+                    "value": float(i),
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def make_forecasts(variables, regions, sources, dates):
+    rows = []
+    for var in variables:
+        for region in regions:
+            for source in sources:
+                max_h = 8 if source == "short_source" else 13
+                for date in dates:
+                    for h in range(1, max_h + 1):
+                        rows.append(
+                            {
+                                "variable": var,
+                                "date": date,
+                                "vintage_date": date - pd.offsets.QuarterEnd(1),
+                                "frequency": "Q",
+                                "forecast_horizon": h,
+                                "source": source,
+                                "value": float(h),
+                                "region": region,
+                            }
+                        )
+    return pd.DataFrame(rows)
+
+
+if __name__ == "__main__":
+    variables = ["gdp", "inflation_long_name"]
+    regions = ["UK", "EU"]
+    sources = ["short_source", "a_longer_source_name"]
+    dates = pd.date_range("2015-03-31", periods=6, freq="QE").tolist()
+
+    outturns = make_outturns(variables, dates)
+    forecasts = make_forecasts(variables, regions, sources, dates)
+
+    fd = ForecastData(
+        outturns_data=outturns,
+        forecasts_data=forecasts,
+        extra_ids=["region"],
+        compute_levels=False,
+    )
+
+    fd.summary()
