@@ -1,9 +1,7 @@
-"""Visual test for ForecastData.summary() with extra ID columns.
-
-Run with: python tests/test_summary_visual.py
-"""
+"""Test ForecastData.summary() with extra ID columns."""
 
 import pandas as pd
+import pytest
 
 from forecast_evaluation.data.ForecastData import ForecastData
 
@@ -48,7 +46,8 @@ def make_forecasts(variables, regions, sources, dates):
     return pd.DataFrame(rows)
 
 
-if __name__ == "__main__":
+@pytest.fixture
+def fd_with_extra_ids():
     variables = ["gdp", "inflation_long_name"]
     regions = ["UK", "EU"]
     sources = ["short_source", "a_longer_source_name"]
@@ -57,11 +56,15 @@ if __name__ == "__main__":
     outturns = make_outturns(variables, dates)
     forecasts = make_forecasts(variables, regions, sources, dates)
 
-    fd = ForecastData(
+    return ForecastData(
         outturns_data=outturns,
         forecasts_data=forecasts,
         extra_ids=["region"],
         compute_levels=False,
     )
 
-    fd.summary()
+
+def test_summary_with_extra_ids(fd_with_extra_ids, snapshot, capsys):
+    fd_with_extra_ids.summary()
+    captured = capsys.readouterr()
+    assert captured.out == snapshot
