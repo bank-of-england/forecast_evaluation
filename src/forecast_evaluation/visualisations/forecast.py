@@ -109,11 +109,9 @@ def plot_vintage(
     # Plot each source separately
     for forecast_id in forecasts_filtered["unique_id"].unique():
         source_df = forecasts_filtered[forecasts_filtered["unique_id"] == forecast_id].sort_values("date")
-        ax.plot(source_df["date"], 
-                multiplier * source_df["value"], 
-                marker="o", markersize=3, 
-                label=forecast_id, 
-                alpha=0.7)
+        ax.plot(
+            source_df["date"], multiplier * source_df["value"], marker="o", markersize=3, label=forecast_id, alpha=0.7
+        )
 
     # Overlay the outturns series (forecast_horizon == -1)
     if not real_time_outturns.empty:
