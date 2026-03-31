@@ -944,72 +944,78 @@ def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> pd.Data
 
 
 def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) -> None:
-    """data-check forecast values against outturns, per (source, variable, frequency, metric) group.
+    """Sanity-check forecasts against outturns. Warns on likely scale/metric errors.
 
-    Check 1 — horizon -1 (if available): mean absolute deviation vs outturns > 0.5 std.
-    Check 2 — fallback: mean or spread of positive-horizon forecasts differs markedly from outturns
-    (mean > 2 std away, or spread ratio > 5×) over overlapping dates.
+    Compares forecast values to outturns at matching (variable, metric, frequency, date) points.
+    For each (source, variable, metric, frequency) group, picks a single representative vintage
+    (the one with the most date overlap with outturns) and compares paired values.
 
+    Uses median absolute difference and IQR ratios (robust to outliers).
     Issues are reported as UserWarnings, never errors.
     """
-    _YELLOW = "\033[93m"
-    _RESET = "\033[0m"
+    _Y, _R = "\033[93m", "\033[0m"
     _TIP = (
         " Possible causes: wrong 'metric' column, incorrect scaling "
-        "(e.g. pct*100 instead of pct for 'pop'/'yoy'), "
-        "or not using real-time vintages for level forecasts."
+        "(e.g. pct*100 instead of pct), or non-real-time vintages."
     )
 
-    outturns = outturns_df.copy()
-    forecasts = forecasts_df.copy()
+    if forecasts_df.empty or outturns_df.empty:
+        return
 
-    key_cols = ["variable", "source", "frequency", "metric", "vintage_date"]
-    for (variable, source, frequency, metric, vintage_date), forecast_group in forecasts.groupby(key_cols):
-        outturns_group = outturns[
-            (outturns["variable"] == variable)
-            & (outturns["frequency"] == frequency)
-            & (outturns["metric"] == metric)
-            & (outturns["vintage_date"] == vintage_date)
+    group_keys = ["source", "variable", "metric", "frequency"]
+
+    # Reference outturns: latest vintage per (variable, metric, frequency, date)
+    reference_outturns = (
+        outturns_df.sort_values("vintage_date")
+        .groupby(["variable", "metric", "frequency", "date"], sort=False)["value"]
+        .last()
+        .rename("outturn_value")
+        .reset_index()
+    )
+
+    for keys, vintage_group in forecasts_df.groupby(group_keys, sort=False):
+        source, variable, metric, frequency = keys
+
+        # Pick the vintage with the most data points (best overlap with outturns)
+        vintage_counts = vintage_group.groupby("vintage_date").size()
+        best_vintage = vintage_counts.idxmax()
+        forecast_slice = vintage_group[vintage_group["vintage_date"] == best_vintage]
+
+        # Match forecast dates to reference outturns
+        outturn_slice = reference_outturns[
+            (reference_outturns["variable"] == variable)
+            & (reference_outturns["metric"] == metric)
+            & (reference_outturns["frequency"] == frequency)
         ]
+        paired = forecast_slice.merge(outturn_slice[["date", "outturn_value"]], on="date", how="inner")
 
-        if outturns_group.empty:
-            # normalise shouldnt be allowed, but for now leave it here
+        if len(paired) < 3:
             continue
 
-        label = f"vintage_date='{vintage_date}', source='{source}', variable='{variable}', "
-        label += f"metric='{metric}', frequency='{frequency}'"
+        label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
 
-        # Check 1: horizon -1 vs outturns
-        forecast_h1 = forecast_group[forecast_group["forecast_horizon"] == -1]
-        outturns_h1 = outturns_group[outturns_group["forecast_horizon"] == -1]
+        # Check 1: paired median absolute difference vs outturn IQR
+        # This catches level shifts and scaling errors regardless of trend
+        differences = (paired["value"] - paired["outturn_value"]).abs()
+        median_abs_diff = differences.median()
+        outturn_iqr = paired["outturn_value"].quantile(0.75) - paired["outturn_value"].quantile(0.25)
 
-        if not forecast_h1.empty:
-            discrepancy = forecast_h1["value"].values - outturns_h1["value"].values
-            if discrepancy > 1e-4:
+        if outturn_iqr > 0 and median_abs_diff > 3 * outturn_iqr:
+            warnings.warn(
+                f"{_Y}[Data check] {label}: median |forecast - outturn| is "
+                f"{median_abs_diff / outturn_iqr:.1f}x the outturn IQR.{_TIP}{_R}",
+                UserWarning,
+                stacklevel=4,
+            )
+            continue
+
+        # Check 2: spread ratio — catches wrong scaling (e.g. percentages vs fractions)
+        forecast_iqr = paired["value"].quantile(0.75) - paired["value"].quantile(0.25)
+        if outturn_iqr > 0 and forecast_iqr > 0:
+            spread_ratio = max(forecast_iqr / outturn_iqr, outturn_iqr / forecast_iqr)
+            if spread_ratio > 5:
                 warnings.warn(
-                    f"{_YELLOW}[Data check] {label}: horizon -1 forecasts deviate from outturns "
-                    f"by {discrepancy}" + _TIP + f"{_RESET}",
-                    UserWarning,
-                    stacklevel=4,
-                )
-            continue  # skip check 2 whether or not h=-1 matched
-
-        # Check 2: relative difference between first forecast and last outturn
-        if outturns_group.shape[0] > 10:  # need enough data points to compute a meaningful std
-            first_forecast_id = min(forecast_group["forecast_horizon"].min(), 0)
-            last_outturn_id = max(outturns_group["forecast_horizon"].max(), -1)
-
-            last_outturn = outturns_group[outturns_group["forecast_horizon"] == last_outturn_id]["value"].values[0]
-            first_forecast = forecast_group[forecast_group["forecast_horizon"] == first_forecast_id]["value"].values[0]
-
-            outturn_std = outturns_group["value"].diff().dropna().std()
-            diff = first_forecast - last_outturn
-            relative_diff = abs(diff) / outturn_std
-
-            if relative_diff > 10:
-                warnings.warn(
-                    f"{_YELLOW}[Data check] {label}: first forecast value deviates from last outturn by "
-                    f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
+                    f"{_Y}[Data check] {label}: forecast/outturn IQR ratio is {spread_ratio:.1f}x.{_TIP}{_R}",
                     UserWarning,
                     stacklevel=4,
                 )
