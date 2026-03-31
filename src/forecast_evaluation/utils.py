@@ -86,17 +86,27 @@ def ensure_consistent_date_range(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         Filtered DataFrame containing only data within the consistent date range for each variable.
     """
-    # For each variable, find the date range that all sources have in common
+    # For each variable and metric, find the date range that all sources have in common
+    # Grouping by metric ensures that the consistent range is metric-specific,
+    # preventing metrics with different date availability from affecting each other.
+    group_cols = ["variable", "unique_id"]
+    merge_cols = ["variable"]
+
+    # Include metric in grouping if present, so each metric gets its own consistent range
+    if "metric" in df.columns:
+        group_cols = ["variable", "metric", "unique_id"]
+        merge_cols = ["variable", "metric"]
+
     if "vintage_date_forecast" in df.columns:
-        date_ranges = df.groupby(["variable", "unique_id"])["vintage_date_forecast"].agg(["min", "max"]).reset_index()
+        date_ranges = df.groupby(group_cols)["vintage_date_forecast"].agg(["min", "max"]).reset_index()
     elif "vintage_date" in df.columns:
-        date_ranges = df.groupby(["variable", "unique_id"])["vintage_date"].agg(["min", "max"]).reset_index()
+        date_ranges = df.groupby(group_cols)["vintage_date"].agg(["min", "max"]).reset_index()
     else:
         raise ValueError("DataFrame must contain either 'vintage_date_forecast' or 'vintage_date' column.")
 
-    # For each variable, get the consistent date range (latest start, earliest end)
+    # For each variable (and metric), get the consistent date range (latest start, earliest end)
     consistent_ranges = (
-        date_ranges.groupby("variable")
+        date_ranges.groupby(merge_cols)
         .agg(
             {
                 "min": "max",  # Latest start date across all sources
@@ -105,10 +115,10 @@ def ensure_consistent_date_range(df: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
-    consistent_ranges.columns = ["variable", "start_date", "end_date"]
+    consistent_ranges.columns = merge_cols + ["start_date", "end_date"]
 
     # Merge back and filter
-    df = df.merge(consistent_ranges, on="variable")
+    df = df.merge(consistent_ranges, on=merge_cols)
     if "vintage_date_forecast" in df.columns:
         df = df[(df["vintage_date_forecast"] >= df["start_date"]) & (df["vintage_date_forecast"] <= df["end_date"])]
     else:
