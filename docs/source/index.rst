@@ -12,6 +12,8 @@ A Python package for evaluating forecast accuracy, bias, and efficiency.
    :maxdepth: 2
    :caption: Contents:
 
+   user_guide
+   methodology
    api
 
 Indices and tables
