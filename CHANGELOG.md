@@ -15,6 +15,17 @@
 - Added `compute_levels` argument to forecast transformation methods; existing pop and yoy columns are no longer overwritten
 - Optimised merging inside `build_main_table` function
 
-## [0.1.3.dev0] - Unreleased
+## [0.1.3] - 
 - Added option to plot multiple sources in `plot_forecast_errors_by_horizon()`
 - Added optional argument `convert_to_percentage` to `plot_vintage()`, similar to other plotting functions
+
+## [0.1.4] - 08/04/2026
+### Fixed
+- Fixed duplicate level rows when both pop and yoy forecasts present with `compute_levels=True`
+- Fixed insufficient outturn history window for YoY transformations (now frequency-aware)
+- Fixed multi-frequency outturn duplication in `prepare_outturns`
+- Fixed hedgehog chart not displaying single-horizon forecasts
+
+### Added
+- Enhanced data validation and diagnostics
+- Improved duplicate detection logic to compare against raw input only
