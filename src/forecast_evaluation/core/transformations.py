@@ -131,10 +131,11 @@ def prepare_forecasts(
         ].copy()
         outturns_freq = outturns[outturns["frequency"] == frequency].copy()
 
-        # YoY or MoM transform for the forecast mean it needs appending to outturns for that vintage first
-        # Note we filter outturns first on the latest 4 values
-        # as no point brining in everything for change space metrics
-        outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -5].copy()
+        # YoY/MoM transforms require prepending enough outturn history so that
+        # pct_change(n_periods) has a valid base at h=0.  We need n_periods+1
+        # outturn rows (h=-(n_periods+1),...,h=-1) per vintage.
+        n_periods = {"Q": 4, "M": 12}[frequency]
+        outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -(n_periods + 1)].copy()
         outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
 
         # We need to loop through each id and concat to the outturns
@@ -212,8 +213,10 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
         outturns_pop_change = transform_series(df, transform="pop", frequency=frequency)
         outturns_yoy_change = transform_series(df, transform="yoy", frequency=frequency)
 
-        # Combine transformed outturns
-        outturns_freq = pd.concat([levels_outturns, outturns_pop_change, outturns_yoy_change], ignore_index=True)
+        # Combine transformed outturns — use `df` (this frequency's slice), not
+        # `levels_outturns` (all frequencies), otherwise level rows are duplicated
+        # once per extra frequency in the final concat.
+        outturns_freq = pd.concat([df, outturns_pop_change, outturns_yoy_change], ignore_index=True)
 
         outturns_all.append(outturns_freq)
 
@@ -345,6 +348,11 @@ def transform_forecast_to_levels(
 
             group["metric"] = "levels"
             transformed_forecasts.append(group)
+
+            # Mark this (source, variable, frequency, vintage_date[, unique_id])
+            # as having levels so that a second metric (e.g. yoy after pop) does
+            # not produce duplicate level rows for the same keys.
+            existing_level_groups.add(lookup_key)
 
         except Exception as e:
             print(f"Skipping group {keys} due to error: {e}")

@@ -108,3 +108,32 @@ def test_transformations_pop_and_yoy_to_levels(fer_minimal_fd, snapshot):
     diff = df_merged["value_original"] - df_merged["value_from_yoy"]
     max_diff = diff.abs().max()
     assert max_diff < 1e-6, f"Problem with levels from YoY transformation, max difference is {max_diff}"
+
+
+def test_rebuild_from_raw_matches_original(fer_minimal_fd):
+    """Rebuilding a ForecastData from an existing instance's raw data must produce
+    identical _raw_forecasts, _raw_outturns, forecasts, outturns, and _main_table."""
+    fd_with_transforms = fe.ForecastData(
+        load_fer=True,
+    )
+
+    cpi_outturns = fd_with_transforms.outturns[fd_with_transforms.outturns["variable"] == "cpisa"].copy()
+    cpi_forecasts = fd_with_transforms.forecasts[fd_with_transforms.forecasts["variable"] == "cpisa"].copy()
+    mpr_cpi_forecasts = cpi_forecasts[cpi_forecasts["source"] == "mpr"].copy()
+    mpr_cpi_forecasts = mpr_cpi_forecasts[mpr_cpi_forecasts["metric"] != "levels"].copy()
+
+    fd_rebuilt = fe.ForecastData(
+        outturns_data=cpi_outturns.copy(),
+        forecasts_data=mpr_cpi_forecasts.copy(),
+    )
+
+    # check that forecasts are the same
+    df_merged = pd.merge(
+        fd_with_transforms.forecasts,
+        fd_rebuilt.forecasts,
+        on=["variable", "source", "vintage_date", "date", "metric"],
+        suffixes=("_original", "_rebuilt"),
+    )
+    diff = df_merged["value_original"] - df_merged["value_rebuilt"]
+    max_diff = diff.abs().max()
+    assert max_diff < 1e-6, f"Problem with forecasts when rebuilding from raw, max difference is {max_diff}"

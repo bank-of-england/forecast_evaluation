@@ -298,6 +298,37 @@ def test_add_forecasts_different_frequency_from_existing_raises(sample_outturns)
         fd.add_forecasts(df_monthly)
 
 
+def test_two_add_forecasts_calls_produce_no_duplicates(fer_outturns_minimal, fer_forecasts_minimal):
+    """Adding forecasts in two separate calls (one source at a time) must not produce
+    duplicates in raw_forecasts, forecasts, outturns, or _main_table."""
+    sources = fer_forecasts_minimal["source"].unique()
+    assert len(sources) >= 2, "Minimal FER data must contain at least two sources for this test"
+
+    # select a forecast
+    forecasts_levels = fer_forecasts_minimal[fer_forecasts_minimal["source"] == sources[0]]
+
+    # create the forecast data object
+    fd = ForecastData(outturns_data=fer_outturns_minimal)
+    fd.add_forecasts(forecasts_levels, data_check=False)
+
+    # re add transformed forecasts
+    forecasts_transformed = fd.forecasts
+    fd.add_forecasts(forecasts_transformed, data_check=False)
+
+    # Columns that fully identify a row (excluding value)
+    raw_forecast_id_cols = [c for c in fd._raw_forecasts.columns if c != "value"]
+    forecast_id_cols = [c for c in fd.forecasts.columns if c != "value"]
+    outturn_id_cols = [c for c in fd.outturns.columns if c != "value"]
+    main_table_id_cols = [
+        c for c in fd._main_table.columns if c not in ("value_forecast", "value_outturn", "forecast_error")
+    ]
+
+    assert not fd._raw_forecasts.duplicated(subset=raw_forecast_id_cols).any(), "Duplicates in _raw_forecasts"
+    assert not fd.forecasts.duplicated(subset=forecast_id_cols).any(), "Duplicates in forecasts"
+    assert not fd.outturns.duplicated(subset=outturn_id_cols).any(), "Duplicates in outturns"
+    assert not fd._main_table.duplicated(subset=main_table_id_cols).any(), "Duplicates in _main_table"
+
+
 # -----------------------
 # Filtering Tests
 # -----------------------
@@ -491,6 +522,149 @@ def test_check_duplicates_detects(sample_forecasts):
     sample_forecasts_1["value"] = sample_forecasts["value"] + 1.0
     with pytest.raises(ValueError, match="Duplicate records found with different values."):
         _check_duplicates(sample_forecasts, sample_forecasts_1)
+
+
+# -----------------------
+# _check_forecast_data Tests
+# -----------------------
+
+
+def test_check_forecast_data_no_warning_iqr(recwarn):
+    """IQR fallback: no warning when forecast values are on the same scale as outturns."""
+    outturns = create_sample_outturns()
+    forecasts = create_sample_forecasts()
+    # use same vintage as outturns so the join can pair rows; all horizons will be <= -2
+    forecasts["vintage_date"] = pd.Timestamp("2025-09-30")
+    forecasts["forecast_horizon"] = (
+        forecasts["date"].dt.to_period("Q") - forecasts["vintage_date"].dt.to_period("Q")
+    ).apply(lambda x: x.n)
+
+    fd = ForecastData(outturns_data=outturns)
+    fd.add_forecasts(forecasts, data_check=True)
+
+    data_check_warns = [w for w in recwarn.list if "Data check" in str(w.message)]
+    assert not data_check_warns
+
+
+def test_check_forecast_data_warns_iqr():
+    """IQR fallback: warns when forecast values are 100x larger than outturns."""
+    outturns = create_sample_outturns()
+    forecasts = create_sample_forecasts()
+    forecasts["vintage_date"] = pd.Timestamp("2025-09-30")
+    forecasts["forecast_horizon"] = (
+        forecasts["date"].dt.to_period("Q") - forecasts["vintage_date"].dt.to_period("Q")
+    ).apply(lambda x: x.n)
+    forecasts["value"] = forecasts["value"] * 100.0
+
+    fd = ForecastData(outturns_data=outturns)
+    with pytest.warns(UserWarning, match="IQR ratio"):
+        fd.add_forecasts(forecasts, data_check=True)
+
+
+def test_check_forecast_data_warns_horizon_minus1():
+    """h=-1 check: warns when h=-1 forecasts deviate greatly from same-vintage outturns."""
+    outturns = create_sample_outturns()
+    # two extra outturn rows whose (date, vintage) give forecast_horizon=-1
+    extra = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2025-03-31"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-06-30"),
+                "frequency": "Q",
+                "value": 112.0,
+                "forecast_horizon": -1,
+            },
+            {
+                "date": pd.Timestamp("2025-06-30"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-09-30"),
+                "frequency": "Q",
+                "value": 113.0,
+                "forecast_horizon": -1,
+            },
+        ]
+    )
+    all_outturns = pd.concat([outturns, extra], ignore_index=True)
+    # two h=-1 forecasts at the same (date, vintage) pairs but wildly wrong values
+    forecasts = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2025-03-31"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-06-30"),
+                "source": "mpr2",
+                "frequency": "Q",
+                "value": 10000.0,
+                "forecast_horizon": -1,
+            },
+            {
+                "date": pd.Timestamp("2025-06-30"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-09-30"),
+                "source": "mpr2",
+                "frequency": "Q",
+                "value": 10000.0,
+                "forecast_horizon": -1,
+            },
+        ]
+    )
+    fd = ForecastData(outturns_data=all_outturns)
+    with pytest.warns(UserWarning, match="horizon=-1"):
+        fd.add_forecasts(forecasts, data_check=True)
+
+
+def test_check_forecast_data_no_warning_horizon_minus1(recwarn):
+    """h=-1 check: no warning when h=-1 forecasts match same-vintage outturns closely."""
+    outturns = create_sample_outturns()
+    extra = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2025-03-31"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-06-30"),
+                "frequency": "Q",
+                "value": 112.0,
+                "forecast_horizon": -1,
+            },
+            {
+                "date": pd.Timestamp("2025-06-30"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-09-30"),
+                "frequency": "Q",
+                "value": 113.0,
+                "forecast_horizon": -1,
+            },
+        ]
+    )
+    all_outturns = pd.concat([outturns, extra], ignore_index=True)
+    forecasts = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2025-03-31"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-06-30"),
+                "source": "mpr2",
+                "frequency": "Q",
+                "value": 112.0,
+                "forecast_horizon": -1,
+            },
+            {
+                "date": pd.Timestamp("2025-06-30"),
+                "variable": "gdpkp",
+                "vintage_date": pd.Timestamp("2025-09-30"),
+                "source": "mpr2",
+                "frequency": "Q",
+                "value": 113.0,
+                "forecast_horizon": -1,
+            },
+        ]
+    )
+    fd = ForecastData(outturns_data=all_outturns)
+    fd.add_forecasts(forecasts, data_check=True)
+
+    data_check_warns = [w for w in recwarn.list if "Data check" in str(w.message)]
+    assert not data_check_warns
 
 
 # -----------------------
