@@ -100,6 +100,15 @@ def plot_hedgehog(
 
     # Plot a line for each forecast vintage
     for i, vintage_date in enumerate(vintage_dates):
+        # if there is only one available horizon dot_size = 3 otherwise 0
+        if (
+            df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date]["forecast_horizon"].nunique()
+            == 1
+        ):
+            dot_size = 5
+        else:
+            dot_size = 0
+
         vintage_data = df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date].sort_values("date")
         # Only add label for the first line to avoid duplicate legend entries
         label = "Forecasts" if i == 0 else None
@@ -107,7 +116,8 @@ def plot_hedgehog(
             vintage_data["date"],
             multiplier * vintage_data["value"],
             linewidth=1.5,
-            markersize=0,
+            marker="o",
+            markersize=dot_size,
             alpha=0.7,
             color="lightblue",
             label=label,

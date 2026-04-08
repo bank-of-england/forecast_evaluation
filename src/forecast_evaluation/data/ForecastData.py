@@ -175,12 +175,13 @@ class ForecastData:
 
         data_check : bool, optional
             Whether to run data checks comparing forecast values to outturns
-            per (source, variable, metric, frequency, vintage_date) group. When True:
+            per (source, variable, metric, frequency) group. When True:
 
-            - **Horizon -1 check**: if ``forecast_horizon == -1`` rows exist, warns if
-              mean deviation from outturns exceeds 0.5 standard deviations.
-            - **Scale/mean check** (fallback): over overlapping dates, warns if forecast
-              mean differs from outturns by >2 std, or spread ratio >5× (larger/smaller).
+            - **Horizon -1 check** (primary): if ``forecast_horizon == -1`` rows exist,
+              each is compared to the outturn **from the same vintage** at the same date.
+              Warns if the mean absolute deviation exceeds 0.5 std of the outturn series.
+            - **IQR ratio check** (fallback): over all (date, vintage_date) pairs that
+              overlap, warns if the forecast IQR differs from the outturn IQR by >5x.
 
             Detects common user errors: wrong ``metric`` column, scaling mistakes
             (e.g. ``pct*100`` instead of ``pct``), or non-real-time vintages.
@@ -263,8 +264,12 @@ class ForecastData:
                         df[col] = pd.NA
 
         # Check for duplicates if there are already some records stored
-        if not self._forecasts.empty:
-            df = _check_duplicates(df, self._forecasts)
+        # Compare against raw forecasts (original input data), not self._forecasts
+        # (which contains derived/transformed rows like levels computed from pop/yoy).
+        # Comparing against transformed data causes false positives: e.g. adding levels
+        # forecasts after pop forecasts were auto-converted to levels by compute_levels=True.
+        if not self._raw_forecasts.empty:
+            df = _check_duplicates(df, self._raw_forecasts)
 
         # Check if forecasts have corresponding outturns
         _check_missing_outturns(df, self._raw_outturns)
@@ -282,9 +287,22 @@ class ForecastData:
         # Compute main table
         main_table = build_main_table(forecasts, self._outturns, self._id_columns)
 
-        # Add to existing data
+        # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
+        # This is needed because derived/transformed rows (e.g. levels back-computed from
+        # pop/yoy, or pop/yoy derived from levels) can slip through _check_duplicates when
+        # add_forecasts is called repeatedly with already-transformed data.
+        raw_id_cols = [c for c in df.columns if c != "value"]
+        df = _exclude_existing_rows(df, self._raw_forecasts, raw_id_cols)
         self._raw_forecasts = pd.concat([self._raw_forecasts, df], ignore_index=True)
+
+        forecast_id_cols = [c for c in forecasts.columns if c != "value"]
+        forecasts = _exclude_existing_rows(forecasts, self._forecasts, forecast_id_cols)
         self._forecasts = pd.concat([self._forecasts, forecasts], ignore_index=True)
+
+        main_table_id_cols = [
+            c for c in main_table.columns if c not in ("value_forecast", "value_outturn", "forecast_error")
+        ]
+        main_table = _exclude_existing_rows(main_table, self._main_table, main_table_id_cols)
         self._main_table = pd.concat([self._main_table, main_table], ignore_index=True)
 
     def create_pseudo_vintages(
@@ -380,10 +398,11 @@ class ForecastData:
         # Create expanded dataframe
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
-        # recompute forecast_horizon
-        expanded_df["forecast_horizon"] = (
-            expanded_df["date"].dt.to_period("Q") - expanded_df["vintage_date"].dt.to_period("Q")
-        ).apply(lambda x: x.n)
+        # recompute forecast_horizon using each row's actual frequency
+        expanded_df["forecast_horizon"] = expanded_df.apply(
+            lambda row: (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n,
+            axis=1,
+        )
 
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
@@ -872,6 +891,42 @@ def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Option
     return validated_df
 
 
+def _exclude_existing_rows(new_df: pd.DataFrame, existing_df: pd.DataFrame, id_cols: list[str]) -> pd.DataFrame:
+    """Return only rows from new_df whose id_cols key is not already present in existing_df.
+
+    Uses a left-anti merge (hash join), O(n_new + n_existing), so the cost scales with
+    the size of the batch being added rather than the full accumulated DataFrame.
+
+    Parameters
+    ----------
+    new_df : pd.DataFrame
+        Candidate rows to add.
+    existing_df : pd.DataFrame
+        Already-stored rows to check against.
+    id_cols : list of str
+        Columns that together form the unique key (all columns except value columns).
+
+    Returns
+    -------
+    pd.DataFrame
+        Subset of new_df containing only rows not already in existing_df.
+    """
+    if existing_df.empty or new_df.empty:
+        return new_df
+    # Only match on columns present in both DataFrames.
+    # If new_df has extra id columns that existing_df doesn't have yet (e.g. a
+    # newly introduced label column), no existing row could match on that key,
+    # so those rows are definitively new. Using the intersection is safe because
+    # unique_id (always present in both) already encodes all label columns.
+    common_cols = [c for c in id_cols if c in existing_df.columns]
+    if not common_cols:
+        return new_df
+    existing_keys = existing_df[common_cols].drop_duplicates()
+    merged = new_df[common_cols].merge(existing_keys, on=common_cols, how="left", indicator=True)
+    mask = (merged["_merge"] == "left_only").to_numpy()
+    return new_df.loc[mask].reset_index(drop=True)
+
+
 def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
     """Check if there are duplicate records (same metadata) in the new data compared to existing data.
 
@@ -944,74 +999,85 @@ def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> pd.Data
 
 
 def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) -> None:
-    """data-check forecast values against outturns, per (source, variable, frequency, metric) group.
+    """Sanity-check forecasts against outturns. Warns on likely scale/metric errors.
 
-    Check 1 — horizon -1 (if available): mean absolute deviation vs outturns > 0.5 std.
-    Check 2 — fallback: mean or spread of positive-horizon forecasts differs markedly from outturns
-    (mean > 2 std away, or spread ratio > 5×) over overlapping dates.
+    For each (source, variable, metric, frequency) group:
 
+    - **Horizon -1 check** (primary): if ``forecast_horizon == -1`` rows exist,
+      compares each forecast value to the outturn **from the same vintage** at the
+      same date. Warns if the mean absolute deviation exceeds 0.5 standard deviations
+      of the outturn series.
+    - **IQR ratio check** (fallback): over all (date, vintage_date) pairs that overlap
+      between forecasts and outturns, warns if the forecast IQR differs from the
+      outturn IQR by more than 5x in either direction.
+
+    Outturns are matched vintage-for-vintage so data revisions do not cause false positives.
     Issues are reported as UserWarnings, never errors.
     """
-    _YELLOW = "\033[93m"
-    _RESET = "\033[0m"
+    _Y, _R = "\033[93m", "\033[0m"
     _TIP = (
         " Possible causes: wrong 'metric' column, incorrect scaling "
-        "(e.g. pct*100 instead of pct for 'pop'/'yoy'), "
-        "or not using real-time vintages for level forecasts."
+        "(e.g. pct*100 instead of pct), or non-real-time vintages."
     )
 
-    outturns = outturns_df.copy()
-    forecasts = forecasts_df.copy()
+    if forecasts_df.empty or outturns_df.empty:
+        return
 
-    key_cols = ["variable", "source", "frequency", "metric", "vintage_date"]
-    for (variable, source, frequency, metric, vintage_date), forecast_group in forecasts.groupby(key_cols):
-        outturns_group = outturns[
-            (outturns["variable"] == variable)
-            & (outturns["frequency"] == frequency)
-            & (outturns["metric"] == metric)
-            & (outturns["vintage_date"] == vintage_date)
+    # Pair every forecast row with the outturn from the same vintage, variable,
+    # metric, frequency and date.  This is the real-time outturn the forecaster
+    # would have seen.
+    join_keys = ["variable", "metric", "frequency", "date", "vintage_date"]
+    outturns_keyed = outturns_df[join_keys + ["value"]].rename(columns={"value": "outturn_value"})
+    paired_all = forecasts_df.merge(outturns_keyed, on=join_keys, how="inner")
+
+    # Pre-compute per-(variable,metric,frequency) outturn std from all available
+    # outturn data (used to normalise the h=-1 deviation).
+    outturn_std_map = outturns_df.groupby(["variable", "metric", "frequency"])["value"].std().rename("outturn_std")
+
+    group_keys = ["source", "variable", "metric", "frequency"]
+
+    for keys, group in forecasts_df.groupby(group_keys, sort=False):
+        source, variable, metric, frequency = keys
+        label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
+
+        paired = paired_all[
+            (paired_all["source"] == source)
+            & (paired_all["variable"] == variable)
+            & (paired_all["metric"] == metric)
+            & (paired_all["frequency"] == frequency)
         ]
 
-        if outturns_group.empty:
-            # normalise shouldnt be allowed, but for now leave it here
+        if paired.empty:
             continue
 
-        label = f"vintage_date='{vintage_date}', source='{source}', variable='{variable}', "
-        label += f"metric='{metric}', frequency='{frequency}'"
+        # Check 1: horizon -1 rows — compared to same-vintage outturns
+        horizon_minus1 = paired[paired["forecast_horizon"] == -1]
+        if not horizon_minus1.empty:
+            if len(horizon_minus1) >= 2:
+                outturn_std = outturn_std_map.get((variable, metric, frequency), 0)
+                if outturn_std > 0:
+                    mean_abs_dev = (horizon_minus1["value"] - horizon_minus1["outturn_value"]).abs().mean()
+                    if mean_abs_dev > 0.5 * outturn_std:
+                        warnings.warn(
+                            f"{_Y}[Data check] {label}: horizon=-1 forecasts deviate from "
+                            f"same-vintage outturns by {mean_abs_dev / outturn_std:.2f} std "
+                            f"deviations.{_TIP}{_R}",
+                            UserWarning,
+                        )
+            continue
 
-        # Check 1: horizon -1 vs outturns
-        forecast_h1 = forecast_group[forecast_group["forecast_horizon"] == -1]
-        outturns_h1 = outturns_group[outturns_group["forecast_horizon"] == -1]
+        # Check 2 (fallback): IQR ratio — same-vintage paired values
+        if len(paired) < 3:
+            continue
 
-        if not forecast_h1.empty:
-            discrepancy = forecast_h1["value"].values - outturns_h1["value"].values
-            if discrepancy > 1e-4:
+        outturn_iqr = paired["outturn_value"].quantile(0.75) - paired["outturn_value"].quantile(0.25)
+        forecast_iqr = paired["value"].quantile(0.75) - paired["value"].quantile(0.25)
+        if outturn_iqr > 0 and forecast_iqr > 0:
+            spread_ratio = max(forecast_iqr / outturn_iqr, outturn_iqr / forecast_iqr)
+            if spread_ratio > 5:
                 warnings.warn(
-                    f"{_YELLOW}[Data check] {label}: horizon -1 forecasts deviate from outturns "
-                    f"by {discrepancy}" + _TIP + f"{_RESET}",
+                    f"{_Y}[Data check] {label}: forecast/outturn IQR ratio is {spread_ratio:.1f}x.{_TIP}{_R}",
                     UserWarning,
-                    stacklevel=4,
-                )
-            continue  # skip check 2 whether or not h=-1 matched
-
-        # Check 2: relative difference between first forecast and last outturn
-        if outturns_group.shape[0] > 10:  # need enough data points to compute a meaningful std
-            first_forecast_id = min(forecast_group["forecast_horizon"].min(), 0)
-            last_outturn_id = max(outturns_group["forecast_horizon"].max(), -1)
-
-            last_outturn = outturns_group[outturns_group["forecast_horizon"] == last_outturn_id]["value"].values[0]
-            first_forecast = forecast_group[forecast_group["forecast_horizon"] == first_forecast_id]["value"].values[0]
-
-            outturn_std = outturns_group["value"].diff().dropna().std()
-            diff = first_forecast - last_outturn
-            relative_diff = abs(diff) / outturn_std
-
-            if relative_diff > 10:
-                warnings.warn(
-                    f"{_YELLOW}[Data check] {label}: first forecast value deviates from last outturn by "
-                    f"{relative_diff} times the outturn std." + _TIP + f"{_RESET}",
-                    UserWarning,
-                    stacklevel=4,
                 )
 
 
