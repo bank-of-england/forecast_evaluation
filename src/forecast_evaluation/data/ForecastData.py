@@ -219,6 +219,17 @@ class ForecastData:
         if extra_ids is not None:
             df, extra_ids = _fix_extra_columns(df, extra_ids)
 
+        # Auto-detect nowcasting: if any source has multiple vintage dates within
+        # the same period (quarter/month), compute days_in_period automatically.
+        if "days_in_period" not in df.columns:
+            df = _maybe_add_days_in_period(df)
+
+        if "days_in_period" in df.columns:
+            if extra_ids is None:
+                extra_ids = ["days_in_period"]
+            elif "days_in_period" not in extra_ids:
+                extra_ids = extra_ids + ["days_in_period"]
+
         # Validate records using the ForecastRecord model
         # Include 'metric' as an optional column in validation
         optional_cols = ["metric"] if extra_ids is None else ["metric"] + extra_ids
@@ -256,8 +267,13 @@ class ForecastData:
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
-                        self._raw_forecasts[col] = pd.NA
-                        self._forecasts[col] = pd.NA
+                        # Use the dtype from the new data to avoid type mismatches during merges
+                        if col in df.columns and pd.api.types.is_integer_dtype(df[col]):
+                            self._raw_forecasts[col] = pd.array([pd.NA] * len(self._raw_forecasts), dtype="Int64")
+                            self._forecasts[col] = pd.array([pd.NA] * len(self._forecasts), dtype="Int64")
+                        else:
+                            self._raw_forecasts[col] = pd.NA
+                            self._forecasts[col] = pd.NA
                         self._id_columns += [col]
                     if col not in id_cols:
                         # add missing columns to new data
@@ -922,7 +938,13 @@ def _exclude_existing_rows(new_df: pd.DataFrame, existing_df: pd.DataFrame, id_c
     if not common_cols:
         return new_df
     existing_keys = existing_df[common_cols].drop_duplicates()
-    merged = new_df[common_cols].merge(existing_keys, on=common_cols, how="left", indicator=True)
+    # Align dtypes to prevent merge failures when one side has int and the other str/object
+    new_slice = new_df[common_cols].copy()
+    for col in common_cols:
+        if new_slice[col].dtype != existing_keys[col].dtype:
+            new_slice[col] = new_slice[col].astype(str)
+            existing_keys[col] = existing_keys[col].astype(str)
+    merged = new_slice.merge(existing_keys, on=common_cols, how="left", indicator=True)
     mask = (merged["_merge"] == "left_only").to_numpy()
     return new_df.loc[mask].reset_index(drop=True)
 
@@ -1036,7 +1058,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
 
     group_keys = ["source", "variable", "metric", "frequency"]
 
-    for keys, group in forecasts_df.groupby(group_keys, sort=False):
+    for keys, _group in forecasts_df.groupby(group_keys, sort=False):
         source, variable, metric, frequency = keys
         label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
 
@@ -1121,6 +1143,63 @@ def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFram
             f"{missing_outturns.to_string(index=False)}"
         )
         warnings.warn(warning_message, UserWarning, stacklevel=3)
+
+
+def _maybe_add_days_in_period(df: pd.DataFrame) -> pd.DataFrame:
+    """Auto-detect nowcasting data and compute days_in_period if appropriate.
+
+    Checks whether any (source, variable, frequency, date) group has multiple
+    vintage dates within the same period (quarter or month). If so, the data
+    represents nowcasts with intra-period granularity and ``days_in_period``
+    is computed for all rows.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Forecast DataFrame with at least 'vintage_date', 'frequency', 'source',
+        'variable', and 'date' columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        The input DataFrame, with ``days_in_period`` added if nowcasting is detected.
+    """
+    from forecast_evaluation.data.sample_data import compute_days_in_period
+
+    if df.empty:
+        return df
+
+    vintage_dates = pd.to_datetime(df["vintage_date"])
+    frequencies = df["frequency"]
+
+    # Check if there are multiple vintage dates within the same period for any group
+    for freq in frequencies.unique():
+        freq_mask = frequencies == freq
+        if not freq_mask.any():
+            continue
+
+        freq_df = df[freq_mask]
+        vintage_periods = vintage_dates[freq_mask].dt.to_period(freq)
+
+        # Group by source, variable, date, and vintage period — if any group has
+        # multiple distinct vintage_dates, this is nowcasting data.
+        group_cols = ["source", "variable", "date"]
+        available_cols = [c for c in group_cols if c in freq_df.columns]
+        check_df = freq_df[available_cols].copy()
+        check_df["_vintage_period"] = vintage_periods.values
+
+        n_vintages_per_group = (
+            freq_df.assign(_vintage_period=vintage_periods.values)
+            .groupby(available_cols + ["_vintage_period"])["vintage_date"]
+            .nunique()
+        )
+
+        if (n_vintages_per_group > 1).any():
+            df = df.copy()
+            df["days_in_period"] = compute_days_in_period(df["vintage_date"], df["frequency"])
+            return df
+
+    return df
 
 
 # Example usage:

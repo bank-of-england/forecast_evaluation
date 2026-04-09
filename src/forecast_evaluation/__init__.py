@@ -7,7 +7,14 @@ except PackageNotFoundError:
     __version__ = "unknown"
 
 from .core import add_ar_p_forecasts, add_random_walk_forecasts, create_outturn_revisions
-from .data import DensityForecastData, ForecastData, create_sample_forecasts, create_sample_outturns
+from .data import (
+    DensityForecastData,
+    ForecastData,
+    create_sample_forecasts,
+    create_sample_nowcast_forecasts,
+    create_sample_nowcast_outturns,
+    create_sample_outturns,
+)
 from .data.utils import filter_fer_variables
 from .tests import (
     bias_analysis,
@@ -35,6 +42,7 @@ from .visualisations import (
     plot_forecast_errors,
     plot_forecast_errors_by_horizon,
     plot_hedgehog,
+    plot_intra_period_accuracy,
     plot_outturn_revisions,
     plot_outturns,
     plot_rolling_bias,
@@ -53,6 +61,8 @@ __all__ = [
     "DensityForecastData",
     # Sample data functions
     "create_sample_forecasts",
+    "create_sample_nowcast_forecasts",
+    "create_sample_nowcast_outturns",
     "create_sample_outturns",
     # Test/analysis functions
     "bias_analysis",
@@ -77,6 +87,7 @@ __all__ = [
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
     "plot_hedgehog",
+    "plot_intra_period_accuracy",
     "plot_outturn_revisions",
     "plot_outturns",
     "plot_rolling_bias",

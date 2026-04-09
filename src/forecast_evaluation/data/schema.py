@@ -59,6 +59,12 @@ def create_data_schema(forecast: bool = False, optional_columns: Optional[list[s
                     pa.Check(lambda s: (s >= 0) & (s <= 1), name="quantile must be between 0 and 1"),
                     coerce=True,
                 )
+            elif col == "days_in_period":
+                columns[col] = pa.Column(
+                    int,
+                    pa.Check(lambda s: s >= 0, name="days_in_period must be non-negative"),
+                    coerce=True,
+                )
             else:
                 columns[col] = pa.Column(str, pa.Check(lambda s: s.str.len() >= 1), nullable=True)
 
