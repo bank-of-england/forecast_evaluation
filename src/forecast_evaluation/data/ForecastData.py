@@ -1130,6 +1130,5 @@ if __name__ == "__main__":
     # launch dashboard
     forecast_data = fe.ForecastData(load_fer=True)
     forecast_data.summary()
-    breakpoint()
 
     forecast_data.run_dashboard()

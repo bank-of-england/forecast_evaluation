@@ -97,6 +97,8 @@ def create_sidebar(data):
     bias_tab = "input.tabs == 'Bias' && input.bias_subtabs == 'Bias across horizons'"
     rolling_bias_tab = "input.tabs == 'Bias' && input.bias_subtabs == 'Rolling bias'"
 
+    radar_tab = "input.tabs == 'Radar'"
+
     time_machine_tab = "input.tabs == 'Time Machine'"
     hedgehog_tab = "input.tabs == 'Hedgehog'"
     outturn_revisions_tab = "input.tabs == 'Outturn Revisions'"
@@ -150,7 +152,9 @@ def create_sidebar(data):
                     + _or
                     + errors_tab
                     + _or
-                    + rolling_errors_tab,
+                    + rolling_errors_tab
+                    + _or
+                    + radar_tab,
                     ui.input_selectize(id_multi, f"{col}s:", choices=col_choices, multiple=True, selected=col_choices),
                 )
             )
@@ -213,7 +217,9 @@ def create_sidebar(data):
                         + _or
                         + errors_tab
                         + _or
-                        + rolling_errors_tab,
+                        + rolling_errors_tab
+                        + _or
+                        + radar_tab,
                         ui.input_selectize("sources", "Sources:", choices=sources, multiple=True, selected=sources),
                     ),
                     ui.panel_conditional(
@@ -277,19 +283,90 @@ def create_sidebar(data):
                 open=False,  # Set to False if you want it collapsed by default
             ),
         ),
-        # Variables
+        # Variables (single select – hidden when Radar tab is in variables mode)
         ui.panel_conditional(
-            "input.tabs != 'About' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh')",
+            "input.tabs != 'About' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Radar' && input.radar_mode == 'variables')",
             ui.input_selectize("variable", "Variable:", choices=variable, multiple=False, selected=["cpisa"]),
+        ),
+        # Variables (multi select – only for Radar variables mode)
+        ui.panel_conditional(
+            radar_tab + " && input.radar_mode == 'variables'",
+            ui.input_selectize("radar_variables", "Variables:", choices=variable, multiple=True, selected=variable),
         ),
         # Error for rolling accuracy
         ui.panel_conditional(
             rolling_accuracy_tab,
             ui.input_select("error", "Error:", choices=["absolute", "squared"], selected="absolute"),
         ),
+        # Radar mode selector
+        ui.panel_conditional(
+            radar_tab,
+            ui.input_select(
+                "radar_mode",
+                "Edges:",
+                choices={
+                    "metrics": "Accuracy metrics",
+                    "variables": "Variables",
+                    "tests": "Accuracy, bias & efficiency",
+                },
+                selected="tests",
+            ),
+        ),
+        # Radar horizon selector (for metrics, variables and tests modes)
+        ui.panel_conditional(
+            radar_tab,
+            ui.input_select("radar_horizon", "Horizon:", choices=horizons, selected=horizons[0]),
+        ),
+        # Radar normalise toggle
+        ui.panel_conditional(
+            radar_tab,
+            ui.input_checkbox("radar_normalise", "Normalise values", value=True),
+        ),
+        # Radar test type selector (variables mode)
+        ui.panel_conditional(
+            radar_tab + " && input.radar_mode == 'variables'",
+            ui.input_select(
+                "radar_test_type",
+                "Test type:",
+                choices={
+                    "accuracy": "Accuracy",
+                    "bias": "Bias",
+                    "efficiency": "Efficiency",
+                },
+                selected="accuracy",
+            ),
+        ),
+        # Radar bias type selector (tests mode, or variables mode with bias)
+        ui.panel_conditional(
+            radar_tab
+            + " && (input.radar_mode == 'tests' || (input.radar_mode == 'variables' && input.radar_test_type == 'bias'))",
+            ui.input_select(
+                "radar_bias_type",
+                "Bias measure:",
+                choices={
+                    "mean": "Abs. mean forecast error",
+                    "mz": "Mincer-Zarnowitz (mean & scaling)",
+                },
+                selected="mean",
+            ),
+        ),
+        # Radar efficiency type selector (tests mode, or variables mode with efficiency)
+        ui.panel_conditional(
+            radar_tab
+            + " && (input.radar_mode == 'tests' || (input.radar_mode == 'variables' && input.radar_test_type == 'efficiency'))",
+            ui.input_select(
+                "radar_efficiency_type",
+                "Efficiency measure:",
+                choices={
+                    "revision_predictability": "Optimal scaling (MZ test)",
+                    "revisions_errors": "Correlation of revisions & errors",
+                },
+                selected="revision_predictability",
+            ),
+        ),
         # Statistic selector
         ui.panel_conditional(
-            average_accuracy_tab + _or + relative_accuracy_tab,
+            average_accuracy_tab + _or + relative_accuracy_tab + _or + radar_tab,
             ui.input_select("stat", "Statistic:", choices=loss_functions, selected="RMSE"),
         ),
         # Test loss function selector
@@ -606,6 +683,16 @@ def create_time_machine_tab():
         ui.output_ui("time_machine_plot_ui"),
         ui.output_ui("time_machine_legend_ui"),
         ui.download_button("download_time_machine", "Download data behind chart"),
+    )
+
+
+def create_radar_tab():
+    """Create the Radar tab UI"""
+    return ui.nav_panel(
+        "Radar",
+        ui.output_ui("radar_plot_ui"),
+        ui.output_ui("radar_legend_ui"),
+        ui.download_button("download_radar", "Download data behind chart"),
     )
 
 
