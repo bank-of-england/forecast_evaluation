@@ -29,6 +29,10 @@ bench("add_outturns", lambda: ForecastData(outturns_data=outturns))
 
 
 # --- add_forecasts only ---
+fd_base = ForecastData(outturns_data=outturns)
+bench("add_forecasts", lambda: fd_base.copy().add_forecasts(forecasts, data_check=False))
+
+# --- add_outturns + add_forecasts ---
 def add_fc():
     fd = ForecastData(outturns_data=outturns)
     fd.add_forecasts(forecasts, data_check=False)
