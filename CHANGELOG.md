@@ -19,7 +19,7 @@
 - Added option to plot multiple sources in `plot_forecast_errors_by_horizon()`
 - Added optional argument `convert_to_percentage` to `plot_vintage()`, similar to other plotting functions
 
-## [0.1.4] - 08/04/2026
+## [0.1.4] - 2026-04-08
 ### Fixed
 - Fixed duplicate level rows when both pop and yoy forecasts present with `compute_levels=True`
 - Fixed insufficient outturn history window for YoY transformations (now frequency-aware)
@@ -29,3 +29,7 @@
 ### Added
 - Enhanced data validation and diagnostics
 - Improved duplicate detection logic to compare against raw input only
+
+## [0.1.5] - 2026-04-14
+### Added
+- Radar charts

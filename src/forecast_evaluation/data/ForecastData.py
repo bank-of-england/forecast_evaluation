@@ -897,15 +897,13 @@ def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Option
 
     # make sure that the dates are end-of-period dates according to frequency
     if not validated_df.empty:
-        validated_df["date"] = pd.to_datetime(
-            validated_df.apply(
-                lambda row: pd.Period(year=row["date"].year, month=row["date"].month, freq=row["frequency"]).end_time,
-                axis=1,
-            )
-        )
+        dates = validated_df["date"]
+        for freq in validated_df["frequency"].unique():
+            mask = validated_df["frequency"] == freq
+            validated_df.loc[mask, "date"] = dates[mask].dt.to_period(freq).dt.end_time.dt.normalize()
 
-    # make sure not to have hours attached to dates
-    validated_df["date"] = validated_df["date"].dt.normalize()
+    # make sure not to have hours attached to dates and consistent datetime64[ns] dtype
+    validated_df["date"] = pd.to_datetime(validated_df["date"]).dt.normalize()
     validated_df["vintage_date"] = validated_df["vintage_date"].dt.normalize()
 
     # remove fully duplicated rows (same values and metadata)

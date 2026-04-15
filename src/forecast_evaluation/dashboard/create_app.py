@@ -19,6 +19,7 @@ from .tabs.bias import errors, rolling_errors, bias, rolling_bias
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
 from .tabs.outturn_revisions import outturn_revisions, outturns
+from .tabs.radar import radar
 from .tabs.time_machine import time_machine
 from .tabs.quantile_time_machine import quantile_time_machine
 from .ui import (
@@ -27,6 +28,7 @@ from .ui import (
     create_efficiency_tab,
     create_hedgehog_tab,
     create_outturn_revisions_tab,
+    create_radar_tab,
     create_sidebar,
     create_time_machine_tab,
     create_quantile_time_machine_tab,
@@ -53,6 +55,7 @@ def dashboard_app(data) -> App:
             create_time_machine_tab(),
             create_hedgehog_tab(),
             create_outturn_revisions_tab(),
+            create_radar_tab(),
         ]
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
@@ -92,6 +95,7 @@ def dashboard_app(data) -> App:
         hedgehog(input, output, session, data)
         outturn_revisions(input, output, session, data)
         outturns(input, output, session, data)
+        radar(input, output, session, data)
         time_machine(input, output, session, data)
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:

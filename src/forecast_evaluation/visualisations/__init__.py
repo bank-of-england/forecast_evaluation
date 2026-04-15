@@ -8,6 +8,7 @@ from .forecast_errors import plot_forecast_error_density, plot_forecast_errors, 
 from .hedgehog import plot_hedgehog
 from .intra_period import plot_intra_period_accuracy
 from .outturn_revisions import plot_outturn_revisions, plot_outturns
+from .radar import plot_radar
 from .revisions_predictability import plot_average_revision_by_period
 from .strong_efficiency import plot_strong_efficiency
 from .theme import apply_theme, create_themed_figure
@@ -32,4 +33,5 @@ __all__ = [
     "plot_errors_across_time",
     "plot_outturn_revisions",
     "plot_outturns",
+    "plot_radar",
 ]
