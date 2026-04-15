@@ -186,8 +186,8 @@ class TestIntraPeriodPlot:
             assert fig is not None
             assert ax is not None
 
-    def test_plot_missing_days_in_period_raises(self):
-        """Should raise ValueError if days_in_period column is missing."""
+    def test_plot_missing_vintage_columns_raises(self):
+        """Should raise ValueError if vintage date columns are missing."""
         df = pd.DataFrame(
             {
                 "variable": ["gdp"],
@@ -198,8 +198,14 @@ class TestIntraPeriodPlot:
                 "source": ["model"],
             }
         )
-        with pytest.raises(ValueError, match="days_in_period"):
+        with pytest.raises(ValueError, match="vintage_date_forecast"):
             plot_intra_period_accuracy(df, variable="gdp", return_plot=True)
+
+    def test_plot_raises_when_nowcasting_false(self, nowcast_outturns, nowcast_forecasts):
+        """Should raise ValueError when ForecastData has nowcasting=False."""
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=False)
+        with pytest.raises(ValueError, match="nowcasting=True"):
+            plot_intra_period_accuracy(fd, variable="gdp", return_plot=True)
 
     def test_plot_no_data_raises(self, nowcast_outturns, nowcast_forecasts):
         """Should raise ValueError when no data matches the filters."""

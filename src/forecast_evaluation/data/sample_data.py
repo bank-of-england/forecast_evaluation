@@ -162,30 +162,37 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     >>> df["variable"].unique()
     array(['gdp', 'cpi'], dtype=object)
     """
-    np.random.seed(42)
-
     target_dates = pd.date_range("2024-03-31", periods=4, freq="QE")
     vintage_dates = pd.date_range("2024-01-01", "2024-12-31", freq="W-MON")
 
-    models = {
-        "nowcast_dfm": {"gdp": 105.0, "cpi": 113.0},
-        "nowcast_bridge": {"gdp": 105.0, "cpi": 113.0},
+    # True outturn values for 2024 Q1-Q4 (must match create_sample_nowcast_outturns)
+    truth = {
+        "gdp": {target_dates[0]: 104.8, target_dates[1]: 106.1, target_dates[2]: 107.0, target_dates[3]: 106.5},
+        "cpi": {target_dates[0]: 111.2, target_dates[1]: 112.8, target_dates[2]: 114.0, target_dates[3]: 115.5},
+    }
+
+    # Initial bias per (model, variable) — forecasts start here and linearly converge to truth
+    initial_bias = {
+        "nowcast_dfm": {"gdp": 2.0, "cpi": -2.5},
+        "nowcast_bridge": {"gdp": -1.5, "cpi": 3.0},
     }
 
     rows = []
-    for source, base_values in models.items():
-        for variable, base in base_values.items():
+    for source, biases in initial_bias.items():
+        for variable, bias in biases.items():
             for vintage in vintage_dates:
                 for target in target_dates:
                     horizon = (target.to_period("Q") - vintage.to_period("Q")).n
                     if horizon < 0:
                         continue
 
-                    # Value converges toward "truth" as vintage approaches target
-                    noise_scale = 0.5 + 0.3 * horizon
-                    noise = np.random.normal(0, noise_scale)
-                    trend = (target.to_period("Q") - pd.Period("2024Q1", "Q")).n * 0.8
-                    value = base + trend + noise
+                    # Deterministic convergence: error shrinks linearly with days_in_period.
+                    # At day 0 the forecast equals truth + bias * (1 + horizon * 0.3),
+                    # at day 91 (end of quarter) it equals truth exactly (for h=0).
+                    days_into_quarter = (vintage - vintage.to_period("Q").start_time).days
+                    remaining_fraction = 1 - days_into_quarter / 91
+                    error = bias * remaining_fraction * (1 + horizon * 0.3)
+                    value = truth[variable][target] + error
 
                     rows.append(
                         {

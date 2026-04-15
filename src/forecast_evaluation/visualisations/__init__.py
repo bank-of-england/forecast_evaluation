@@ -6,7 +6,7 @@ from .errors import plot_errors_across_time
 from .forecast import plot_vintage
 from .forecast_errors import plot_forecast_error_density, plot_forecast_errors, plot_forecast_errors_by_horizon
 from .hedgehog import plot_hedgehog
-from .intra_period import plot_intra_period_accuracy
+from .intra_period import plot_intra_period_accuracy, plot_intra_period_bias
 from .outturn_revisions import plot_outturn_revisions, plot_outturns
 from .radar import plot_radar
 from .revisions_predictability import plot_average_revision_by_period
@@ -26,6 +26,7 @@ __all__ = [
     "plot_forecast_errors_by_horizon",
     "plot_hedgehog",
     "plot_intra_period_accuracy",
+    "plot_intra_period_bias",
     "plot_rolling_bias",
     "plot_rolling_relative_accuracy",
     "plot_strong_efficiency",
