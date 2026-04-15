@@ -196,6 +196,17 @@ class TestNowcastingFlow:
 
         assert (fd._raw_forecasts["forecast_horizon"] >= 0).all()
 
+    def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
+        """forecast_horizon should be computed automatically if missing."""
+        forecasts_no_horizon = nowcast_forecasts.drop(columns=["forecast_horizon"])
+        outturns_no_horizon = nowcast_outturns.drop(columns=["forecast_horizon"])
+
+        fd = ForecastData(outturns_data=outturns_no_horizon, nowcasting=True)
+        fd.add_forecasts(forecasts_no_horizon, data_check=False)
+
+        assert "forecast_horizon" in fd._raw_forecasts.columns
+        assert (fd._raw_forecasts["forecast_horizon"] >= 0).all()
+
     def test_levels_transformation(self, nowcast_outturns, nowcast_forecasts):
         """Levels-based transformations should work with weekly vintages."""
         fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)

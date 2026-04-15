@@ -11,7 +11,13 @@ from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
-from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
+from forecast_evaluation.data.utils import (
+    compute_forecast_horizon,
+    construct_unique_id,
+    filter_fer_models,
+    filter_fer_variables,
+    filter_tables,
+)
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
@@ -117,6 +123,10 @@ class ForecastData:
             Metric to assign to the outturns if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        # Compute forecast_horizon if missing
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
+
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
             df["metric"] = metric
@@ -207,6 +217,10 @@ class ForecastData:
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
+
+        # Compute forecast_horizon if missing
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -418,10 +432,7 @@ class ForecastData:
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
         # recompute forecast_horizon using each row's actual frequency
-        expanded_df["forecast_horizon"] = expanded_df.apply(
-            lambda row: (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n,
-            axis=1,
-        )
+        expanded_df = compute_forecast_horizon(expanded_df)
 
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)

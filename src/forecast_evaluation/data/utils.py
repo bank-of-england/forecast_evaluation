@@ -209,3 +209,32 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame
     unique_id = df[id_columns].fillna("").astype(str).agg(" + ".join, axis=1)
 
     return unique_id
+
+
+def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute forecast_horizon from date, vintage_date, and frequency.
+
+    The horizon is the number of periods (quarters or months) between
+    the vintage date and the target date.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with 'date', 'vintage_date', and 'frequency' columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with 'forecast_horizon' column added.
+    """
+    df = df.copy()
+    df["forecast_horizon"] = df.apply(
+        lambda row: (
+            (
+                pd.Timestamp(row["date"]).to_period(row["frequency"])
+                - pd.Timestamp(row["vintage_date"]).to_period(row["frequency"])
+            ).n
+        ),
+        axis=1,
+    )
+    return df
