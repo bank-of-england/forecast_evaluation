@@ -228,13 +228,15 @@ def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
         DataFrame with 'forecast_horizon' column added.
     """
     df = df.copy()
-    df["forecast_horizon"] = df.apply(
-        lambda row: (
-            (
-                pd.Timestamp(row["date"]).to_period(row["frequency"])
-                - pd.Timestamp(row["vintage_date"]).to_period(row["frequency"])
-            ).n
-        ),
-        axis=1,
-    )
+    dates = pd.to_datetime(df["date"])
+    vintages = pd.to_datetime(df["vintage_date"])
+    result = pd.Series(index=df.index, dtype=int)
+
+    for freq in df["frequency"].unique():
+        mask = df["frequency"] == freq
+        date_periods = dates[mask].dt.to_period(freq).astype("int64")
+        vintage_periods = vintages[mask].dt.to_period(freq).astype("int64")
+        result[mask] = date_periods - vintage_periods
+
+    df["forecast_horizon"] = result
     return df
