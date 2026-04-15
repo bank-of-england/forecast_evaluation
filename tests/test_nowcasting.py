@@ -90,7 +90,7 @@ class TestDaysInPeriodAutoDetection:
 
     def test_days_in_period_auto_computed(self, nowcast_outturns, nowcast_forecasts):
         """days_in_period should be auto-detected and added for weekly vintage data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert "days_in_period" in fd._raw_forecasts.columns
@@ -98,7 +98,7 @@ class TestDaysInPeriodAutoDetection:
 
     def test_days_in_period_in_main_table(self, nowcast_outturns, nowcast_forecasts):
         """days_in_period should flow through to the main table."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         if not fd.df.empty:
@@ -106,7 +106,7 @@ class TestDaysInPeriodAutoDetection:
 
     def test_days_in_period_values_reasonable(self, nowcast_outturns, nowcast_forecasts):
         """days_in_period values should be between 0 and 91 for quarterly data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         dip = pd.to_numeric(fd._raw_forecasts["days_in_period"])
@@ -123,7 +123,7 @@ class TestDaysInPeriodAutoDetection:
 
     def test_days_in_period_is_int(self, nowcast_outturns, nowcast_forecasts):
         """days_in_period should be stored as integer."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert pd.api.types.is_integer_dtype(fd._raw_forecasts["days_in_period"])
@@ -141,14 +141,14 @@ class TestNowcastingFlow:
 
     def test_add_nowcast_forecasts(self, nowcast_outturns, nowcast_forecasts):
         """Weekly vintage dates should be accepted and preserved."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert len(fd._raw_forecasts) == len(nowcast_forecasts)
 
     def test_vintage_dates_not_snapped(self, nowcast_outturns, nowcast_forecasts):
         """Vintage dates should be preserved as-is (not snapped to quarter-end)."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         vintages = fd._raw_forecasts["vintage_date"]
@@ -157,7 +157,7 @@ class TestNowcastingFlow:
 
     def test_target_dates_snapped_to_quarter_end(self, nowcast_outturns, nowcast_forecasts):
         """Target dates should still be snapped to quarter-end."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         dates = fd._raw_forecasts["date"]
@@ -166,7 +166,7 @@ class TestNowcastingFlow:
 
     def test_main_table_k_in_quarters(self, nowcast_outturns, nowcast_forecasts):
         """The k column in main_table should be in quarterly units, not days."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         if not fd.df.empty:
@@ -175,7 +175,7 @@ class TestNowcastingFlow:
 
     def test_two_models_present(self, nowcast_outturns, nowcast_forecasts):
         """Both nowcast models should be in the data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         sources = set(fd._raw_forecasts["source"].unique())
@@ -183,7 +183,7 @@ class TestNowcastingFlow:
 
     def test_two_variables_present(self, nowcast_outturns, nowcast_forecasts):
         """Both variables should be in the data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         variables = set(fd._raw_forecasts["variable"].unique())
@@ -191,14 +191,14 @@ class TestNowcastingFlow:
 
     def test_forecast_horizon_preserved(self, nowcast_outturns, nowcast_forecasts):
         """User-supplied forecast_horizon should be preserved, not recomputed."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert (fd._raw_forecasts["forecast_horizon"] >= 0).all()
 
     def test_levels_transformation(self, nowcast_outturns, nowcast_forecasts):
         """Levels-based transformations should work with weekly vintages."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         metrics = fd.forecasts["metric"].unique()
@@ -216,7 +216,7 @@ class TestNowcastingFlow:
         outturns = pd.concat([nowcast_outturns, create_sample_outturns()], ignore_index=True)
         outturns = outturns.drop_duplicates(subset=[c for c in outturns.columns if c != "value"])
 
-        fd = ForecastData(outturns_data=outturns)
+        fd = ForecastData(outturns_data=outturns, nowcasting=True)
         fd.add_forecasts(quarterly_forecasts, data_check=False)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
@@ -227,7 +227,7 @@ class TestNowcastingFlow:
 
     def test_filter_by_source(self, nowcast_outturns, nowcast_forecasts):
         """Filtering by source should work with nowcast data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         fd.filter(sources="nowcast_dfm")
@@ -235,7 +235,7 @@ class TestNowcastingFlow:
 
     def test_filter_by_variable(self, nowcast_outturns, nowcast_forecasts):
         """Filtering by variable should work with nowcast data."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         fd.filter(variables="gdp")
@@ -250,7 +250,7 @@ class TestIntraPeriodPlot:
 
     def test_plot_returns_fig_ax(self, nowcast_outturns, nowcast_forecasts):
         """plot_intra_period_accuracy should return (fig, ax) when return_plot=True."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         import matplotlib
@@ -267,7 +267,7 @@ class TestIntraPeriodPlot:
 
     def test_plot_mae_statistic(self, nowcast_outturns, nowcast_forecasts):
         """plot_intra_period_accuracy should work with MAE statistic."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         import matplotlib
@@ -296,7 +296,7 @@ class TestIntraPeriodPlot:
 
     def test_plot_no_data_raises(self, nowcast_outturns, nowcast_forecasts):
         """Should raise ValueError when no data matches the filters."""
-        fd = ForecastData(outturns_data=nowcast_outturns)
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         import matplotlib
