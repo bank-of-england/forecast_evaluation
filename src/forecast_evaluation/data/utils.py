@@ -206,6 +206,9 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame
         DataFrame with constructed 'unique_id' column.
     """
 
-    unique_id = df[id_columns].fillna("").astype(str).agg(" + ".join, axis=1)
+    cols = [df[c].fillna("").astype(str) for c in id_columns]
+    unique_id = cols[0]
+    for c in cols[1:]:
+        unique_id = unique_id + " + " + c
 
     return unique_id

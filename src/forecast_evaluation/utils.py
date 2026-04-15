@@ -167,8 +167,7 @@ def reconstruct_id_cols_from_unique_id(df: pd.DataFrame, id_columns: list[str]) 
     pd.DataFrame
         DataFrame with reconstructed identifier columns.
     """
-    id_components = df["unique_id"].str.split("+", expand=True)
-    id_components = id_components.apply(lambda col: col.str.strip())  # remove white spaces
+    id_components = df["unique_id"].str.split(" + ", expand=True, regex=False)
     id_components.columns = [id_columns[i] for i in range(id_components.shape[1])]
     df = pd.concat([df, id_components], axis=1)
 
