@@ -161,6 +161,9 @@ def revisions_errors_correlation_analysis(
     if data._main_table is None or data._forecasts is None:
         raise ValueError("ForecastData missing data. Please ensure data has been added and processed.")
 
+    if data.nowcasting:
+        raise ValueError("Revisions-errors correlation analysis is not supported for nowcasting data. ")
+
     df = create_revision_dataframe(data._main_table, data._forecasts, k)
 
     # Filter by source if specified

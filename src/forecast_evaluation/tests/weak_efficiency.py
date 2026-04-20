@@ -241,6 +241,9 @@ def weak_efficiency_analysis(
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
+    if data.nowcasting:
+        raise ValueError("Weak efficiency analysis is not supported for nowcasting data. ")
+
     df = data._main_table.copy()
 
     # We first align the main table with what is used in this function

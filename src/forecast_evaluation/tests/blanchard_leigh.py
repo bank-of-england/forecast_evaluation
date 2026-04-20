@@ -224,6 +224,9 @@ def blanchard_leigh_horizon_analysis(
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
+    if data.nowcasting:
+        raise ValueError("Blanchard-Leigh efficiency analysis is not supported for nowcasting data. ")
+
     df = data._main_table.copy()
 
     # Ensure horizons is a NumPy array

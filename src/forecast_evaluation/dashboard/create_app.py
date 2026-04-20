@@ -51,12 +51,20 @@ def dashboard_app(data) -> App:
             about(),
             create_accuracy_tab(),
             create_bias_tab(),
-            create_efficiency_tab(),
-            create_time_machine_tab(),
-            create_hedgehog_tab(),
-            create_outturn_revisions_tab(),
-            create_radar_tab(),
         ]
+
+        # Efficiency tests are not supported for nowcasting data
+        if not data.nowcasting:
+            tabs.append(create_efficiency_tab())
+
+        tabs.extend(
+            [
+                create_time_machine_tab(),
+                create_hedgehog_tab(),
+                create_outturn_revisions_tab(),
+                create_radar_tab(),
+            ]
+        )
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
             tabs.append(create_quantile_time_machine_tab())
@@ -88,10 +96,14 @@ def dashboard_app(data) -> App:
         rolling_errors(input, output, session, data)
         bias(input, output, session, data)
         rolling_bias(input, output, session, data)
-        blanchard_leigh(input, output, session, data)
-        revisions_predictability(input, output, session, data)
-        weak_efficiency(input, output, session, data)
-        revisions_errors_correlation(input, output, session, data)
+
+        # Efficiency handlers are not needed for nowcasting data
+        if not data.nowcasting:
+            blanchard_leigh(input, output, session, data)
+            revisions_predictability(input, output, session, data)
+            weak_efficiency(input, output, session, data)
+            revisions_errors_correlation(input, output, session, data)
+
         hedgehog(input, output, session, data)
         outturn_revisions(input, output, session, data)
         outturns(input, output, session, data)

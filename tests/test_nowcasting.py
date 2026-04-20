@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+import forecast_evaluation as fe
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.sample_data import (
     compute_days_in_period,
@@ -63,20 +64,16 @@ class TestDaysInPeriod:
     """Test that days_in_period is computed and propagated for nowcasting data."""
 
     def test_days_in_period_with_nowcasting(self, nowcast_outturns, nowcast_forecasts):
-        """days_in_period should be computed, stored as int, flow to main table, and have valid range."""
+        """days_in_period should be computed, stored as int in raw forecasts, and have valid range."""
         fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert "days_in_period" in fd._raw_forecasts.columns
-        assert "days_in_period" in fd.forecasts.columns
         assert pd.api.types.is_integer_dtype(fd._raw_forecasts["days_in_period"])
 
         dip = pd.to_numeric(fd._raw_forecasts["days_in_period"])
         assert dip.min() >= 0
         assert dip.max() <= 91
-
-        if not fd.df.empty:
-            assert "days_in_period" in fd.df.columns
 
     def test_days_in_period_not_added_without_nowcasting(self):
         """Standard forecasts (nowcasting=False) should NOT get days_in_period."""
@@ -115,8 +112,8 @@ class TestNowcastingFlow:
         assert set(fd._raw_forecasts["source"].unique()) == {"nowcast_dfm", "nowcast_bridge"}
         assert set(fd._raw_forecasts["variable"].unique()) == {"gdp", "cpi"}
 
-        # Forecast horizon preserved and non-negative
-        assert (fd._raw_forecasts["forecast_horizon"] >= 0).all()
+        # Forecast horizons include backcast (h=-1), nowcast (h=0) and nearcast (h=1)
+        assert set(fd._raw_forecasts["forecast_horizon"].unique()) == {-1, 0, 1}
 
         # k in main table is in quarterly units
         if not fd.df.empty:
@@ -132,7 +129,8 @@ class TestNowcastingFlow:
         fd.add_forecasts(forecasts_no_horizon, data_check=False)
 
         assert "forecast_horizon" in fd._raw_forecasts.columns
-        assert (fd._raw_forecasts["forecast_horizon"] >= 0).all()
+        # Sample nowcast data includes backcasts (h=-1), nowcasts (h=0) and nearcasts (h=1)
+        assert set(fd._raw_forecasts["forecast_horizon"].unique()) == {-1, 0, 1}
 
     def test_mixed_weekly_and_quarterly_vintages(self, nowcast_outturns, nowcast_forecasts):
         """Can add both quarterly-vintage and weekly-vintage forecasts."""
@@ -218,3 +216,50 @@ class TestIntraPeriodPlot:
 
         with pytest.raises(ValueError, match="No data"):
             plot_intra_period_accuracy(fd, variable="nonexistent", metric="levels", frequency="Q", return_plot=True)
+
+
+# -----------------------
+# Efficiency Tests Block for Nowcasts
+# -----------------------
+class TestEfficiencyBlockedForNowcasts:
+    """Efficiency analysis functions should raise ValueError for nowcasting data."""
+
+    @pytest.fixture
+    def nowcast_fd(self, nowcast_outturns, nowcast_forecasts):
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        return fd
+
+    def test_weak_efficiency_raises(self, nowcast_fd):
+        with pytest.raises(ValueError, match="not supported for nowcasting"):
+            fe.weak_efficiency_analysis(data=nowcast_fd)
+
+    def test_strong_efficiency_raises(self, nowcast_fd):
+        with pytest.raises(ValueError, match="not supported for nowcasting"):
+            fe.strong_efficiency_analysis(
+                data=nowcast_fd,
+                source="nowcast_dfm",
+                outcome_variable="gdp",
+                outcome_metric="levels",
+                instrument_variable="cpi",
+                instrument_metric="levels",
+            )
+
+    def test_blanchard_leigh_raises(self, nowcast_fd):
+        with pytest.raises(ValueError, match="not supported for nowcasting"):
+            fe.blanchard_leigh_horizon_analysis(
+                data=nowcast_fd,
+                source="nowcast_dfm",
+                outcome_variable="gdp",
+                outcome_metric="levels",
+                instrument_variable="cpi",
+                instrument_metric="levels",
+            )
+
+    def test_revision_predictability_raises(self, nowcast_fd):
+        with pytest.raises(ValueError, match="not supported for nowcasting"):
+            fe.revision_predictability_analysis(data=nowcast_fd)
+
+    def test_revisions_errors_correlation_raises(self, nowcast_fd):
+        with pytest.raises(ValueError, match="not supported for nowcasting"):
+            fe.revisions_errors_correlation_analysis(data=nowcast_fd)

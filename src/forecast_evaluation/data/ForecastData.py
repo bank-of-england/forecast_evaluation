@@ -45,6 +45,7 @@ class ForecastData:
         compute_levels: bool = True,
         data_check: bool = True,
         nowcasting: bool = False,
+        first_forecast_horizon: int = 0,
     ):
         """Initialise with user data, FER data or null.
 
@@ -76,6 +77,11 @@ class ForecastData:
             Whether the data contains nowcasting forecasts with intra-period vintage dates
             (e.g., weekly or daily). When True, a ``days_in_period`` column is automatically
             computed and added as an extra label column. Default is False.
+        first_forecast_horizon : int, optional
+            The minimum forecast horizon to retain in processed forecasts.
+            Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
+            for periods that have already ended but whose data has not yet been released.
+            Default is 0 (only current-period and future forecasts).
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -84,6 +90,7 @@ class ForecastData:
         self._main_table = pd.DataFrame()
         self._id_columns = None
         self.nowcasting = nowcasting
+        self.first_forecast_horizon = first_forecast_horizon
 
         if load_fer:
             self.add_fer_data()
@@ -315,7 +322,13 @@ class ForecastData:
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
-        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns, compute_levels=compute_levels)
+        forecasts = prepare_forecasts(
+            df,
+            self._raw_outturns,
+            self._id_columns,
+            compute_levels=compute_levels,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
 
         # Compute main table
         main_table = build_main_table(forecasts, self._outturns, self._id_columns)
@@ -592,7 +605,12 @@ class ForecastData:
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
         # Separate forecasts and outturns
-        forecasts = prepare_forecasts(self._raw_forecasts, self._raw_outturns, self._id_columns)
+        forecasts = prepare_forecasts(
+            self._raw_forecasts,
+            self._raw_outturns,
+            self._id_columns,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
         outturns = prepare_outturns(self._raw_outturns)
 
         self._forecasts = forecasts
