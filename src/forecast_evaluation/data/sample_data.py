@@ -103,37 +103,49 @@ def create_sample_forecasts() -> pd.DataFrame:
 def create_sample_nowcast_outturns() -> pd.DataFrame:
     """Create sample outturns DataFrame for nowcasting tests and examples.
 
-    Creates quarterly outturns for two variables (gdp and cpi) with a single
-    outturn vintage, covering 2022Q1 to 2025Q1.
+    Creates quarterly outturns for two variables (gdp and cpi) with multiple
+    outturn vintages, covering 2020Q1 to 2025Q4 (24 quarters). Each target
+    date has quarterly outturn releases with white noise that shrinks as the
+    vintage matures (higher k = less noise), mimicking real data revisions.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with outturn data suitable for nowcasting evaluation.
     """
-    dates = pd.date_range(start="2022-01-01", periods=13, freq="QE")
+    np.random.seed(42)
+    target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
 
-    df_gdp = pd.DataFrame(
-        {
-            "date": dates,
-            "variable": "gdp",
-            "vintage_date": pd.Timestamp("2025-06-30"),
-            "frequency": "Q",
-            "value": [100, 101.2, 100.8, 102.0, 103.1, 102.5, 104.0, 105.2, 104.8, 106.1, 107.0, 106.5, 108.0],
-        }
-    )
+    # True outturn values
+    truth = {
+        "gdp": {d: 99.0 + (i * 0.3 + np.sin(i / 4) * 0.5) for i, d in enumerate(target_dates)},
+        "cpi": {d: 98.0 + (i * 0.45 + np.cos(i / 4) * 0.8) for i, d in enumerate(target_dates)},
+    }
 
-    df_cpi = pd.DataFrame(
-        {
-            "date": dates,
-            "variable": "cpi",
-            "vintage_date": pd.Timestamp("2025-06-30"),
-            "frequency": "Q",
-            "value": [100, 101.5, 103.0, 104.2, 105.8, 107.0, 108.5, 110.0, 111.2, 112.8, 114.0, 115.5, 117.0],
-        }
-    )
+    rows = []
+    for variable, values in truth.items():
+        for target_date, true_value in values.items():
+            # Generate quarterly outturn vintages starting from the quarter after
+            # the target date up to 2026-03-31, each representing a data release
+            vintage_start = target_date + pd.tseries.offsets.QuarterEnd(1)
+            vintage_dates = pd.date_range(vintage_start, "2026-03-31", freq="QE")
 
-    df_outturn = pd.concat([df_gdp, df_cpi], ignore_index=True)
+            for vintage_date in vintage_dates:
+                # k = number of quarters between outturn vintage and target date
+                k = (vintage_date.to_period("Q") - target_date.to_period("Q")).n
+                # Noise shrinks with maturity: std = 0.5 / (1 + k)
+                noise = np.random.normal(0, 0.5 / (1 + k))
+                rows.append(
+                    {
+                        "date": target_date,
+                        "variable": variable,
+                        "vintage_date": vintage_date,
+                        "frequency": "Q",
+                        "value": round(true_value + noise, 4),
+                    }
+                )
+
+    df_outturn = pd.DataFrame(rows)
     df_outturn["forecast_horizon"] = (
         df_outturn["date"].dt.to_period("Q") - df_outturn["vintage_date"].dt.to_period("Q")
     ).apply(lambda x: x.n)
@@ -144,10 +156,9 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
 def create_sample_nowcast_forecasts() -> pd.DataFrame:
     """Create sample nowcasting forecasts with weekly vintage dates.
 
-    Generates one year of weekly nowcasts (2024-01-01 to 2024-12-31) from two
-    models for two variables (gdp and cpi), each targeting the 4 quarters of 2024.
-    Each weekly vintage produces forecasts for all target quarters that have
-    ``forecast_horizon >= 0`` at that point in time.
+    Generates 6 years of weekly nowcasts (2020-2025) from two models for two variables
+    (gdp and cpi), each targeting h=0 and h=1. Multiple weekly vintages per quarter
+    provide many forecast updates before publication.
 
     Returns
     -------
@@ -162,16 +173,21 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     >>> df["variable"].unique()
     array(['gdp', 'cpi'], dtype=object)
     """
-    target_dates = pd.date_range("2024-03-31", periods=4, freq="QE")
-    vintage_dates = pd.date_range("2024-01-01", "2024-12-31", freq="W-MON")
+    # 24 quarters: 2020Q1 to 2025Q4
+    target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
+    # 5 evenly spaced vintage dates per quarter
+    quarter_starts = pd.date_range("2020-01-01", periods=24, freq="QS")
+    vintage_dates = pd.DatetimeIndex(
+        [start + pd.Timedelta(days=int(i * 91 / 5)) for start in quarter_starts for i in range(5)]
+    )
 
-    # True outturn values for 2024 Q1-Q4 (must match create_sample_nowcast_outturns)
+    # True outturn values
     truth = {
-        "gdp": {target_dates[0]: 104.8, target_dates[1]: 106.1, target_dates[2]: 107.0, target_dates[3]: 106.5},
-        "cpi": {target_dates[0]: 111.2, target_dates[1]: 112.8, target_dates[2]: 114.0, target_dates[3]: 115.5},
+        "gdp": {d: 99.0 + (i * 0.3 + np.sin(i / 4) * 0.5) for i, d in enumerate(target_dates)},
+        "cpi": {d: 98.0 + (i * 0.45 + np.cos(i / 4) * 0.8) for i, d in enumerate(target_dates)},
     }
 
-    # Initial bias per (model, variable) — forecasts start here and linearly converge to truth
+    # Initial bias per (model, variable)
     initial_bias = {
         "nowcast_dfm": {"gdp": 2.0, "cpi": -2.5},
         "nowcast_bridge": {"gdp": -1.5, "cpi": 3.0},
@@ -183,12 +199,11 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
             for vintage in vintage_dates:
                 for target in target_dates:
                     horizon = (target.to_period("Q") - vintage.to_period("Q")).n
-                    if horizon < 0:
+                    # Only h=0 and h=1
+                    if horizon < 0 or horizon > 1:
                         continue
 
-                    # Deterministic convergence: error shrinks linearly with days_in_period.
-                    # At day 0 the forecast equals truth + bias * (1 + horizon * 0.3),
-                    # at day 91 (end of quarter) it equals truth exactly (for h=0).
+                    # Deterministic convergence: error shrinks as days_in_period increases
                     days_into_quarter = (vintage - vintage.to_period("Q").start_time).days
                     remaining_fraction = 1 - days_into_quarter / 91
                     error = bias * remaining_fraction * (1 + horizon * 0.3)

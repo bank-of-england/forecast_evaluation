@@ -63,7 +63,10 @@ def create_sidebar(data):
 
     loss_functions = ["rmse", "rmedse", "mean_abs_error"]
     loss_functions_tests = ["mse", "mae"]
-    k_values = list(range(len(vintages) + 1))
+    if hasattr(data, "_main_table") and not data._main_table.empty:
+        k_values = sorted(data._main_table["k"].unique().tolist())
+    else:
+        k_values = [0]
 
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         quantiles = data._density_forecasts["quantile"].unique()

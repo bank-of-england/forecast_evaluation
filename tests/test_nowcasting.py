@@ -120,7 +120,7 @@ class TestNowcastingFlow:
 
         # k in main table is in quarterly units
         if not fd.df.empty:
-            assert fd.df["k"].max() <= 20
+            assert fd.df["k"].max() <= 25
             assert fd.df["k"].min() >= -1
 
     def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
