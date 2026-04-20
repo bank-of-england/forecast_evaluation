@@ -37,16 +37,27 @@ def time_machine(input, output, session, data):
         """Calculate and cache the plot."""
         data_filtered = get_data()
 
-        fig, ax = fe.plot_vintage(
-            data=data_filtered,
-            variable=input.variable(),
-            frequency="Q",
-            vintage_date=input.vintage(),
-            outturn_start_date=input.start_date(),
-            metric=input.transform(),
-            k=int(input.k()),
-            return_plot=True,
-        )
+        if data.nowcasting:
+            fig, ax = fe.plot_nowcasts(
+                data=data_filtered,
+                variable=input.variable(),
+                frequency="Q",
+                target_date=input.vintage(),
+                metric=input.transform(),
+                k=int(input.k()),
+                return_plot=True,
+            )
+        else:
+            fig, ax = fe.plot_vintage(
+                data=data_filtered,
+                variable=input.variable(),
+                frequency="Q",
+                vintage_date=input.vintage(),
+                outturn_start_date=input.start_date(),
+                metric=input.transform(),
+                k=int(input.k()),
+                return_plot=True,
+            )
         return fig, ax
 
     @render.plot

@@ -54,6 +54,11 @@ def create_sidebar(data):
         horizons.update(data._density_forecasts["forecast_horizon"].dropna().unique().tolist())
 
     vintages = sorted(list(vintages_set))
+    outturn_vintages = sorted(
+        set([str(v)[:10] for v in data.outturns["vintage_date"].unique().tolist()])
+        if hasattr(data, "_outturns") and not data.outturns.empty
+        else vintages_set
+    )
     outturn_dates = sorted(list(outturn_dates_set))
     variable = sorted(list(variable_set))
     sources = sorted(list(sources_set))
@@ -129,35 +134,43 @@ def create_sidebar(data):
 
     if len(id_columns) > 0:
         additional_selectors = []
+        is_nowcasting = hasattr(data, "nowcasting") and data.nowcasting
+
         for col in id_columns:
             col_choices, id_single, id_multi = get_selector_info(col, data)
+
+            # For nowcasting, days_in_period should not appear in the Time Machine
+            # selector — all maturities targeting a quarter are shown together
+            show_in_time_machine = not (is_nowcasting and col == "days_in_period")
+
+            multi_condition = (
+                average_accuracy_tab
+                + _or
+                + relative_accuracy_tab
+                + _or
+                + rolling_accuracy_tab
+                + _or
+                + dm_tab
+                + _or
+                + revisions_tab
+                + _or
+                + weak_efficiency_tab
+                + _or
+                + revisions_errors_tab
+                + _or
+                + errors_tab
+                + _or
+                + rolling_errors_tab
+                + _or
+                + radar_tab
+            )
+            if show_in_time_machine:
+                multi_condition = multi_condition + _or + time_machine_tab + _or + quantile_time_machine_tab
 
             # Create the multiple input selector
             additional_selectors.append(
                 ui.panel_conditional(
-                    average_accuracy_tab
-                    + _or
-                    + relative_accuracy_tab
-                    + _or
-                    + rolling_accuracy_tab
-                    + _or
-                    + dm_tab
-                    + _or
-                    + time_machine_tab
-                    + _or
-                    + quantile_time_machine_tab
-                    + _or
-                    + revisions_tab
-                    + _or
-                    + weak_efficiency_tab
-                    + _or
-                    + revisions_errors_tab
-                    + _or
-                    + errors_tab
-                    + _or
-                    + rolling_errors_tab
-                    + _or
-                    + radar_tab,
+                    multi_condition,
                     ui.input_selectize(id_multi, f"{col}s:", choices=col_choices, multiple=True, selected=col_choices),
                 )
             )
@@ -404,10 +417,19 @@ def create_sidebar(data):
                 selected=[12],
             ),
         ),
-        # Vintage selector
+        # Vintage / Target selector
         ui.panel_conditional(
             time_machine_tab + _or + quantile_time_machine_tab,
-            ui.input_select("vintage", "Vintage:", choices=vintages, selected=vintages[-1]),
+            ui.input_select(
+                "vintage",
+                f"Target {period_label.rstrip('s').capitalize()}:"
+                if (hasattr(data, "nowcasting") and data.nowcasting)
+                else "Vintage:",
+                choices=outturn_dates if (hasattr(data, "nowcasting") and data.nowcasting) else outturn_vintages,
+                selected=outturn_dates[-1]
+                if (hasattr(data, "nowcasting") and data.nowcasting)
+                else outturn_vintages[-1],
+            ),
         ),
         # Transformation
         ui.panel_conditional(

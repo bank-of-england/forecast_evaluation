@@ -46,6 +46,7 @@ from .visualisations import (
     plot_hedgehog,
     plot_intra_period_accuracy,
     plot_intra_period_bias,
+    plot_nowcasts,
     plot_outturn_revisions,
     plot_outturns,
     plot_radar,
@@ -101,6 +102,7 @@ __all__ = [
     "plot_rolling_bias",
     "plot_rolling_relative_accuracy",
     "plot_bias_by_horizon",
+    "plot_nowcasts",
     "plot_vintage",
     "plot_errors_across_time",
     # Utility functions
