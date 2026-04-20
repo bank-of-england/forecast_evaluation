@@ -34,7 +34,7 @@ def plot_radar(
     variables: Optional[list[str]] = None,
     metric: Optional[str] = None,
     horizon: Optional[int] = None,
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Union[Literal["Q", "M"], None] = None,
     statistic: Literal["rmse", "rmedse", "mean_abs_error"] = "rmse",
     k: int = 12,
     test_type: Literal["accuracy", "bias", "efficiency"] = "accuracy",
@@ -82,8 +82,8 @@ def plot_radar(
         Metric to fix (required for ``"variables"`` and ``"tests"`` modes).
     horizon : int, optional
         Forecast horizon to fix (required for all modes).
-    frequency : {"Q", "M"}, default "Q"
-        Data frequency filter.
+    frequency : {"Q", "M"} or None, default None
+        Data frequency filter. If None, inferred from the data.
     statistic : str, default "rmse"
         Accuracy statistic to use when ``test_type='accuracy'``.
     k : int, default 12
@@ -119,6 +119,21 @@ def plot_radar(
     -------
     tuple of (Figure, PolarAxes) or None
     """
+    if frequency is None:
+        if hasattr(df, "_main_table") and df._main_table is not None:
+            _freq_col = df._main_table["frequency"]
+        elif hasattr(df, "to_df"):
+            _freq_col = df.to_df()["frequency"]
+        else:
+            _freq_col = df["frequency"]
+        inferred = _freq_col.unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
+
     # ------------------------------------------------------------------
     # Build pivot table depending on mode
     # ------------------------------------------------------------------

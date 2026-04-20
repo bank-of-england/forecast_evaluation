@@ -1,6 +1,6 @@
 """Density forecast data class for handling probabilistic forecasts with quantiles."""
 
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -448,7 +448,7 @@ class DensityForecastData(ForecastData):
         quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
         forecast_source: list[str] = None,
         outturn_start_date: str | pd.Timestamp = None,
-        frequency: Literal["Q", "M"] = "Q",
+        frequency: Union[Literal["Q", "M"], None] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         return_plot: bool = False,
         **kwargs,

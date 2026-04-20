@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Literal
+from typing import Literal, Optional
 
 import pandas as pd
 from tqdm import tqdm
@@ -12,7 +12,7 @@ def build_random_walk_model(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Optional[Literal["Q", "M"]] = None,
     forecast_periods: int = 13,
     show_progress: bool = False,
 ):
@@ -27,8 +27,9 @@ def build_random_walk_model(
         The variable to build the model for (e.g., 'gdpkp').
     metric : str
         The metric to build the model for (e.g., 'levels').
-    frequency : Literal["Q", "M"], optional
-        The frequency of the data ('Q' for quarterly, 'M' for monthly). Default is 'Q'.
+    frequency : str or None, optional
+        The frequency of the data ('Q' for quarterly, 'M' for monthly). If None,
+        inferred from the data. Default is None.
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
     show_progress : bool, optional
@@ -46,6 +47,15 @@ def build_random_walk_model(
     If the random walk is built in growth rates (pop or yoy), the forecasted growth rates are assumed to be
     constant and equal to the latest observed growth rate.
     """
+    if frequency is None:
+        inferred = data._raw_outturns[data._raw_outturns["variable"] == variable]["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
+
     # Filter data for the specified variable and frequency
     df = data._raw_outturns[
         (data._raw_outturns["variable"] == variable) & (data._raw_outturns["frequency"] == frequency)

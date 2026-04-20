@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,7 +15,7 @@ def build_ar_p_model(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "diff", "pop", "yoy"],
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Optional[Literal["Q", "M"]] = None,
     forecast_periods: int = 13,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
@@ -32,8 +32,9 @@ def build_ar_p_model(
         The variable to build the model for (e.g., 'gdpkp').
     metric : str
         The metric to build the model for (e.g., 'levels').
-    frequency : Literal["Q", "M"], optional
-        The frequency of the data ('Q' for quarterly, 'M' for monthly). Default is 'Q'.
+    frequency : str or None, optional
+        The frequency of the data ('Q' for quarterly, 'M' for monthly). If None,
+        inferred from the data. Default is None.
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
     estimation_start_date : pd.Timestamp, optional
@@ -52,6 +53,15 @@ def build_ar_p_model(
     The function fits an AR(p) model with Student t-distributed errors using Maximum Likelihood Estimation.
     The optimal lag length p is selected based on the Bayesian Information Criterion (BIC).
     """
+    if frequency is None:
+        inferred = data._raw_outturns[data._raw_outturns["variable"] == variable]["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
+
     # Filter data for the specified variable and frequency
     df = data._raw_outturns[
         (data._raw_outturns["variable"] == variable) & (data._raw_outturns["frequency"] == frequency)

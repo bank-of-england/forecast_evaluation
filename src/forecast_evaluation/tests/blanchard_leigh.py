@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -182,7 +182,7 @@ def blanchard_leigh_horizon_analysis(
     instrument_metric: Literal["levels", "pop", "yoy"],
     horizons: np.ndarray = np.arange(13),
     j: int = 2,
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     alpha: float = 0.05,
 ) -> TestResult:
@@ -206,8 +206,9 @@ def blanchard_leigh_horizon_analysis(
         Array of forecast horizons to test
     j : int, default=2
         Forecast horizon of instrument variable
-    frequency : Literal["Q", "M"], default='Q'
-        Frequency of the data (quarterly or monthly)
+    frequency : str or None, default None
+        Frequency of the data (quarterly or monthly). If None, inferred from
+        the data.
     k : int, default=12
         Number of revisions used to define the outturn
     alpha : float, default=0.05
@@ -225,6 +226,15 @@ def blanchard_leigh_horizon_analysis(
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
     df = data._main_table.copy()
+
+    if frequency is None:
+        inferred = df["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
 
     # Ensure horizons is a NumPy array
     horizons = np.array(horizons)

@@ -33,3 +33,7 @@
 ## [0.1.5] - 2026-04-14
 ### Added
 - Radar charts
+
+## [0.1.6] - Unreleased
+### Adjustments
+- Made `frequency` argument optional (default `None`) and inferred from the data in: `plot_hedgehog()`, `build_ar_p_model`, `build_random_walk_model`, `plot_density_vintage`, `plot_vintage`, `plot_radar`, `plot_accuracy`, `strong_efficiency_analysis`, `revision_predictability_analysis`, `blanchard_leigh_horizon_analysis`, `plot_accuracy`
