@@ -2,8 +2,6 @@ from typing import Literal, Union
 
 import pandas as pd
 
-from forecast_evaluation.utils import reconstruct_id_cols_from_unique_id
-
 
 def compute_k(df: pd.DataFrame, frequency: str) -> pd.DataFrame:
     """Compute the forecast horizon k for each row in the dataframe.
@@ -78,6 +76,9 @@ def build_main_table(
 
     forecasts = forecasts.copy()
 
+    # Build a lookup table: unique_id -> id columns, to avoid expensive string splitting later
+    id_lookup = forecasts[["unique_id"] + id_columns].drop_duplicates(subset=["unique_id"])
+
     # remove individual id columns
     forecasts = forecasts.drop(columns=id_columns)
 
@@ -144,7 +145,7 @@ def build_main_table(
     # Compute forecast errors
     merged["forecast_error"] = merged["value_outturn"] - merged["value_forecast"]
 
-    # reconstruct individual id columns from unique_id and remove unique id
-    merged = reconstruct_id_cols_from_unique_id(merged, id_columns)
+    # Restore id columns from lookup instead of parsing unique_id strings
+    merged = merged.merge(id_lookup, on="unique_id", how="left")
 
     return merged

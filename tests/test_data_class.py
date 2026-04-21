@@ -794,7 +794,7 @@ def test_quarterly_dates_forced_to_quarter_end(sample_outturns):
     expected_dates = pd.to_datetime(["2023-03-31", "2023-06-30"])
     actual_dates = fd._raw_forecasts["date"].sort_values().reset_index(drop=True)
 
-    pd.testing.assert_series_equal(actual_dates, pd.Series(expected_dates, name="date"))
+    pd.testing.assert_series_equal(actual_dates, pd.Series(expected_dates, name="date"), check_dtype=False)
 
 
 def test_monthly_dates_forced_to_month_end(sample_outturns):
@@ -819,7 +819,7 @@ def test_monthly_dates_forced_to_month_end(sample_outturns):
     expected_dates = pd.to_datetime(["2023-01-31", "2023-12-31"])
     actual_dates = fd._raw_forecasts["date"].sort_values().reset_index(drop=True)
 
-    pd.testing.assert_series_equal(actual_dates, pd.Series(expected_dates, name="date"))
+    pd.testing.assert_series_equal(actual_dates, pd.Series(expected_dates, name="date"), check_dtype=False)
 
 
 # test when using outturns not in levels

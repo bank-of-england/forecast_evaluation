@@ -2,8 +2,6 @@ from typing import Literal
 
 import pandas as pd
 
-from forecast_evaluation.utils import reconstruct_id_cols_from_unique_id
-
 
 def transform_series(
     df: pd.DataFrame, transform: Literal["levels", "diff", "pop", "yoy"], frequency: Literal["Q", "M"]
@@ -118,6 +116,9 @@ def prepare_forecasts(
         # non_levels_forecasts = reconstruct_id_cols_from_unique_id(non_levels_forecasts, id_columns)
         return non_levels_forecasts
 
+    # Build a lookup table: unique_id -> id columns, to avoid expensive string splitting later
+    id_lookup = levels_forecasts[["unique_id"] + id_columns].drop_duplicates(subset=["unique_id"])
+
     levels_forecasts = levels_forecasts.drop(columns=id_columns)
 
     frequencies = levels_forecasts["frequency"].unique()
@@ -164,8 +165,8 @@ def prepare_forecasts(
 
     df_forecasts = pd.concat(forecasts_all, ignore_index=True)
 
-    # reconstruct individual id columns from unique_id
-    df_forecasts = reconstruct_id_cols_from_unique_id(df_forecasts, id_columns)
+    # Restore id columns from lookup instead of parsing unique_id strings
+    df_forecasts = df_forecasts.merge(id_lookup, on="unique_id", how="left")
 
     # Combine transformed levels forecasts with pass-through non-levels forecasts
     if not non_levels_forecasts.empty:
