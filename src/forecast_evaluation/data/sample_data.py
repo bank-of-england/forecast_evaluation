@@ -2,8 +2,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .utils import compute_days_in_period
-
 
 def create_sample_outturns() -> pd.DataFrame:
     """Create sample outturns DataFrame for testing and examples."""
@@ -173,13 +171,13 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     -------
     pd.DataFrame
         DataFrame with columns: date, variable, vintage_date, source,
-        frequency, forecast_horizon, value, days_in_period.
+        frequency, value.  ``forecast_horizon`` is intentionally omitted so
+        that :meth:`ForecastData.add_forecasts` computes the continuous
+        days-based nowcasting horizon automatically when ``nowcasting=True``.
 
     Examples
     --------
     >>> df = create_sample_nowcast_forecasts()
-    >>> sorted(df["forecast_horizon"].unique())
-    [-1, 0, 1]
     >>> df["source"].unique()
     array(['nowcast_dfm', 'nowcast_bridge'], dtype=object)
 
@@ -256,13 +254,11 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
                             "vintage_date": vintage,
                             "source": source,
                             "frequency": "Q",
-                            "forecast_horizon": horizon,
                             "value": round(truth[variable][target] + error + noise, 2),
                         }
                     )
 
     df = pd.DataFrame(rows)
-    df["days_in_period"] = compute_days_in_period(df["vintage_date"], df["frequency"])
     return df
 
 

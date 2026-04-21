@@ -225,9 +225,12 @@ class ForecastData:
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
 
-        # Compute forecast_horizon if missing
+        # Compute forecast_horizon if missing.
+        # For nowcasting data use the days-based continuous horizon so that each
+        # weekly vintage gets its own unique integer horizon (days to end of target
+        # period). For regular forecasts use the integer-period horizon.
         if "forecast_horizon" not in df.columns:
-            df = compute_forecast_horizon(df)
+            df = compute_forecast_horizon(df, nowcasting=self.nowcasting)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -245,19 +248,6 @@ class ForecastData:
         # Convert extra col names to contain only letters, numbers, and underscores
         if extra_ids is not None:
             df, extra_ids = _fix_extra_columns(df, extra_ids)
-
-        # Nowcasting: compute days_in_period if enabled and not already present
-        if self.nowcasting and "days_in_period" not in df.columns:
-            from forecast_evaluation.data.utils import compute_days_in_period
-
-            df = df.copy()
-            df["days_in_period"] = compute_days_in_period(df["vintage_date"], df["frequency"])
-
-        if "days_in_period" in df.columns:
-            if extra_ids is None:
-                extra_ids = ["days_in_period"]
-            elif "days_in_period" not in extra_ids:
-                extra_ids = extra_ids + ["days_in_period"]
 
         # Validate records using the ForecastRecord model
         # Include 'metric' as an optional column in validation

@@ -214,21 +214,32 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame
     return unique_id
 
 
-def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
+def compute_forecast_horizon(df: pd.DataFrame, nowcasting: bool = False) -> pd.DataFrame:
     """Compute forecast_horizon from date, vintage_date, and frequency.
-
-    The horizon is the number of periods (quarters or months) between
-    the vintage date and the target date.
 
     Parameters
     ----------
     df : pd.DataFrame
         DataFrame with 'date', 'vintage_date', and 'frequency' columns.
+    nowcasting : bool, optional
+        When False (default), the horizon is the integer number of periods
+        (quarters or months) between the vintage date and the target date,
+        e.g. 0 for a same-quarter forecast, 1 for one quarter ahead.
+
+        When True, the horizon is expressed in **days** as
+        ``(end_of_target_period - vintage_date).days``.  This is a continuous,
+        monotonically-decreasing measure that bridges integer-horizon boundaries:
+        a vintage made at the start of the target quarter has a large positive
+        value; a vintage made after the quarter ends (backcast) has a negative
+        value.  One unique integer horizon per weekly vintage means every
+        standard test (accuracy, bias, DM, serial-correlation) operates on a
+        single observation per target per horizon, exactly as for regular
+        quarterly forecasts.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with 'forecast_horizon' column added.
+        DataFrame with 'forecast_horizon' column added or replaced.
     """
     df = df.copy()
     dates = pd.to_datetime(df["date"])
@@ -237,9 +248,15 @@ def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
 
     for freq in df["frequency"].unique():
         mask = df["frequency"] == freq
-        date_periods = dates[mask].dt.to_period(freq).astype("int64")
-        vintage_periods = vintages[mask].dt.to_period(freq).astype("int64")
-        result[mask] = date_periods - vintage_periods
+        if nowcasting:
+            # Days from vintage_date to the end of the target period.
+            # Positive = forecast made before the period ends; negative = backcast.
+            period_ends = dates[mask].dt.to_period(freq).dt.end_time.dt.normalize()
+            result[mask] = (period_ends - vintages[mask]).dt.days
+        else:
+            date_periods = dates[mask].dt.to_period(freq).astype("int64")
+            vintage_periods = vintages[mask].dt.to_period(freq).astype("int64")
+            result[mask] = date_periods - vintage_periods
 
     df["forecast_horizon"] = result
     return df

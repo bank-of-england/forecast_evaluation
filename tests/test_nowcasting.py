@@ -4,12 +4,12 @@ import pytest
 import forecast_evaluation as fe
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.sample_data import (
-    compute_days_in_period,
     create_sample_forecasts,
     create_sample_nowcast_forecasts,
     create_sample_nowcast_outturns,
     create_sample_outturns,
 )
+from forecast_evaluation.data.utils import compute_days_in_period
 from forecast_evaluation.visualisations.intra_period import plot_intra_period_accuracy
 
 
@@ -61,28 +61,25 @@ class TestComputeDaysInPeriod:
 # days_in_period in ForecastData
 # -----------------------
 class TestDaysInPeriod:
-    """Test that days_in_period is computed and propagated for nowcasting data."""
+    """Test that days_in_period is no longer injected into extra_ids for nowcasting data."""
 
-    def test_days_in_period_with_nowcasting(self, nowcast_outturns, nowcast_forecasts):
-        """days_in_period should be computed, stored as int in raw forecasts, and have valid range."""
+    def test_days_in_period_not_in_unique_id(self, nowcast_outturns, nowcast_forecasts):
+        """With nowcasting=True, unique_id should just be 'source' (no days_in_period)."""
         fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
-        assert "days_in_period" in fd._raw_forecasts.columns
-        assert pd.api.types.is_integer_dtype(fd._raw_forecasts["days_in_period"])
-
-        dip = pd.to_numeric(fd._raw_forecasts["days_in_period"])
-        assert dip.min() >= 0
-        assert dip.max() <= 91
+        assert fd.id_columns == ["source"]
+        # No '+' separator with days_in_period in unique_id
+        assert all("+" not in uid for uid in fd._raw_forecasts["unique_id"].unique())
 
     def test_days_in_period_not_added_without_nowcasting(self):
         """Standard forecasts (nowcasting=False) should NOT get days_in_period."""
         fd = ForecastData(outturns_data=create_sample_outturns(), forecasts_data=create_sample_forecasts())
         assert "days_in_period" not in fd._raw_forecasts.columns
 
-    def test_sample_data_has_days_in_period(self, nowcast_forecasts):
-        """The sample nowcast data should already include days_in_period."""
-        assert "days_in_period" in nowcast_forecasts.columns
+    def test_sample_data_does_not_have_days_in_period(self, nowcast_forecasts):
+        """The sample nowcast data no longer includes days_in_period (it is computed on ingestion)."""
+        assert "days_in_period" not in nowcast_forecasts.columns
 
 
 # -----------------------
@@ -93,7 +90,9 @@ class TestNowcastingFlow:
 
     def test_nowcast_data_properties(self, nowcast_outturns, nowcast_forecasts):
         """Nowcast data should preserve row count, vintages, sources, variables, and horizons."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = ForecastData(
+            outturns_data=nowcast_outturns, nowcasting=True, first_forecast_horizon=-365
+        )
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         # Row count preserved
@@ -112,8 +111,13 @@ class TestNowcastingFlow:
         assert set(fd._raw_forecasts["source"].unique()) == {"nowcast_dfm", "nowcast_bridge"}
         assert set(fd._raw_forecasts["variable"].unique()) == {"gdp", "cpi"}
 
-        # Forecast horizons include backcast (h=-1), nowcast (h=0) and nearcast (h=1)
-        assert set(fd._raw_forecasts["forecast_horizon"].unique()) == {-1, 0, 1}
+        # forecast_horizon is now days-based (continuous integers), not integer quarters
+        fh = fd._raw_forecasts["forecast_horizon"]
+        assert pd.api.types.is_integer_dtype(fh)
+        # Backcasts have negative horizon (vintage after quarter-end)
+        assert (fh < 0).any()
+        # Far-ahead forecasts have large positive horizons
+        assert fh.max() > 90
 
         # k in main table is in quarterly units
         if not fd.df.empty:
@@ -121,16 +125,17 @@ class TestNowcastingFlow:
             assert fd.df["k"].min() >= -1
 
     def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
-        """forecast_horizon should be computed automatically if missing."""
-        forecasts_no_horizon = nowcast_forecasts.drop(columns=["forecast_horizon"])
+        """forecast_horizon should be computed automatically if missing, using days-based method."""
         outturns_no_horizon = nowcast_outturns.drop(columns=["forecast_horizon"])
 
-        fd = ForecastData(outturns_data=outturns_no_horizon, nowcasting=True)
-        fd.add_forecasts(forecasts_no_horizon, data_check=False)
+        fd = ForecastData(
+            outturns_data=outturns_no_horizon, nowcasting=True, first_forecast_horizon=-365
+        )
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert "forecast_horizon" in fd._raw_forecasts.columns
-        # Sample nowcast data includes backcasts (h=-1), nowcasts (h=0) and nearcasts (h=1)
-        assert set(fd._raw_forecasts["forecast_horizon"].unique()) == {-1, 0, 1}
+        # Nowcasting horizon is continuous (days), so many unique values
+        assert len(fd._raw_forecasts["forecast_horizon"].unique()) > 3
 
     def test_mixed_weekly_and_quarterly_vintages(self, nowcast_outturns, nowcast_forecasts):
         """Can add both quarterly-vintage and weekly-vintage forecasts."""
