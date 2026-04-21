@@ -248,7 +248,7 @@ class ForecastData:
 
         # Nowcasting: compute days_in_period if enabled and not already present
         if self.nowcasting and "days_in_period" not in df.columns:
-            from forecast_evaluation.data.sample_data import compute_days_in_period
+            from forecast_evaluation.data.utils import compute_days_in_period
 
             df = df.copy()
             df["days_in_period"] = compute_days_in_period(df["vintage_date"], df["frequency"])
