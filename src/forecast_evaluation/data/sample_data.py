@@ -280,24 +280,19 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
                         continue
                     target = target_by_period[target_period]
 
-                    # h=-1: stop once the official outturn has been published
-                    if horizon == -1:
-                        pub_date = target + pd.Timedelta(days=lag)
-                        if vintage >= pub_date:
-                            continue
+                    pub_date = target + pd.Timedelta(days=lag)
 
-                    if horizon >= 0:
-                        days_remaining = max(0, (target - vintage).days)
-                        remaining_fraction = days_remaining / max_days
-                        error = bias * remaining_fraction
-                        noise = np.random.normal(0, noise_scale * abs(bias) * remaining_fraction)
-                    else:
-                        # h=-1: error shrinks as vintage approaches the publication date
-                        pub_date = target + pd.Timedelta(days=lag)
-                        days_before_pub = max(0, (pub_date - vintage).days)
-                        pre_pub_fraction = days_before_pub / max_days
-                        error = bias * (0.05 + 0.15 * pre_pub_fraction)
-                        noise = np.random.normal(0, noise_scale * abs(bias) * pre_pub_fraction)
+                    # h=-1: stop once the official outturn has been published
+                    if horizon == -1 and vintage >= pub_date:
+                        continue
+
+                    # Unified error model: error decreases monotonically as the
+                    # vintage approaches the publication date, across all horizons.
+                    # At pub_date, days_before_pub=0 and error→0.
+                    days_before_pub = max(0, (pub_date - vintage).days)
+                    remaining_fraction = min(1.0, days_before_pub / max_days)
+                    error = bias * remaining_fraction
+                    noise = np.random.normal(0, noise_scale * abs(bias) * remaining_fraction)
 
                     rows.append(
                         {
