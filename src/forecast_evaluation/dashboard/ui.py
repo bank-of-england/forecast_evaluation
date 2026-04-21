@@ -116,6 +116,10 @@ def create_sidebar(data):
     )
     outturns_subtab = "input.tabs == 'Outturn Revisions' && input.outturn_revisions_subtabs == 'Outturns'"
 
+    # Intra-period tabs (NowcastData only)
+    intra_period_tab = "input.tabs == 'Intra-period'"
+    intra_accuracy_tab = "input.tabs == 'Intra-period' && input.intra_period_subtabs == 'Accuracy'"
+
     if hasattr(data, "_density_forecasts") and data._density_forecasts is not None:
         quantile_time_machine_tab = "input.tabs == 'Quantile Forecasts'"
     else:
@@ -164,6 +168,8 @@ def create_sidebar(data):
                 + rolling_errors_tab
                 + _or
                 + radar_tab
+                + _or
+                + intra_period_tab
             )
             if show_in_time_machine:
                 multi_condition = multi_condition + _or + time_machine_tab + _or + quantile_time_machine_tab
@@ -236,7 +242,9 @@ def create_sidebar(data):
                         + _or
                         + rolling_errors_tab
                         + _or
-                        + radar_tab,
+                        + radar_tab
+                        + _or
+                        + intra_period_tab,
                         ui.input_selectize("sources", "Sources:", choices=sources, multiple=True, selected=sources),
                     ),
                     ui.panel_conditional(
@@ -536,6 +544,11 @@ def create_sidebar(data):
             quantile_time_machine_tab,
             ui.input_select("upper_quantile", "Upper Quantile:", choices=quantiles, selected=closest_to_84),
         ),
+        # Intra-period statistic selector (accuracy subtab only)
+        ui.panel_conditional(
+            intra_accuracy_tab,
+            ui.input_select("intra_statistic", "Statistic:", choices=["rmse", "mae"], selected="rmse"),
+        ),
         # Legend
         ui.panel_conditional(
             "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
@@ -735,6 +748,28 @@ def create_quantile_time_machine_tab():
         ui.output_ui("quantile_time_machine_plot_ui"),
         ui.output_ui("quantile_time_machine_legend_ui"),
         ui.download_button("quantile_time_machine_download", "Download data behind chart"),
+    )
+
+
+def create_intra_period_tab():
+    """Create the Intra-period tab UI"""
+    return ui.nav_panel(
+        "Intra-period",
+        ui.navset_tab(
+            ui.nav_panel(
+                "Accuracy",
+                ui.output_ui("intra_accuracy_plot_ui"),
+                ui.output_ui("intra_accuracy_legend_ui"),
+                ui.download_button("download_intra_accuracy", "Download data behind chart"),
+            ),
+            ui.nav_panel(
+                "Bias",
+                ui.output_ui("intra_bias_plot_ui"),
+                ui.output_ui("intra_bias_legend_ui"),
+                ui.download_button("download_intra_bias", "Download data behind chart"),
+            ),
+            id="intra_period_subtabs",
+        ),
     )
 
 

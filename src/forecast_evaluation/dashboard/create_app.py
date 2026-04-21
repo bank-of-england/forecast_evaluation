@@ -18,6 +18,7 @@ from .tabs.about import about
 from .tabs.bias import errors, rolling_errors, bias, rolling_bias
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
+from .tabs.intra_period import intra_period_accuracy, intra_period_bias
 from .tabs.outturn_revisions import outturn_revisions, outturns
 from .tabs.radar import radar
 from .tabs.time_machine import time_machine
@@ -29,6 +30,7 @@ from .ui import (
     create_hedgehog_tab,
     create_outturn_revisions_tab,
     create_radar_tab,
+    create_intra_period_tab,
     create_sidebar,
     create_time_machine_tab,
     create_quantile_time_machine_tab,
@@ -57,6 +59,10 @@ def dashboard_app(data) -> App:
         # Efficiency tests are not supported for nowcasting data
         if not isinstance(data, NowcastData):
             tabs.append(create_efficiency_tab())
+
+        # Intra-period tab only for nowcasting data
+        if isinstance(data, NowcastData):
+            tabs.append(create_intra_period_tab())
 
         tabs.extend(
             [
@@ -104,6 +110,11 @@ def dashboard_app(data) -> App:
             revisions_predictability(input, output, session, data)
             weak_efficiency(input, output, session, data)
             revisions_errors_correlation(input, output, session, data)
+
+        # Intra-period handlers only for nowcasting data
+        if isinstance(data, NowcastData):
+            intra_period_accuracy(input, output, session, data)
+            intra_period_bias(input, output, session, data)
 
         hedgehog(input, output, session, data)
         outturn_revisions(input, output, session, data)
