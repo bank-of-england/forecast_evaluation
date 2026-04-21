@@ -90,9 +90,7 @@ class TestNowcastingFlow:
 
     def test_nowcast_data_properties(self, nowcast_outturns, nowcast_forecasts):
         """Nowcast data should preserve row count, vintages, sources, variables, and horizons."""
-        fd = ForecastData(
-            outturns_data=nowcast_outturns, nowcasting=True, first_forecast_horizon=-365
-        )
+        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True, first_forecast_horizon=-1)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         # Row count preserved
@@ -111,13 +109,15 @@ class TestNowcastingFlow:
         assert set(fd._raw_forecasts["source"].unique()) == {"nowcast_dfm", "nowcast_bridge"}
         assert set(fd._raw_forecasts["variable"].unique()) == {"gdp", "cpi"}
 
-        # forecast_horizon is now days-based (continuous integers), not integer quarters
+        # forecast_horizon is integer periods (e.g. -1 backcast, 0 nowcast, 1 one-quarter-ahead)
         fh = fd._raw_forecasts["forecast_horizon"]
         assert pd.api.types.is_integer_dtype(fh)
         # Backcasts have negative horizon (vintage after quarter-end)
         assert (fh < 0).any()
-        # Far-ahead forecasts have large positive horizons
-        assert fh.max() > 90
+        # Horizons are small integers, not days
+        assert fh.max() <= 10
+        # Multiple weekly vintages per (source, date, horizon) group
+        assert len(fd._raw_forecasts) > len(fh.unique()) * 2
 
         # k in main table is in quarterly units
         if not fd.df.empty:
@@ -125,17 +125,17 @@ class TestNowcastingFlow:
             assert fd.df["k"].min() >= -1
 
     def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
-        """forecast_horizon should be computed automatically if missing, using days-based method."""
+        """forecast_horizon should be computed automatically if missing, using integer-period method."""
         outturns_no_horizon = nowcast_outturns.drop(columns=["forecast_horizon"])
 
-        fd = ForecastData(
-            outturns_data=outturns_no_horizon, nowcasting=True, first_forecast_horizon=-365
-        )
+        fd = ForecastData(outturns_data=outturns_no_horizon, nowcasting=True, first_forecast_horizon=-1)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert "forecast_horizon" in fd._raw_forecasts.columns
-        # Nowcasting horizon is continuous (days), so many unique values
-        assert len(fd._raw_forecasts["forecast_horizon"].unique()) > 3
+        # Integer horizons: at least -1, 0, 1
+        unique_horizons = sorted(fd._raw_forecasts["forecast_horizon"].unique())
+        assert -1 in unique_horizons or 0 in unique_horizons
+        assert len(unique_horizons) >= 2
 
     def test_mixed_weekly_and_quarterly_vintages(self, nowcast_outturns, nowcast_forecasts):
         """Can add both quarterly-vintage and weekly-vintage forecasts."""

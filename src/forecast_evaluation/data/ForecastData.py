@@ -75,8 +75,10 @@ class ForecastData:
             Default is True.
         nowcasting : bool, optional
             Whether the data contains nowcasting forecasts with intra-period vintage dates
-            (e.g., weekly or daily). When True, a ``days_in_period`` column is automatically
-            computed and added as an extra label column. Default is False.
+            (e.g., weekly or daily). When True, integer-period horizons are used (e.g. -1
+            for backcast, 0 for nowcast, 1 for one-quarter-ahead) with multiple weekly
+            vintages per horizon providing more observations for accuracy statistics.
+            Default is False.
         first_forecast_horizon : int, optional
             The minimum forecast horizon to retain in processed forecasts.
             Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
@@ -225,12 +227,8 @@ class ForecastData:
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
 
-        # Compute forecast_horizon if missing.
-        # For nowcasting data use the days-based continuous horizon so that each
-        # weekly vintage gets its own unique integer horizon (days to end of target
-        # period). For regular forecasts use the integer-period horizon.
         if "forecast_horizon" not in df.columns:
-            df = compute_forecast_horizon(df, nowcasting=self.nowcasting)
+            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
