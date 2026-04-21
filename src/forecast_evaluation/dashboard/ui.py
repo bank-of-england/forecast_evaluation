@@ -2,6 +2,7 @@
 
 from shiny import ui
 from forecast_evaluation import DensityForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 
 
 def get_selector_info(col, data):
@@ -34,7 +35,7 @@ def create_sidebar(data):
         # Get frequency label from data
         freq_code = data.forecasts["frequency"].iloc[0] if not data.forecasts["frequency"].empty else "Q"
         period_label = frequency_labels.get(freq_code, "periods")
-        horizons = set(data.forecasts["forecast_horizon"].dropna().unique().tolist())
+        horizons = set(int(h) for h in data.forecasts["forecast_horizon"].dropna().unique())
     else:
         vintages_set = set()
         outturn_dates_set = set()
@@ -51,7 +52,7 @@ def create_sidebar(data):
         sources_set.update(data._density_forecasts["source"].unique().tolist())
         unique_ids_set.update(data._density_forecasts["unique_id"].unique().tolist())
         transformations_set.update(data._density_forecasts["metric"].unique().tolist())
-        horizons.update(data._density_forecasts["forecast_horizon"].dropna().unique().tolist())
+        horizons.update(int(h) for h in data._density_forecasts["forecast_horizon"].dropna().unique())
 
     vintages = sorted(list(vintages_set))
     outturn_vintages = sorted(
@@ -134,7 +135,7 @@ def create_sidebar(data):
 
     if len(id_columns) > 0:
         additional_selectors = []
-        is_nowcasting = hasattr(data, "nowcasting") and data.nowcasting
+        is_nowcasting = isinstance(data, NowcastData)
 
         for col in id_columns:
             col_choices, id_single, id_multi = get_selector_info(col, data)
@@ -422,13 +423,9 @@ def create_sidebar(data):
             time_machine_tab + _or + quantile_time_machine_tab,
             ui.input_select(
                 "vintage",
-                f"Target {period_label.rstrip('s').capitalize()}:"
-                if (hasattr(data, "nowcasting") and data.nowcasting)
-                else "Vintage:",
-                choices=outturn_dates if (hasattr(data, "nowcasting") and data.nowcasting) else outturn_vintages,
-                selected=outturn_dates[-1]
-                if (hasattr(data, "nowcasting") and data.nowcasting)
-                else outturn_vintages[-1],
+                f"Target {period_label.rstrip('s').capitalize()}:" if isinstance(data, NowcastData) else "Vintage:",
+                choices=outturn_dates if isinstance(data, NowcastData) else outturn_vintages,
+                selected=outturn_dates[-1] if isinstance(data, NowcastData) else outturn_vintages[-1],
             ),
         ),
         # Transformation

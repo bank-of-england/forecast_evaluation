@@ -44,7 +44,6 @@ class ForecastData:
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        nowcasting: bool = False,
         first_forecast_horizon: int = 0,
     ):
         """Initialise with user data, FER data or null.
@@ -73,12 +72,6 @@ class ForecastData:
         data_check : bool, optional
             Whether to run data checks when adding forecasts. See :meth:`add_forecasts` for details.
             Default is True.
-        nowcasting : bool, optional
-            Whether the data contains nowcasting forecasts with intra-period vintage dates
-            (e.g., weekly or daily). When True, integer-period horizons are used (e.g. -1
-            for backcast, 0 for nowcast, 1 for one-quarter-ahead) with multiple weekly
-            vintages per horizon providing more observations for accuracy statistics.
-            Default is False.
         first_forecast_horizon : int, optional
             The minimum forecast horizon to retain in processed forecasts.
             Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
@@ -91,7 +84,6 @@ class ForecastData:
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
-        self.nowcasting = nowcasting
         self.first_forecast_horizon = first_forecast_horizon
 
         if load_fer:

@@ -10,6 +10,7 @@ from .core import add_ar_p_forecasts, add_random_walk_forecasts, create_outturn_
 from .data import (
     DensityForecastData,
     ForecastData,
+    NowcastData,
     create_sample_forecasts,
     create_sample_nowcast_forecasts,
     create_sample_nowcast_outturns,
@@ -63,6 +64,7 @@ __all__ = [
     "add_ar_p_forecasts",
     # Data classes
     "ForecastData",
+    "NowcastData",
     "DensityForecastData",
     # Sample data functions
     "create_sample_forecasts",

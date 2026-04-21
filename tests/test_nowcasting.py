@@ -3,6 +3,7 @@ import pytest
 
 import forecast_evaluation as fe
 from forecast_evaluation.data.ForecastData import ForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.data.sample_data import (
     create_sample_forecasts,
     create_sample_nowcast_forecasts,
@@ -64,8 +65,8 @@ class TestDaysInPeriod:
     """Test that days_in_period is no longer injected into extra_ids for nowcasting data."""
 
     def test_days_in_period_not_in_unique_id(self, nowcast_outturns, nowcast_forecasts):
-        """With nowcasting=True, unique_id should just be 'source' (no days_in_period)."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        """With NowcastData, unique_id should just be 'source' (no days_in_period)."""
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert fd.id_columns == ["source"]
@@ -90,7 +91,7 @@ class TestNowcastingFlow:
 
     def test_nowcast_data_properties(self, nowcast_outturns, nowcast_forecasts):
         """Nowcast data should preserve row count, vintages, sources, variables, and horizons."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True, first_forecast_horizon=-1)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         # Row count preserved
@@ -128,7 +129,7 @@ class TestNowcastingFlow:
         """forecast_horizon should be computed automatically if missing, using integer-period method."""
         outturns_no_horizon = nowcast_outturns.drop(columns=["forecast_horizon"])
 
-        fd = ForecastData(outturns_data=outturns_no_horizon, nowcasting=True, first_forecast_horizon=-1)
+        fd = NowcastData(outturns_data=outturns_no_horizon)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         assert "forecast_horizon" in fd._raw_forecasts.columns
@@ -142,7 +143,7 @@ class TestNowcastingFlow:
         outturns = pd.concat([nowcast_outturns, create_sample_outturns()], ignore_index=True)
         outturns = outturns.drop_duplicates(subset=[c for c in outturns.columns if c != "value"])
 
-        fd = ForecastData(outturns_data=outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=outturns)
         fd.add_forecasts(create_sample_forecasts(), data_check=False)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
@@ -152,7 +153,7 @@ class TestNowcastingFlow:
 
     def test_filter_by_source(self, nowcast_outturns, nowcast_forecasts):
         """Filtering by source should work with nowcast data."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         fd.filter(sources="nowcast_dfm")
@@ -160,7 +161,7 @@ class TestNowcastingFlow:
 
     def test_filter_by_variable(self, nowcast_outturns, nowcast_forecasts):
         """Filtering by variable should work with nowcast data."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         fd.filter(variables="gdp")
@@ -175,7 +176,7 @@ class TestIntraPeriodPlot:
 
     def test_plot_rmse_and_mae(self, nowcast_outturns, nowcast_forecasts):
         """plot_intra_period_accuracy should return (fig, ax) for both RMSE and MAE."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         import matplotlib
@@ -204,15 +205,15 @@ class TestIntraPeriodPlot:
         with pytest.raises(ValueError, match="vintage_date_forecast"):
             plot_intra_period_accuracy(df, variable="gdp", return_plot=True)
 
-    def test_plot_raises_when_nowcasting_false(self, nowcast_outturns, nowcast_forecasts):
-        """Should raise ValueError when ForecastData has nowcasting=False."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=False)
-        with pytest.raises(ValueError, match="nowcasting=True"):
+    def test_plot_raises_when_not_nowcast_data(self, nowcast_outturns, nowcast_forecasts):
+        """Should raise ValueError when using ForecastData instead of NowcastData."""
+        fd = ForecastData(outturns_data=nowcast_outturns)
+        with pytest.raises(ValueError, match="NowcastData"):
             plot_intra_period_accuracy(fd, variable="gdp", return_plot=True)
 
     def test_plot_no_data_raises(self, nowcast_outturns, nowcast_forecasts):
         """Should raise ValueError when no data matches the filters."""
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
         import matplotlib
@@ -231,7 +232,7 @@ class TestEfficiencyBlockedForNowcasts:
 
     @pytest.fixture
     def nowcast_fd(self, nowcast_outturns, nowcast_forecasts):
-        fd = ForecastData(outturns_data=nowcast_outturns, nowcasting=True)
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
         return fd
 

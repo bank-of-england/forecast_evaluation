@@ -172,8 +172,8 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     pd.DataFrame
         DataFrame with columns: date, variable, vintage_date, source,
         frequency, value.  ``forecast_horizon`` is intentionally omitted so
-        that :meth:`ForecastData.add_forecasts` computes the continuous
-        days-based nowcasting horizon automatically when ``nowcasting=True``.
+        that :meth:`NowcastData.add_forecasts` computes the integer-period
+        horizon automatically.
 
     Examples
     --------

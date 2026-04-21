@@ -36,6 +36,7 @@ from .ui import (
 
 from .theme.brand import brand as _brand
 from .utils import patch_render_plot
+from forecast_evaluation.data.NowcastData import NowcastData
 
 # Apply global error handling
 patch_render_plot()
@@ -54,7 +55,7 @@ def dashboard_app(data) -> App:
         ]
 
         # Efficiency tests are not supported for nowcasting data
-        if not data.nowcasting:
+        if not isinstance(data, NowcastData):
             tabs.append(create_efficiency_tab())
 
         tabs.extend(
@@ -98,7 +99,7 @@ def dashboard_app(data) -> App:
         rolling_bias(input, output, session, data)
 
         # Efficiency handlers are not needed for nowcasting data
-        if not data.nowcasting:
+        if not isinstance(data, NowcastData):
             blanchard_leigh(input, output, session, data)
             revisions_predictability(input, output, session, data)
             weak_efficiency(input, output, session, data)

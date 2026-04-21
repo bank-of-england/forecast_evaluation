@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 
 
 def _prepare_intra_period_data(
@@ -24,8 +25,8 @@ def _prepare_intra_period_data(
     the same release number.
     """
     if isinstance(data, ForecastData):
-        if not data.nowcasting:
-            raise ValueError("Intra-period analysis requires nowcasting=True when creating ForecastData.")
+        if not isinstance(data, NowcastData):
+            raise ValueError("Intra-period analysis requires a NowcastData instance.")
         df = data.df.copy()
     elif hasattr(data, "df"):
         df = data.df.copy()

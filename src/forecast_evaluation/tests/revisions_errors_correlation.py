@@ -6,6 +6,7 @@ from statsmodels.tools import add_constant
 
 from forecast_evaluation.core.revisions_table import create_revision_dataframe
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range
 
@@ -161,7 +162,7 @@ def revisions_errors_correlation_analysis(
     if data._main_table is None or data._forecasts is None:
         raise ValueError("ForecastData missing data. Please ensure data has been added and processed.")
 
-    if data.nowcasting:
+    if isinstance(data, NowcastData):
         raise ValueError("Revisions-errors correlation analysis is not supported for nowcasting data. ")
 
     df = create_revision_dataframe(data._main_table, data._forecasts, k)
