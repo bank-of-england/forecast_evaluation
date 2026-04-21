@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -136,39 +137,47 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
     }
 
     # Publication lag in days after quarter-end:
-    #   gdp: 6 weeks = 42 days; cpi: 1 week = 7 days
-    pub_lag = {"gdp": 42, "cpi": 7}
+    #   gdp: 6 weeks = 42 days; cpi: 2 weeks = 14 days
+    pub_lag = {"gdp": 42, "cpi": 14}
 
     rows = []
     for variable, values in truth.items():
         lag = pub_lag[variable]
-        for target_date, true_value in values.items():
-            # First-release vintage: publication lag days after quarter-end
-            first_release = target_date + pd.Timedelta(days=lag)
+        target_list = list(values.items())
 
-            # Quarterly revision vintages: quarter-ends from the one that
-            # contains/follows first_release up to 2026-03-31
+        # Collect all unique vintage dates (first releases + revisions)
+        all_vintage_dates = set()
+        for target_date, _ in target_list:
+            first_release = target_date + pd.Timedelta(days=lag)
+            all_vintage_dates.add(first_release)
+
             revision_start = first_release + pd.offsets.QuarterEnd(0)
             if revision_start <= first_release:
                 revision_start = first_release + pd.offsets.QuarterEnd(1)
             revision_vintages = pd.date_range(revision_start, "2026-03-31", freq="QE")
+            all_vintage_dates.update(revision_vintages)
 
-            # First release (k=0 in quarter terms: vintage is ~ same quarter as release)
-            noise_fr = np.random.normal(0, 0.4)  # larger first-release noise
-            rows.append(
-                {
-                    "date": target_date,
-                    "variable": variable,
-                    "vintage_date": first_release,
-                    "frequency": "Q",
-                    "value": round(true_value + noise_fr, 4),
-                }
-            )
+        all_vintage_dates = sorted(all_vintage_dates)
 
-            # Subsequent quarterly revision vintages with shrinking noise
-            for vintage_date in revision_vintages:
+        # For each vintage date, generate values for all target quarters
+        # (each release updates all past quarters)
+        for vintage_date in all_vintage_dates:
+            for target_date, true_value in target_list:
+                # Only include this (target, vintage) pair if the vintage
+                # is available for this target (i.e., vintage >= first_release of target)
+                first_release = target_date + pd.Timedelta(days=lag)
+                if vintage_date < first_release:
+                    continue
+
+                # Compute noise based on how mature the data is at this vintage.
+                # k = how many quarters after target the vintage is
                 k = (vintage_date.to_period("Q") - target_date.to_period("Q")).n
-                noise = np.random.normal(0, 0.5 / (1 + k))
+
+                # Noise decreases as the vintage matures relative to the target:
+                # - First release (k~0): larger noise
+                # - Older targets (k > 0): smaller noise (converge to truth)
+                # - Recent targets (k <= 0): larger noise (still being revised)
+                noise = np.random.normal(0, 0.5 / (1 + abs(k)))
                 rows.append(
                     {
                         "date": target_date,
@@ -188,32 +197,28 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
 
 
 def create_sample_nowcast_forecasts() -> pd.DataFrame:
-    """Create sample nowcasting forecasts with intra-quarter vintage dates.
+    """Create sample nowcasting forecasts with weekly vintage dates.
 
-    Generates 6 years of nowcasts (2020-2025) from two models for two variables
-    (``gdp`` and ``cpi``). Each quarter has 5 evenly-spaced vintage dates.
-    Forecasts are produced at three horizons:
+    Generates nowcasts (2020-2025) from two models for two variables (``gdp``
+    and ``cpi``). Vintages are produced once per week across the full sample.
+    Each vintage targets two consecutive releases:
 
-    - **h = -1** (backcast): the quarter that just ended, whose official data
-      may not yet be published (gdp: 6 weeks, cpi: 1 week after quarter-end).
-    - **h = 0** (nowcast): the current quarter.
-    - **h = 1** (nearcast): one quarter ahead.
+    - **h = 1** (forecast): the next quarter (not yet started or in progress).
+    - **h = 0** (nowcast): the current quarter (in progress).
+    - **h = -1** (backcast): the previous quarter, but **only** while its
+      official outturn has not yet been published (gdp: 6 weeks after
+      quarter-end; cpi: 2 weeks after quarter-end). Once the data is
+      released, backcasting for that quarter stops.
 
-    Forecast errors converge monotonically to zero as the vintage approaches
-    the end of the target quarter. The convergence is based on the total
-    number of days remaining until target quarter-end, so later h=1 vintages
-    are always less accurate than earlier h=0 vintages for the same target.
-
-    For backcasts (h=-1), the error is driven by how many days before the
-    official publication date the forecast is made. After publication the
-    backcast error is near-zero; before it, a residual uncertainty remains.
+    Forecast errors converge toward zero as the vintage date approaches the
+    end of the target quarter, with additive noise so that convergence is
+    realistic rather than perfectly monotonic.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with nowcast data featuring intra-quarter vintage dates and
-        columns: date, variable, vintage_date, source, frequency,
-        forecast_horizon, value, days_in_period.
+        DataFrame with columns: date, variable, vintage_date, source,
+        frequency, forecast_horizon, value, days_in_period.
 
     Examples
     --------
@@ -222,63 +227,77 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     [-1, 0, 1]
     >>> df["source"].unique()
     array(['nowcast_dfm', 'nowcast_bridge'], dtype=object)
-    """
-    # 24 quarters: 2020Q1 to 2025Q4
-    target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
-    # 5 evenly spaced vintage dates per quarter
-    quarter_starts = pd.date_range("2020-01-01", periods=24, freq="QS")
-    vintage_dates = pd.DatetimeIndex(
-        [start + pd.Timedelta(days=int(i * 91 / 5)) for start in quarter_starts for i in range(5)]
-    )
 
-    # True outturn values (consistent with create_sample_nowcast_outturns)
+    Visualize how forecasts evolve over weekly vintages:
+
+    >>> # Import the plotting function from the end of this module
+    >>> import matplotlib.pyplot as plt
+    >>> from forecast_evaluation.data.sample_data import plot_sample_nowcasts
+    >>> plot_sample_nowcasts()  # Plots forecasts by horizon, colored by vintage date
+    """
+    np.random.seed(42)
+
+    # 24 target quarters: 2020Q1 – 2025Q4
+    target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
+
+    # Map quarter period → quarter-end date for fast lookup
+    target_by_period = {d.to_period("Q"): d for d in target_dates}
+
+    # True outturn levels (same as create_sample_nowcast_outturns)
     truth = {
         "gdp": {d: 99.0 + (i * 0.3 + np.sin(i / 4) * 0.5) for i, d in enumerate(target_dates)},
         "cpi": {d: 98.0 + (i * 0.45 + np.cos(i / 4) * 0.8) for i, d in enumerate(target_dates)},
     }
 
-    # Initial bias per (model, variable) — drives the convergence error
     initial_bias = {
         "nowcast_dfm": {"gdp": 2.0, "cpi": -2.5},
         "nowcast_bridge": {"gdp": -1.5, "cpi": 3.0},
     }
 
-    # Publication lag in days after quarter-end used to compute backcast error
-    pub_lag = {"gdp": 42, "cpi": 7}
+    # Publication lag in days after quarter-end:
+    #   gdp: 6 weeks = 42 days; cpi: 2 weeks = 14 days
+    pub_lag = {"gdp": 42, "cpi": 14}
 
-    # Reference scale for days_remaining (approx 2 quarters)
-    max_days = 182.0
+    max_days = 182.0  # reference scale (~2 quarters) for remaining-days fraction
+    noise_scale = 0.15  # noise std as a fraction of |bias * remaining_fraction|
+
+    # Weekly vintage dates: from the first week of 2020 through to after the
+    # last publication date so all backcasts are fully covered.
+    all_vintages = pd.date_range("2020-01-01", "2026-03-31", freq="7D")
 
     rows = []
     for source, biases in initial_bias.items():
         for variable, bias in biases.items():
             lag = pub_lag[variable]
-            for vintage in vintage_dates:
-                for target in target_dates:
-                    horizon = (target.to_period("Q") - vintage.to_period("Q")).n
 
-                    if horizon < -1 or horizon > 1:
+            for vintage in all_vintages:
+                v_period = vintage.to_period("Q")
+
+                for horizon in (-1, 0, 1):
+                    # Resolve the target quarter for this horizon
+                    target_period = v_period + horizon
+                    if target_period not in target_by_period:
                         continue
+                    target = target_by_period[target_period]
+
+                    # h=-1: stop once the official outturn has been published
+                    if horizon == -1:
+                        pub_date = target + pd.Timedelta(days=lag)
+                        if vintage >= pub_date:
+                            continue
 
                     if horizon >= 0:
-                        # h=0 and h=1: error shrinks as days_remaining → 0, ensuring
-                        # monotonic convergence across the h=1/h=0 boundary.
                         days_remaining = max(0, (target - vintage).days)
                         remaining_fraction = days_remaining / max_days
                         error = bias * remaining_fraction
+                        noise = np.random.normal(0, noise_scale * abs(bias) * remaining_fraction)
                     else:
-                        # h=-1 (backcast): target quarter has ended.
-                        # Error is driven by how far before the publication date
-                        # the forecast is made.  Once the official data is out,
-                        # the backcast error is near-zero.
+                        # h=-1: error shrinks as vintage approaches the publication date
                         pub_date = target + pd.Timedelta(days=lag)
                         days_before_pub = max(0, (pub_date - vintage).days)
                         pre_pub_fraction = days_before_pub / max_days
-                        # Small irreducible error (data revision uncertainty)
-                        # plus a pre-publication component
                         error = bias * (0.05 + 0.15 * pre_pub_fraction)
-
-                    value = truth[variable][target] + error
+                        noise = np.random.normal(0, noise_scale * abs(bias) * pre_pub_fraction)
 
                     rows.append(
                         {
@@ -288,13 +307,12 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
                             "source": source,
                             "frequency": "Q",
                             "forecast_horizon": horizon,
-                            "value": round(value, 2),
+                            "value": round(truth[variable][target] + error + noise, 2),
                         }
                     )
 
     df = pd.DataFrame(rows)
     df["days_in_period"] = compute_days_in_period(df["vintage_date"], df["frequency"])
-
     return df
 
 
@@ -367,3 +385,117 @@ def create_sample_density_forecasts() -> pd.DataFrame:
     result = result.sort_values(["date", "quantile"]).reset_index(drop=True)
 
     return result
+
+
+def plot_sample_nowcasts() -> None:
+    """Plot sample nowcast forecasts and outturns on the same axes.
+
+    Generates a single plot showing how forecast and outturn values evolve over
+    target dates, with each forecast/outturn vintage colored differently:
+
+    - **Nowcasts** (forecast vintages): Lines with circle markers, colored by
+      viridis colormap. Shows how weekly forecasts are produced and how they
+      converge as time passes.
+    - **Outturns** (publication vintages): Lines with square markers, colored by
+      plasma colormap. Illustrates publication timing and how values are revised
+      over time as data matures.
+
+    Examples
+    --------
+    >>> plot_sample_nowcasts()  # Displays a single matplotlib figure
+    """
+    fc = create_sample_nowcast_forecasts()
+    out = create_sample_nowcast_outturns()
+
+    variable = "gdp"
+    model = "nowcast_dfm"
+
+    # ========== Prepare forecast data ==========
+    fc_var = fc[fc["variable"] == variable].copy()
+    fc_var_model = fc_var[fc_var["source"] == model]
+
+    unique_vintages_all = sorted(fc_var_model["vintage_date"].unique())
+    # Show all weekly forecast vintages with transparency
+    selected_vintages = unique_vintages_all
+    colors = plt.cm.viridis(np.linspace(0, 1, len(selected_vintages)))
+    vintage_colors = dict(zip(selected_vintages, colors))
+
+    # ========== Prepare outturn data ==========
+    out_var = out[out["variable"] == variable].copy()
+    unique_vintages_out = sorted(out_var["vintage_date"].unique())
+    step_out = max(1, len(unique_vintages_out) // 10)
+    selected_out_vintages = unique_vintages_out[::step_out]
+    colors_out = plt.cm.plasma(np.linspace(0, 1, len(selected_out_vintages)))
+    out_vintage_colors = dict(zip(selected_out_vintages, colors_out))
+
+    # ========== Single combined figure ==========
+    fig, ax = plt.subplots(figsize=(14, 6))
+    fig.suptitle(
+        f"{variable.upper()}: Nowcasts and Outturns over time (colored by vintage)",
+        fontsize=13,
+        fontweight="bold",
+    )
+
+    # Plot forecasts (all weekly vintages with transparency)
+    for i, vintage in enumerate(selected_vintages):
+        fc_v = fc_var_model[fc_var_model["vintage_date"] == vintage].sort_values("date")
+        # Only add label for first forecast to avoid cluttered legend
+        label = "Forecast vintages (weekly)" if i == 0 else None
+        ax.plot(
+            fc_v["date"],
+            fc_v["value"],
+            marker="o",
+            markersize=3,
+            alpha=0.15,
+            label=label,
+            color=vintage_colors[vintage],
+            linewidth=1,
+        )
+
+    # Plot outturns
+    for vintage in selected_out_vintages:
+        out_v = out_var[out_var["vintage_date"] == vintage].sort_values("date")
+        ax.plot(
+            out_v["date"],
+            out_v["value"],
+            marker="s",
+            markersize=5,
+            alpha=0.7,
+            label=f"OT {vintage.date()}",
+            color=out_vintage_colors[vintage],
+            linewidth=1.5,
+        )
+
+    ax.set_xlabel("Target date (quarter-end)", fontsize=11)
+    ax.set_ylabel("Value", fontsize=11)
+    ax.grid(True, alpha=0.3)
+
+    # Create legend with handles and labels
+    handles, labels = ax.get_legend_handles_labels()
+
+    # Already have forecast (from single label) and outturn entries in handles/labels
+    # Just add a separator line for clarity
+    from matplotlib.lines import Line2D
+
+    sep = Line2D([0], [0], color="none")
+    sep_label = ""
+
+    legend_handles = handles + [sep]
+    legend_labels = labels + [sep_label]
+
+    ax.legend(
+        legend_handles,
+        legend_labels,
+        bbox_to_anchor=(1.01, 1),
+        loc="upper left",
+        fontsize=8,
+        ncol=1,
+    )
+
+    fig.autofmt_xdate(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.show()
+
+
+if __name__ == "__main__":
+    plot_sample_nowcasts()

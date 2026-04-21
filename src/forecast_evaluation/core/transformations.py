@@ -151,6 +151,8 @@ def prepare_forecasts(
         min_outturn_horizon = first_forecast_horizon - (n_periods + 1)
         outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= min_outturn_horizon].copy()
         outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
+        # Mark outturn rows so they can be stripped out after transformations.
+        outturns_filtered["_helper_outturn"] = True
 
         # We need to loop through each id and concat to the outturns
         forecast_dfs = []
@@ -158,6 +160,7 @@ def prepare_forecasts(
             outturns_id = outturns_filtered.copy()
             outturns_id["unique_id"] = f_id
             forecast_id = forecasts_freq[forecasts_freq["unique_id"] == f_id]
+            # forecast_id rows do not have _helper_outturn; it becomes NaN after concat
             forecast_dfs.append(pd.concat([outturns_id, forecast_id], ignore_index=True))
 
         # We compute all transformations now (levels, pop (period-on-period), yoy (year-on-year)
@@ -186,6 +189,11 @@ def prepare_forecasts(
         df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
 
     df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= first_forecast_horizon]
+
+    # Remove the helper outturn rows that were prepended for transformation purposes only.
+    if "_helper_outturn" in df_forecasts.columns:
+        df_forecasts = df_forecasts[df_forecasts["_helper_outturn"].isna()]
+        df_forecasts = df_forecasts.drop(columns=["_helper_outturn"])
 
     # drop duplicates TODO: ideally we shouldn't have any duplicates
     # these are introduced because pop and yoy are always computed, even if
