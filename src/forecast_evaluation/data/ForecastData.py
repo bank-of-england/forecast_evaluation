@@ -9,6 +9,7 @@ import pandas as pd
 
 from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
+from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
@@ -16,7 +17,7 @@ from forecast_evaluation.data.utils import construct_unique_id, filter_fer_model
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
 
-class ForecastData:
+class ForecastData(PlottingMixin):
     """Class for validation and extending forecast data.
 
     The main method is .add_forecasts() which validates the input data and compute relevant dataframes.

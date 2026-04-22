@@ -35,5 +35,8 @@
 - Radar charts
 
 ## [0.1.6] - Unreleased
+### Added
+- Added plotting methods directly to `ForecastData` via `PlottingMixin`: `plot_hedgehog()`, `plot_forecast_errors()`, `plot_forecast_errors_by_horizon()`, `plot_outturn_revisions()`, `plot_outturns()`, `plot_average_revision_by_period()`, `plot_vintage()`, `plot_errors_across_time()`
+
 ### Adjustments
 - Made `frequency` argument optional (default `None`) and inferred from the data in: `plot_hedgehog()`, `build_ar_p_model`, `build_random_walk_model`, `plot_density_vintage`, `plot_vintage`, `plot_radar`, `plot_accuracy`, `strong_efficiency_analysis`, `revision_predictability_analysis`, `blanchard_leigh_horizon_analysis`, `plot_accuracy`
