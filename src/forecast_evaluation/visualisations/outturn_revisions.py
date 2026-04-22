@@ -243,8 +243,9 @@ def plot_outturns(
             label=label,
         )
 
-    # Add a horizontal line at zero for reference
-    ax.axhline(y=0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
+    # Add a horizontal line at zero for reference (only for pop/yoy metrics)
+    if metric in ("pop", "yoy"):
+        ax.axhline(y=0, color="gray", linestyle="--", linewidth=1, alpha=0.5)
 
     # Set labels and title
     ax.set_xlabel("Date")
