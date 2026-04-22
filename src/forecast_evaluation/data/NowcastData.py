@@ -71,14 +71,30 @@ class NowcastData(ForecastData):
         self._add_days_to_publication()
 
     def _align_outturn_vintages(self, forecasts_df: pd.DataFrame):
-        """Expand outturns so every forecast vintage has matching outturn rows.
+        """Build outturn snapshots so every forecast vintage has a full history.
 
-        For each variable and forecast vintage V that doesn't already exist in
-        the outturns, we copy the outturn rows from the latest outturn vintage
-        <= V for that variable and stamp them with vintage_date = V.  This
-        ensures that downstream transforms (pop, yoy) which group by
-        vintage_date can pair forecast and outturn rows naturally, without
-        modifying the transformation logic.
+        For each variable and forecast vintage *V* that doesn't already exist
+        in the outturns, this method builds a **point-in-time snapshot** of the
+        outturn data that was available at *V*.  For every target date *D*
+        whose outturn had been released by *V*, the row with the **latest**
+        outturn ``vintage_date <= V`` is selected.  The resulting snapshot is
+        stamped with ``vintage_date = V``.
+
+        ===
+        The following is important when backcasting outturns that have already
+        been released (possibly because the forecaster think they can do better):
+
+        Dates that the forecasts themselves target at vintage *V* are excluded
+        from the snapshot.  Without this, backcast rows (h=-1) would share a
+        date with the prepended outturn rows inside ``prepare_forecasts``,
+        creating duplicate rows that corrupt ``pct_change``.
+
+        This is crucial for the transformation pipeline: ``pct_change(n)``
+        requires a gap-free quarterly series.  The previous approach of copying
+        rows from one closest outturn vintage produced incomplete series
+        (first-release vintages typically contain only the newly released
+        quarter).  Building a proper snapshot ensures the full historical time
+        series is available.
 
         The lookup is per-variable because different variables may have
         different publication lags (e.g. GDP 42 days, CPI 14 days) and
@@ -89,21 +105,40 @@ class NowcastData(ForecastData):
 
         forecast_vintages = pd.to_datetime(forecasts_df["vintage_date"]).unique()
 
+        # Pre-compute which (variable, vintage_date) -> set of target dates
+        # the forecasts cover, so we can exclude them from each snapshot.
+        fc_targets = forecasts_df.groupby(["variable", "vintage_date"])["date"].apply(set).to_dict()
+
         new_rows = []
         for variable, var_outturns in self._raw_outturns.groupby("variable"):
-            var_outturn_vintages = sorted(pd.to_datetime(var_outturns["vintage_date"]).unique())
-            missing = set(forecast_vintages) - set(var_outturn_vintages)
+            existing_vintages = set(pd.to_datetime(var_outturns["vintage_date"]).unique())
+            missing = set(forecast_vintages) - existing_vintages
             if not missing:
                 continue
 
             for vintage in sorted(missing):
-                valid = [v for v in var_outturn_vintages if v <= vintage]
-                if not valid:
+                # All outturn rows for this variable released on or before *vintage*
+                available = var_outturns[var_outturns["vintage_date"] <= vintage]
+                if available.empty:
                     continue
-                closest = valid[-1]
-                rows = var_outturns[var_outturns["vintage_date"] == closest].copy()
-                rows["vintage_date"] = vintage
-                new_rows.append(rows)
+
+                # For each target date, keep the row from the latest outturn
+                # vintage — this is the best estimate available at time *vintage*.
+                idx = available.groupby("date")["vintage_date"].idxmax()
+                snapshot = available.loc[idx].copy()
+
+                # Exclude dates that the forecasts already cover at this
+                # vintage.  This avoids duplicate (variable, vintage_date,
+                # date) rows when the outturn + forecast DataFrames are
+                # concatenated inside prepare_forecasts.
+                forecast_dates = fc_targets.get((variable, vintage), set())
+                if forecast_dates:
+                    snapshot = snapshot[~snapshot["date"].isin(forecast_dates)]
+                    if snapshot.empty:
+                        continue
+
+                snapshot["vintage_date"] = vintage
+                new_rows.append(snapshot)
 
         if new_rows:
             from forecast_evaluation.core.transformations import prepare_outturns
