@@ -111,6 +111,9 @@ class NowcastData(ForecastData):
 
             expanded = pd.concat(new_rows, ignore_index=True)
             expanded = compute_forecast_horizon(expanded)
+            expanded["_aligned"] = True
+            if "_aligned" not in self._raw_outturns.columns:
+                self._raw_outturns["_aligned"] = False
             self._raw_outturns = pd.concat([self._raw_outturns, expanded], ignore_index=True)
             self._outturns = prepare_outturns(self._raw_outturns)
 

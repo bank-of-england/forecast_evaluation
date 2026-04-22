@@ -30,7 +30,6 @@ from .ui import (
     create_hedgehog_tab,
     create_outturn_revisions_tab,
     create_radar_tab,
-    create_intra_period_tab,
     create_sidebar,
     create_time_machine_tab,
     create_quantile_time_machine_tab,
@@ -50,19 +49,17 @@ def dashboard_app(data) -> App:
     def app_ui(request):
         """Main UI function"""
 
+        is_nowcast = isinstance(data, NowcastData)
+
         tabs = [
             about(),
-            create_accuracy_tab(),
-            create_bias_tab(),
+            create_accuracy_tab(show_intra_period=is_nowcast),
+            create_bias_tab(show_intra_period=is_nowcast),
         ]
 
         # Efficiency tests are not supported for nowcasting data
-        if not isinstance(data, NowcastData):
+        if not is_nowcast:
             tabs.append(create_efficiency_tab())
-
-        # Intra-period tab only for nowcasting data
-        if isinstance(data, NowcastData):
-            tabs.append(create_intra_period_tab())
 
         tabs.extend(
             [
@@ -110,9 +107,8 @@ def dashboard_app(data) -> App:
             revisions_predictability(input, output, session, data)
             weak_efficiency(input, output, session, data)
             revisions_errors_correlation(input, output, session, data)
-
-        # Intra-period handlers only for nowcasting data
-        if isinstance(data, NowcastData):
+        else:
+            # Intra-period handlers only for nowcasting data
             intra_period_accuracy(input, output, session, data)
             intra_period_bias(input, output, session, data)
 

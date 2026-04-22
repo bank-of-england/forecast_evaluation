@@ -60,15 +60,17 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
     Creates quarterly outturns for two variables (``gdp`` and ``cpi``) with
     multiple outturn vintages, covering 2020Q1 to 2025Q4 (24 quarters).
 
-    Publication lags are realistic:
+    Publication lags and revision frequencies are realistic:
 
-    - **gdp**: first release 6 weeks (42 days) after the end of the target quarter.
-    - **cpi**: first release 1 week (7 days) after the end of the target quarter.
+    - **gdp**: first release 6 weeks (42 days) after the end of the target
+      quarter, then revised once per quarter at each subsequent quarter-end.
+    - **cpi**: first release 2 weeks (14 days) after the end of the target
+      quarter, then revised monthly (14 days after each subsequent month-end).
 
     For each target quarter, the outturn data has:
 
     - A **first-release vintage** at the publication date.
-    - **Quarterly revision vintages** from the first subsequent quarter-end up to
+    - Subsequent revision vintages (quarterly for GDP, monthly for CPI) up to
       2026-03-31, with white noise shrinking as the vintage matures.
 
     The realistic first-release dates mean that intra-quarter nowcast vintages
@@ -96,40 +98,28 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
     rows = []
     for variable, values in truth.items():
         lag = pub_lag[variable]
-        target_list = list(values.items())
 
-        # Collect all unique vintage dates (first releases + revisions)
-        all_vintage_dates = set()
-        for target_date, _ in target_list:
+        for target_date, true_value in values.items():
             first_release = target_date + pd.Timedelta(days=lag)
-            all_vintage_dates.add(first_release)
 
-            revision_start = first_release + pd.offsets.QuarterEnd(0)
-            if revision_start <= first_release:
-                revision_start = first_release + pd.offsets.QuarterEnd(1)
-            revision_vintages = pd.date_range(revision_start, "2026-03-31", freq="QE")
-            all_vintage_dates.update(revision_vintages)
+            if variable == "cpi":
+                # CPI is revised monthly, 14 days after each month-end.
+                first_release_me = first_release + pd.offsets.MonthEnd(0)
+                if first_release_me <= first_release:
+                    first_release_me = first_release + pd.offsets.MonthEnd(1)
+                revision_month_ends = pd.date_range(first_release_me + pd.offsets.MonthEnd(1), "2026-03-31", freq="ME")
+                revision_vintages = revision_month_ends + pd.Timedelta(days=14)
+            else:
+                # GDP is revised once per quarter at each subsequent quarter-end.
+                first_release_qe = first_release + pd.offsets.QuarterEnd(0)
+                if first_release_qe <= first_release:
+                    first_release_qe = first_release + pd.offsets.QuarterEnd(1)
+                revision_vintages = pd.date_range(first_release_qe + pd.offsets.QuarterEnd(1), "2026-03-31", freq="QE")
 
-        all_vintage_dates = sorted(all_vintage_dates)
+            target_vintages = [first_release] + list(revision_vintages)
 
-        # For each vintage date, generate values for all target quarters
-        # (each release updates all past quarters)
-        for vintage_date in all_vintage_dates:
-            for target_date, true_value in target_list:
-                # Only include this (target, vintage) pair if the vintage
-                # is available for this target (i.e., vintage >= first_release of target)
-                first_release = target_date + pd.Timedelta(days=lag)
-                if vintage_date < first_release:
-                    continue
-
-                # Compute noise based on how mature the data is at this vintage.
-                # k = how many quarters after target the vintage is
+            for vintage_date in target_vintages:
                 k = (vintage_date.to_period("Q") - target_date.to_period("Q")).n
-
-                # Noise decreases as the vintage matures relative to the target:
-                # - First release (k~0): larger noise
-                # - Older targets (k > 0): smaller noise (converge to truth)
-                # - Recent targets (k <= 0): larger noise (still being revised)
                 noise = np.random.normal(0, 0.5 / (1 + abs(k)))
                 rows.append(
                     {
@@ -212,7 +202,7 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     pub_lag = {"gdp": 42, "cpi": 14}
 
     max_days = 182.0  # reference scale (~2 quarters) for remaining-days fraction
-    noise_scale = 0.15  # noise std as a fraction of |bias * remaining_fraction|
+    noise_scale = 0.25  # noise std as a fraction of |bias * remaining_fraction|
 
     # Weekly vintage dates: from the first week of 2020 through to after the
     # last publication date so all backcasts are fully covered.

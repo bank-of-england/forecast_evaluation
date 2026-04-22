@@ -5,6 +5,11 @@ def create_outturn_revisions(data: ForecastData):
     """
     Create outturn revisions dataframe.
 
+    ``k`` is defined by release order: k=0 is the first release, k=1 the
+    second, and so on.  This is more natural than horizon-based k for
+    nowcasting data where different variables have different revision
+    frequencies (e.g. GDP quarterly, CPI monthly).
+
     Parameters
     ----------
     data : ForecastData
@@ -17,37 +22,37 @@ def create_outturn_revisions(data: ForecastData):
     """
     outturns = data.outturns
 
-    # Get first release of data
-    outturns_first_release = outturns[outturns["forecast_horizon"] == -1]
-    # Rename columns
-    outturns_first_release = outturns_first_release.rename(
-        columns={"value": "value_original", "vintage_date": "vintage_date_original"}
-    )
-    outturns_first_release = outturns_first_release.drop(columns=["forecast_horizon"])
+    if outturns.empty or "forecast_horizon" not in outturns.columns:
+        return outturns
 
-    # Get outturns after k revisions
-    outturns_revised = outturns[outturns["forecast_horizon"] <= -1]
-    outturns_revised = outturns_revised.rename(
-        columns={"value": "value_outturn", "vintage_date": "vintage_date_outturn"}
-    )
+    # NowcastData expands outturns to match weekly forecast vintages (tagged
+    # with ``_aligned=True``).  These forward-filled copies are needed for
+    # forecast matching but are not real releases — exclude them here.
+    if "_aligned" in outturns.columns:
+        outturns = outturns[~outturns["_aligned"]].drop(columns=["_aligned"])
 
-    # Merge first release and revised data
-    # Set multi-index for faster merge on large datasets
-    merge_cols = ["date", "variable", "frequency", "metric"]
-    outturns_first_release = outturns_first_release.set_index(merge_cols)
-    outturns_revised = outturns_revised.set_index(merge_cols)
+    group_cols = ["date", "variable", "frequency", "metric"]
 
-    # Join using index (faster than merge for large data)
-    merged = outturns_first_release.join(outturns_revised).dropna().reset_index()
+    # Assign k by release order (earliest vintage = k=0, next = k=1, ...)
+    outturns = outturns.sort_values(group_cols + ["vintage_date"])
+    outturns["k"] = outturns.groupby(group_cols).cumcount()
+
+    # Split: first release (k=0) vs all releases
+    first_release = outturns[outturns["k"] == 0].copy()
+    first_release = first_release.rename(columns={"value": "value_original", "vintage_date": "vintage_date_original"})
+    first_release = first_release.drop(columns=["forecast_horizon", "k"])
+
+    revised = outturns.rename(columns={"value": "value_outturn", "vintage_date": "vintage_date_outturn"})
+
+    # Merge first release with all releases
+    first_release = first_release.set_index(group_cols)
+    revised = revised.set_index(group_cols)
+    merged = first_release.join(revised).dropna().reset_index()
 
     # Add latest_vintage column
-    merged["latest_vintage"] = merged.groupby(["date", "variable", "metric", "frequency"])[
-        "vintage_date_outturn"
-    ].transform("max")
+    merged["latest_vintage"] = merged.groupby(group_cols)["vintage_date_outturn"].transform("max")
 
-    # Create k and revision column
-    merged["k"] = (-1 - merged["forecast_horizon"]).astype(int)
-    merged = merged.drop(columns=["forecast_horizon"])
     merged["revision"] = merged["value_outturn"] - merged["value_original"]
+    merged = merged.drop(columns=["forecast_horizon"])
 
     return merged

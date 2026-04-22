@@ -1,6 +1,6 @@
 """Intra-period accuracy and bias analysis for nowcasting models."""
 
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -14,15 +14,18 @@ def _prepare_intra_period_data(
     variable: str,
     metric: str = "levels",
     frequency: str = "Q",
-    forecast_horizon: int = 0,
+    forecast_horizon: Optional[int] = None,
 ) -> pd.DataFrame:
     """Filter and prepare data for intra-period analysis.
 
-    Computes ``days_to_publication`` as the number of days between the
-    forecast vintage and the outturn vintage. Assigns a ``vintage_rank``
-    within each (source, variable, date) group and maps it to the median
-    ``days_to_publication`` so that each point on the x-axis represents
-    the same release number.
+    Computes ``days_to_target`` as the number of days between the
+    forecast vintage and the end of the target period.
+
+    Parameters
+    ----------
+    forecast_horizon : int or None
+        If given, restrict to a single horizon. If ``None`` (default),
+        include all horizons so the full days-to-target range is visible.
     """
     if isinstance(data, ForecastData):
         if not isinstance(data, NowcastData):
@@ -40,35 +43,21 @@ def _prepare_intra_period_data(
                 "or a DataFrame with vintage_date_forecast and vintage_date_outturn columns."
             )
 
-    mask = (
-        (df["variable"] == variable)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-        & (df["forecast_horizon"] == forecast_horizon)
-    )
+    mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
+    if forecast_horizon is not None:
+        mask = mask & (df["forecast_horizon"] == forecast_horizon)
+
     df = df.loc[mask].copy()
 
     if df.empty:
         raise ValueError(
             f"No data for variable='{variable}', metric='{metric}', "
-            f"frequency='{frequency}', forecast_horizon={forecast_horizon}"
+            f"frequency='{frequency}'"
+            + (f", forecast_horizon={forecast_horizon}" if forecast_horizon is not None else "")
         )
 
     # Days from forecast vintage to the end of the target period
-    df["days_to_publication"] = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
-
-    # Rank vintages chronologically within each (source, variable, date) group.
-    # This aligns the "1st release", "2nd release", etc. across periods.
-    df["vintage_rank"] = (
-        df.groupby(["source", "variable", "date"])["days_to_publication"]
-        .rank(method="dense", ascending=False)
-        .astype(int)
-    )
-
-    # Map each rank to its median days_to_publication across all periods,
-    # so the x-axis stays in "days" but groups the same release together.
-    median_day = df.groupby(["source", "vintage_rank"])["days_to_publication"].median()
-    df["median_days_to_publication"] = df.set_index(["source", "vintage_rank"]).index.map(median_day).values
+    df["days_to_target"] = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
 
     return df
 
@@ -78,14 +67,10 @@ def compute_intra_period_accuracy(
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: int = 0,
+    forecast_horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
 ) -> pd.DataFrame:
-    """Compute forecast accuracy by vintage release within a period.
-
-    Groups vintages by their chronological rank within each period and
-    computes the chosen accuracy statistic. The x-axis value is the median
-    ``days_to_publication`` for each rank.
+    """Compute forecast accuracy grouped by days to target.
 
     Parameters
     ----------
@@ -97,30 +82,41 @@ def compute_intra_period_accuracy(
         Metric to analyse.
     frequency : str
         Data frequency ('Q' or 'M').
-    forecast_horizon : int
-        Forecast horizon to evaluate.
+    forecast_horizon : int or None
+        Forecast horizon to evaluate. ``None`` includes all horizons.
     statistic : str
         'rmse' or 'mae'.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns: ``source``, ``days_to_publication``, ``value``.
+        DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
+        ``se`` is the standard error of the statistic.
     """
     df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon)
 
+    grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
+
     if statistic == "rmse":
-        agg = df.groupby(["source", "median_days_to_publication"])["forecast_error"].apply(
-            lambda x: np.sqrt(np.mean(x**2))
+        mse = grouped.apply(lambda x: np.mean(x**2))
+        rmse = np.sqrt(mse)
+        # Delta method: SE(RMSE) ≈ std(e²) / (2 * sqrt(n) * RMSE)
+        se_rmse = grouped.apply(
+            lambda x: (
+                np.std(x**2, ddof=1) / (2 * np.sqrt(len(x)) * np.sqrt(np.mean(x**2)))
+                if len(x) > 1 and np.mean(x**2) > 0
+                else np.nan
+            )
         )
+        result = pd.DataFrame({"value": rmse, "se": se_rmse}).reset_index()
     elif statistic == "mae":
-        agg = df.groupby(["source", "median_days_to_publication"])["forecast_error"].apply(lambda x: np.mean(np.abs(x)))
+        mae = grouped.apply(lambda x: np.mean(np.abs(x)))
+        se_mae = grouped.apply(lambda x: np.std(np.abs(x), ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan)
+        result = pd.DataFrame({"value": mae, "se": se_mae}).reset_index()
     else:
         raise ValueError(f"Unknown statistic: {statistic}. Use 'rmse' or 'mae'.")
 
-    result = agg.reset_index()
-    result.columns = ["source", "days_to_publication", "value"]
-    return result.sort_values(["source", "days_to_publication"], ascending=[True, False]).reset_index(drop=True)
+    return result.sort_values(["source", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
 
 
 def compute_intra_period_bias(
@@ -128,9 +124,9 @@ def compute_intra_period_bias(
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: int = 0,
+    forecast_horizon: Optional[int] = None,
 ) -> pd.DataFrame:
-    """Compute forecast bias (mean error) by vintage release within a period.
+    """Compute forecast bias (mean error) grouped by days to target.
 
     Parameters
     ----------
@@ -142,17 +138,19 @@ def compute_intra_period_bias(
         Metric to analyse.
     frequency : str
         Data frequency ('Q' or 'M').
-    forecast_horizon : int
-        Forecast horizon to evaluate.
+    forecast_horizon : int or None
+        Forecast horizon to evaluate. ``None`` includes all horizons.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns: ``source``, ``days_to_publication``, ``value``.
+        DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
+        ``se`` is the standard error of the mean error.
     """
     df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon)
 
-    agg = df.groupby(["source", "median_days_to_publication"])["forecast_error"].mean()
-    result = agg.reset_index()
-    result.columns = ["source", "days_to_publication", "value"]
-    return result.sort_values(["source", "days_to_publication"], ascending=[True, False]).reset_index(drop=True)
+    grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
+    mean_err = grouped.mean()
+    se_mean = grouped.apply(lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan)
+    result = pd.DataFrame({"value": mean_err, "se": se_mean}).reset_index()
+    return result.sort_values(["source", "days_to_target"], ascending=[True, False]).reset_index(drop=True)

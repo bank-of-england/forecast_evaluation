@@ -74,6 +74,14 @@ def create_sidebar(data):
     else:
         k_values = [0]
 
+    is_nowcast = isinstance(data, NowcastData)
+    if is_nowcast:
+        k_label = "Vintage maturity"
+        k_default = min(k_values, key=lambda x: abs(x - 4)) if k_values else 0
+    else:
+        k_label = f"Data vintage ({period_label} after first release)"
+        k_default = min(k_values, key=lambda x: abs(x - 12)) if k_values else 0
+
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         quantiles = data._density_forecasts["quantile"].unique()
         closest_to_16 = min(quantiles, key=lambda x: abs(x - 0.16))
@@ -116,9 +124,9 @@ def create_sidebar(data):
     )
     outturns_subtab = "input.tabs == 'Outturn Revisions' && input.outturn_revisions_subtabs == 'Outturns'"
 
-    # Intra-period tabs (NowcastData only)
-    intra_period_tab = "input.tabs == 'Intra-period'"
-    intra_accuracy_tab = "input.tabs == 'Intra-period' && input.intra_period_subtabs == 'Accuracy'"
+    # Intra-period subtabs (NowcastData only, nested inside Accuracy / Bias)
+    intra_accuracy_tab = "input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Intra-period'"
+    intra_bias_tab = "input.tabs == 'Bias' && input.bias_subtabs == 'Intra-period'"
 
     if hasattr(data, "_density_forecasts") and data._density_forecasts is not None:
         quantile_time_machine_tab = "input.tabs == 'Quantile Forecasts'"
@@ -139,7 +147,7 @@ def create_sidebar(data):
 
     if len(id_columns) > 0:
         additional_selectors = []
-        is_nowcasting = isinstance(data, NowcastData)
+        is_nowcasting = is_nowcast
 
         for col in id_columns:
             col_choices, id_single, id_multi = get_selector_info(col, data)
@@ -169,7 +177,9 @@ def create_sidebar(data):
                 + _or
                 + radar_tab
                 + _or
-                + intra_period_tab
+                + intra_accuracy_tab
+                + _or
+                + intra_bias_tab
             )
             if show_in_time_machine:
                 multi_condition = multi_condition + _or + time_machine_tab + _or + quantile_time_machine_tab
@@ -244,7 +254,9 @@ def create_sidebar(data):
                         + _or
                         + radar_tab
                         + _or
-                        + intra_period_tab,
+                        + intra_accuracy_tab
+                        + _or
+                        + intra_bias_tab,
                         ui.input_selectize("sources", "Sources:", choices=sources, multiple=True, selected=sources),
                     ),
                     ui.panel_conditional(
@@ -402,17 +414,17 @@ def create_sidebar(data):
         # Outturn taken at t + (single selection)
         ui.panel_conditional(
             "input.tabs != 'About' && input.tabs != 'Outturn Revisions' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability')",
-            ui.input_select("k", f"Data vintage ({period_label} after first release)", choices=k_values, selected=12),
+            ui.input_select("k", k_label, choices=k_values, selected=k_default),
         ),
         # Outturn taken at t + (multiple selection for outturn revisions)
         ui.panel_conditional(
             outturn_revisions_subtab,
             ui.input_selectize(
                 "k_multiple",
-                f"Data vintage ({period_label} after first release)",
+                k_label,
                 choices=k_values[1:],
                 multiple=True,
-                selected=[12],
+                selected=[k_default],
             ),
         ),
         # Outturn taken at t + (multiple selection for outturns)
@@ -420,10 +432,10 @@ def create_sidebar(data):
             outturns_subtab,
             ui.input_selectize(
                 "k_multiple_outturns",
-                f"Data vintage ({period_label} after first release)",
+                k_label,
                 choices=k_values,
                 multiple=True,
-                selected=[12],
+                selected=[k_default],
             ),
         ),
         # Vintage / Target selector
@@ -431,9 +443,9 @@ def create_sidebar(data):
             time_machine_tab + _or + quantile_time_machine_tab,
             ui.input_select(
                 "vintage",
-                f"Target {period_label.rstrip('s').capitalize()}:" if isinstance(data, NowcastData) else "Vintage:",
-                choices=outturn_dates if isinstance(data, NowcastData) else outturn_vintages,
-                selected=outturn_dates[-1] if isinstance(data, NowcastData) else outturn_vintages[-1],
+                f"Target {period_label.rstrip('s').capitalize()}:" if is_nowcast else "Vintage:",
+                choices=outturn_dates if is_nowcast else outturn_vintages,
+                selected=outturn_dates[-1] if is_nowcast else outturn_vintages[-1],
             ),
         ),
         # Transformation
@@ -549,6 +561,16 @@ def create_sidebar(data):
             intra_accuracy_tab,
             ui.input_select("intra_statistic", "Statistic:", choices=["rmse", "mae"], selected="rmse"),
         ),
+        # Intra-period confidence bands
+        ui.panel_conditional(
+            intra_accuracy_tab + _or + intra_bias_tab,
+            ui.input_select(
+                "confidence_level",
+                "Confidence bands:",
+                choices={"None": "None", "68": "68%", "90": "90%", "95": "95%", "99": "99%"},
+                selected="None",
+            ),
+        ),
         # Legend
         ui.panel_conditional(
             "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
@@ -567,116 +589,140 @@ def create_sidebar(data):
     )
 
 
-def create_accuracy_tab():
+def create_accuracy_tab(show_intra_period=False):
     """Create the Accuracy tab UI"""
+    subtabs = [
+        ui.nav_panel(
+            "Average Accuracy",
+            ui.output_ui("accuracy_plot_ui"),
+            ui.output_ui("accuracy_legend_ui"),
+            ui.accordion(
+                ui.accordion_panel(
+                    "Sample information",
+                    ui.output_data_frame("info_accuracy"),
+                ),
+                open=False,
+            ),
+            ui.download_button("download_accuracy", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Rolling Accuracy",
+            ui.card(
+                ui.output_ui("rolling_accuracy_plot_ui"),
+                ui.output_ui("rolling_accuracy_legend_ui"),
+            ),
+            ui.download_button("download_rolling_accuracy", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Relative Accuracy",
+            ui.output_ui("relative_accuracy_plot_ui"),
+            ui.output_ui("relative_accuracy_legend_ui"),
+            ui.accordion(
+                ui.accordion_panel(
+                    "Sample information",
+                    ui.output_data_frame("info_relative_accuracy"),
+                ),
+                open=False,
+            ),
+            ui.download_button("download_relative_accuracy", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Rolling Relative Accuracy",
+            ui.output_ui("rolling_relative_accuracy_plot_ui"),
+            ui.output_ui("rolling_relative_accuracy_legend_ui"),
+            ui.accordion(
+                ui.accordion_panel(
+                    "Sample information",
+                    ui.output_data_frame("info_rolling_relative_accuracy"),
+                ),
+                open=False,
+            ),
+            ui.download_button("download_rolling_relative_accuracy", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Diebold Mariano",
+            ui.output_data_frame("DM_test"),
+            ui.download_button("download_DM", "Download data behind table"),
+        ),
+        ui.nav_panel(
+            "Error Distribution",
+            ui.output_ui("error_density_plot_ui"),
+            ui.output_ui("error_density_legend_ui"),
+            ui.accordion(
+                ui.accordion_panel(
+                    "Sample information",
+                    ui.output_data_frame("info_error_density"),
+                ),
+                open=False,
+            ),
+            ui.download_button("download_error_density", "Download data behind chart"),
+        ),
+    ]
+
+    if show_intra_period:
+        subtabs.insert(
+            1,
+            ui.nav_panel(
+                "Intra-period",
+                ui.output_ui("intra_accuracy_plot_ui"),
+                ui.output_ui("intra_accuracy_legend_ui"),
+                ui.download_button("download_intra_accuracy", "Download data behind chart"),
+            ),
+        )
+
     return ui.nav_panel(
         "Accuracy",
-        ui.navset_tab(
-            ui.nav_panel(
-                "Average Accuracy",
-                ui.output_ui("accuracy_plot_ui"),
-                ui.output_ui("accuracy_legend_ui"),
-                ui.accordion(
-                    ui.accordion_panel(
-                        "Sample information",
-                        ui.output_data_frame("info_accuracy"),
-                    ),
-                    open=False,
-                ),
-                ui.download_button("download_accuracy", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Rolling Accuracy",
-                ui.card(
-                    ui.output_ui("rolling_accuracy_plot_ui"),
-                    ui.output_ui("rolling_accuracy_legend_ui"),
-                ),
-                ui.download_button("download_rolling_accuracy", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Relative Accuracy",
-                ui.output_ui("relative_accuracy_plot_ui"),
-                ui.output_ui("relative_accuracy_legend_ui"),
-                ui.accordion(
-                    ui.accordion_panel(
-                        "Sample information",
-                        ui.output_data_frame("info_relative_accuracy"),
-                    ),
-                    open=False,
-                ),
-                ui.download_button("download_relative_accuracy", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Rolling Relative Accuracy",
-                ui.output_ui("rolling_relative_accuracy_plot_ui"),
-                ui.output_ui("rolling_relative_accuracy_legend_ui"),
-                ui.accordion(
-                    ui.accordion_panel(
-                        "Sample information",
-                        ui.output_data_frame("info_rolling_relative_accuracy"),
-                    ),
-                    open=False,
-                ),
-                ui.download_button("download_rolling_relative_accuracy", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Diebold Mariano",
-                ui.output_data_frame("DM_test"),
-                ui.download_button("download_DM", "Download data behind table"),
-            ),
-            ui.nav_panel(
-                "Error Distribution",
-                ui.output_ui("error_density_plot_ui"),
-                ui.output_ui("error_density_legend_ui"),
-                ui.accordion(
-                    ui.accordion_panel(
-                        "Sample information",
-                        ui.output_data_frame("info_error_density"),
-                    ),
-                    open=False,
-                ),
-                ui.download_button("download_error_density", "Download data behind chart"),
-            ),
-            id="accuracy_subtabs",
-        ),
+        ui.navset_tab(*subtabs, id="accuracy_subtabs"),
     )
 
 
-def create_bias_tab():
+def create_bias_tab(show_intra_period=False):
     """Create the Bias tab UI"""
+    subtabs = [
+        ui.nav_panel(
+            "Errors",
+            ui.card(
+                ui.output_ui("errors_plot_ui"),
+                ui.output_ui("errors_legend_ui"),
+            ),
+            ui.download_button("download_errors", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Rolling errors",
+            ui.card(
+                ui.output_ui("rolling_errors_plot_ui"),
+                ui.output_ui("rolling_errors_legend_ui"),
+            ),
+            ui.download_button("download_rolling_errors", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Bias across horizons",
+            ui.output_ui("bias_plot_ui"),
+            ui.output_ui("bias_legend_ui"),
+            ui.download_button("download_bias", "Download data behind chart"),
+        ),
+        ui.nav_panel(
+            "Rolling bias",
+            ui.output_ui("rolling_bias_plot_ui"),
+            ui.output_ui("rolling_bias_legend_ui"),
+            ui.download_button("download_rolling_bias", "Download data behind chart"),
+        ),
+    ]
+
+    if show_intra_period:
+        subtabs.insert(
+            1,
+            ui.nav_panel(
+                "Intra-period",
+                ui.output_ui("intra_bias_plot_ui"),
+                ui.output_ui("intra_bias_legend_ui"),
+                ui.download_button("download_intra_bias", "Download data behind chart"),
+            ),
+        )
+
     return ui.nav_panel(
         "Bias",
-        ui.navset_tab(
-            ui.nav_panel(
-                "Errors",
-                ui.card(
-                    ui.output_ui("errors_plot_ui"),
-                    ui.output_ui("errors_legend_ui"),
-                ),
-                ui.download_button("download_errors", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Rolling errors",
-                ui.card(
-                    ui.output_ui("rolling_errors_plot_ui"),
-                    ui.output_ui("rolling_errors_legend_ui"),
-                ),
-                ui.download_button("download_rolling_errors", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Bias across horizons",
-                ui.output_ui("bias_plot_ui"),
-                ui.output_ui("bias_legend_ui"),
-                ui.download_button("download_bias", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Rolling bias",
-                ui.output_ui("rolling_bias_plot_ui"),
-                ui.output_ui("rolling_bias_legend_ui"),
-                ui.download_button("download_rolling_bias", "Download data behind chart"),
-            ),
-            id="bias_subtabs",
-        ),
+        ui.navset_tab(*subtabs, id="bias_subtabs"),
     )
 
 
@@ -748,28 +794,6 @@ def create_quantile_time_machine_tab():
         ui.output_ui("quantile_time_machine_plot_ui"),
         ui.output_ui("quantile_time_machine_legend_ui"),
         ui.download_button("quantile_time_machine_download", "Download data behind chart"),
-    )
-
-
-def create_intra_period_tab():
-    """Create the Intra-period tab UI"""
-    return ui.nav_panel(
-        "Intra-period",
-        ui.navset_tab(
-            ui.nav_panel(
-                "Accuracy",
-                ui.output_ui("intra_accuracy_plot_ui"),
-                ui.output_ui("intra_accuracy_legend_ui"),
-                ui.download_button("download_intra_accuracy", "Download data behind chart"),
-            ),
-            ui.nav_panel(
-                "Bias",
-                ui.output_ui("intra_bias_plot_ui"),
-                ui.output_ui("intra_bias_legend_ui"),
-                ui.download_button("download_intra_bias", "Download data behind chart"),
-            ),
-            id="intra_period_subtabs",
-        ),
     )
 
 
