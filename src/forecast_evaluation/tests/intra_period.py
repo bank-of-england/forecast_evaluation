@@ -56,8 +56,11 @@ def _prepare_intra_period_data(
             + (f", forecast_horizon={forecast_horizon}" if forecast_horizon is not None else "")
         )
 
-    # Days from forecast vintage to the end of the target period
-    df["days_to_target"] = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
+    # Days from forecast vintage to the end of the target period,
+    # rounded to the nearest 7 days so that weekly vintages whose
+    # day-of-week alignment drifts across years are binned together.
+    raw_days = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
+    df["days_to_target"] = (raw_days / 7).round().astype(int) * 7
 
     return df
 
