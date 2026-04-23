@@ -104,6 +104,7 @@ class NowcastData(ForecastData):
             return
 
         forecast_vintages = pd.to_datetime(forecasts_df["vintage_date"]).unique()
+        forecast_variables = set(forecasts_df["variable"].unique())
 
         # Pre-compute which (variable, vintage_date) -> set of target dates
         # the forecasts cover, so we can exclude them from each snapshot.
@@ -111,6 +112,9 @@ class NowcastData(ForecastData):
 
         new_rows = []
         for variable, var_outturns in self._raw_outturns.groupby("variable"):
+            # Only align outturn variables that have corresponding forecasts.
+            if variable not in forecast_variables:
+                continue
             existing_vintages = set(pd.to_datetime(var_outturns["vintage_date"]).unique())
             missing = set(forecast_vintages) - existing_vintages
             if not missing:

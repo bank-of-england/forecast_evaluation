@@ -251,6 +251,162 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     return df
 
 
+def create_sample_mixed_freq_outturns() -> pd.DataFrame:
+    """Create sample outturns with mixed frequency for nowcasting evaluation.
+
+    Generates outturns for two variables with different frequencies:
+
+    - **gdp** (quarterly, ``frequency="Q"``): target dates are quarter-ends
+      from 2015Q1 to 2025Q4. First release 6 weeks (42 days) after the end
+      of the target quarter, then revised once per quarter.
+    - **ip** (monthly, ``frequency="M"``): industrial production with monthly
+      target dates from 2015-01 to 2025-12. First release 2 weeks (14 days)
+      after the end of the target month, then revised monthly.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: date, variable, vintage_date, frequency, value.
+    """
+    np.random.seed(42)
+
+    end_date = "2026-03-31"
+
+    # GDP: quarterly targets 2015Q1–2025Q4
+    gdp_targets = pd.date_range("2015-03-31", "2025-12-31", freq="QE")
+    gdp_truth = {d: 99.0 + (i * 0.3 + np.sin(i / 4) * 0.5) for i, d in enumerate(gdp_targets)}
+
+    # IP: monthly targets 2015-01–2025-12
+    ip_targets = pd.date_range("2015-01-31", "2025-12-31", freq="ME")
+    ip_truth = {d: 102.0 + (i * 0.15 + np.sin(i / 6) * 1.2) for i, d in enumerate(ip_targets)}
+
+    rows = []
+
+    # GDP outturns (quarterly revisions, 42-day lag)
+    for target_date, true_value in gdp_truth.items():
+        first_release = target_date + pd.Timedelta(days=42)
+        first_release_qe = first_release + pd.offsets.QuarterEnd(0)
+        if first_release_qe <= first_release:
+            first_release_qe = first_release + pd.offsets.QuarterEnd(1)
+        revision_vintages = pd.date_range(first_release_qe + pd.offsets.QuarterEnd(1), end_date, freq="QE")
+        target_vintages = [first_release] + list(revision_vintages)
+
+        for vintage_date in target_vintages:
+            k = (vintage_date.to_period("Q") - target_date.to_period("Q")).n
+            noise = np.random.normal(0, 0.5 / (1 + abs(k)))
+            rows.append(
+                {
+                    "date": target_date,
+                    "variable": "gdp",
+                    "vintage_date": vintage_date,
+                    "frequency": "Q",
+                    "value": round(true_value + noise, 4),
+                }
+            )
+
+    # IP outturns (monthly revisions, 14-day lag)
+    for target_date, true_value in ip_truth.items():
+        first_release = target_date + pd.Timedelta(days=14)
+        first_release_me = first_release + pd.offsets.MonthEnd(0)
+        if first_release_me <= first_release:
+            first_release_me = first_release + pd.offsets.MonthEnd(1)
+        revision_month_ends = pd.date_range(first_release_me + pd.offsets.MonthEnd(1), end_date, freq="ME")
+        revision_vintages = revision_month_ends + pd.Timedelta(days=14)
+        target_vintages = [first_release] + list(revision_vintages)
+
+        for vintage_date in target_vintages:
+            k = (vintage_date.to_period("M") - target_date.to_period("M")).n
+            noise = np.random.normal(0, 0.3 / (1 + abs(k)))
+            rows.append(
+                {
+                    "date": target_date,
+                    "variable": "ip",
+                    "vintage_date": vintage_date,
+                    "frequency": "M",
+                    "value": round(true_value + noise, 4),
+                }
+            )
+
+    df_outturn = pd.DataFrame(rows)
+    return df_outturn
+
+
+def create_sample_mixed_freq_forecasts() -> pd.DataFrame:
+    """Create sample GDP nowcasting forecasts for the mixed-frequency setting.
+
+    Generates weekly nowcasts (2015–2025) from two models for ``gdp`` only.
+    Industrial production is an indicator variable with outturns only — no
+    forecasts are produced for it.
+
+    Each weekly vintage targets up to three horizons:
+
+    - **h = 1** (forecast): next quarter.
+    - **h = 0** (nowcast): current quarter.
+    - **h = -1** (backcast): previous quarter, only while its official
+      outturn has not yet been published (42 days after quarter-end).
+
+    Forecast errors shrink as the vintage approaches the publication date.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: date, variable, vintage_date, source,
+        frequency, value.
+    """
+    np.random.seed(42)
+
+    target_dates = pd.date_range("2015-03-31", "2025-12-31", freq="QE")
+    target_by_period = {d.to_period("Q"): d for d in target_dates}
+
+    truth = {d: 99.0 + (i * 0.3 + np.sin(i / 4) * 0.5) for i, d in enumerate(target_dates)}
+
+    initial_bias = {
+        "nowcast_dfm": 2.0,
+        "nowcast_bridge": -1.5,
+    }
+
+    pub_lag = 42
+    max_days = 182.0
+    noise_scale = 0.25
+
+    all_vintages = pd.date_range("2015-01-01", "2026-03-31", freq="7D")
+
+    rows = []
+    for source, bias in initial_bias.items():
+        for vintage in all_vintages:
+            v_period = vintage.to_period("Q")
+
+            for horizon in (-1, 0, 1):
+                target_period = v_period + horizon
+                if target_period not in target_by_period:
+                    continue
+                target = target_by_period[target_period]
+
+                pub_date = target + pd.Timedelta(days=pub_lag)
+
+                if horizon == -1 and vintage >= pub_date:
+                    continue
+
+                days_before_pub = max(0, (pub_date - vintage).days)
+                remaining_fraction = min(1.0, days_before_pub / max_days)
+                error = bias * remaining_fraction
+                noise = np.random.normal(0, noise_scale * abs(bias) * remaining_fraction)
+
+                rows.append(
+                    {
+                        "date": target,
+                        "variable": "gdp",
+                        "vintage_date": vintage,
+                        "source": source,
+                        "frequency": "Q",
+                        "value": round(truth[target] + error + noise, 2),
+                    }
+                )
+
+    df = pd.DataFrame(rows)
+    return df
+
+
 def create_sample_density_forecasts() -> pd.DataFrame:
     """Create sample density forecasts DataFrame with multiple quantiles.
 
