@@ -56,7 +56,11 @@ def transform_series(
 
 
 def prepare_forecasts(
-    forecasts: pd.DataFrame, outturns: pd.DataFrame, id_columns: list[str], compute_levels: bool = True
+    forecasts: pd.DataFrame,
+    outturns: pd.DataFrame,
+    id_columns: list[str],
+    compute_levels: bool = True,
+    first_forecast_horizon: int = 0,
 ) -> pd.DataFrame:
     """Prepare forecast data for evaluation by combining with outturns and applying transformations.
 
@@ -76,6 +80,9 @@ def prepare_forecasts(
         If the transformation fails for specific groups (e.g., due to insufficient
         historical data), those groups will be skipped with a warning message.
         Default is True.
+    first_forecast_horizon : int, optional
+        The minimum forecast horizon to retain. Set to a negative value (e.g., -1)
+        to include backcasts. Default is 0.
 
     Returns
     -------
@@ -94,14 +101,18 @@ def prepare_forecasts(
         df = forecasts.copy()
         if "metric" not in df.columns:
             df["metric"] = "levels"
-        return df[df["forecast_horizon"] >= 0].copy()
+        return df[df["forecast_horizon"] >= first_forecast_horizon].copy()
 
     # Auto-transform non-levels forecasts to levels if requested
     if compute_levels:
         non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
 
         # Add levels forecasts
-        updated_level_forecasts = transform_forecast_to_levels(outturns, forecasts)
+        updated_level_forecasts = transform_forecast_to_levels(
+            outturns,
+            forecasts,
+            first_forecast_horizon=first_forecast_horizon,
+        )
 
         # add back non-levels forecasts
         forecasts = pd.concat([updated_level_forecasts, non_levels_forecasts], ignore_index=True)
@@ -128,16 +139,20 @@ def prepare_forecasts(
 
     for frequency in frequencies:
         forecasts_freq = levels_forecasts[
-            (levels_forecasts["frequency"] == frequency) & (levels_forecasts["forecast_horizon"] >= 0)
+            (levels_forecasts["frequency"] == frequency)
+            & (levels_forecasts["forecast_horizon"] >= first_forecast_horizon)
         ].copy()
         outturns_freq = outturns[outturns["frequency"] == frequency].copy()
 
         # YoY/MoM transforms require prepending enough outturn history so that
-        # pct_change(n_periods) has a valid base at h=0.  We need n_periods+1
-        # outturn rows (h=-(n_periods+1),...,h=-1) per vintage.
+        # pct_change(n_periods) has a valid base at h=first_forecast_horizon.
+        # We need n_periods+1 outturn rows per vintage.
         n_periods = {"Q": 4, "M": 12}[frequency]
-        outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -(n_periods + 1)].copy()
+        min_outturn_horizon = first_forecast_horizon - (n_periods + 1)
+        outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= min_outturn_horizon].copy()
         outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
+        # Mark outturn rows so they can be stripped out after transformations.
+        outturns_filtered["_helper_outturn"] = True
 
         # When outturns have NaT vintage_dates (outturn_vintages=False),
         # create synthetic vintage copies for each forecast vintage_date
@@ -160,6 +175,7 @@ def prepare_forecasts(
             outturns_id = outturns_filtered.copy()
             outturns_id["unique_id"] = f_id
             forecast_id = forecasts_freq[forecasts_freq["unique_id"] == f_id]
+            # forecast_id rows do not have _helper_outturn; it becomes NaN after concat
             forecast_dfs.append(pd.concat([outturns_id, forecast_id], ignore_index=True))
 
         # We compute all transformations now (levels, pop (period-on-period), yoy (year-on-year)
@@ -187,12 +203,22 @@ def prepare_forecasts(
     if not non_levels_forecasts.empty:
         df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
 
-    df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= 0]
+    df_forecasts = df_forecasts[df_forecasts["forecast_horizon"] >= first_forecast_horizon]
+
+    # Remove the helper outturn rows that were prepended for transformation purposes only.
+    if "_helper_outturn" in df_forecasts.columns:
+        df_forecasts = df_forecasts[df_forecasts["_helper_outturn"].isna()]
+        df_forecasts = df_forecasts.drop(columns=["_helper_outturn"])
 
     # drop duplicates TODO: ideally we shouldn't have any duplicates
     # these are introduced because pop and yoy are always computed, even if
     # they are already present
     df_forecasts = df_forecasts.drop_duplicates(subset=[col for col in df_forecasts.columns if col != "value"])
+
+    # Ensure forecast_horizon stays integer (concat with _helper_outturn NaN column
+    # can upcast int to float)
+    if "forecast_horizon" in df_forecasts.columns:
+        df_forecasts["forecast_horizon"] = df_forecasts["forecast_horizon"].astype(int)
 
     return df_forecasts
 
@@ -248,6 +274,7 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
 def transform_forecast_to_levels(
     outturns: pd.DataFrame,
     forecasts: pd.DataFrame,
+    first_forecast_horizon: int = 0,
 ) -> pd.DataFrame:
     """Transform forecast back to levels.
 
@@ -257,16 +284,18 @@ def transform_forecast_to_levels(
         Validated DataFrame containing outturn data.
     forecasts : pd.DataFrame
         Validated DataFrame containing forecast data.
+    first_forecast_horizon : int, optional
+        The minimum forecast horizon to retain. Default is 0.
 
     Returns
     -------
     pd.DataFrame
-        Transformed forecast in levels (forecast_horizon >= 0 only).
+        Transformed forecast in levels (forecast_horizon >= first_forecast_horizon only).
     """
 
     # Keep only forecast rows
     if "forecast_horizon" in forecasts.columns:
-        forecasts = forecasts[forecasts["forecast_horizon"] >= 0].copy()
+        forecasts = forecasts[forecasts["forecast_horizon"] >= first_forecast_horizon].copy()
 
     # Separate forecasts that are already in levels and those that need transformation
     forecasts_levels = forecasts[forecasts["metric"] == "levels"].copy()

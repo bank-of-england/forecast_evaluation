@@ -18,6 +18,7 @@ from .tabs.about import about
 from .tabs.bias import errors, rolling_errors, bias, rolling_bias
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
+from .tabs.intra_period import intra_period_accuracy, intra_period_bias
 from .tabs.outturn_revisions import outturn_revisions, outturns
 from .tabs.radar import radar
 from .tabs.time_machine import time_machine
@@ -36,6 +37,7 @@ from .ui import (
 
 from .theme.brand import brand as _brand
 from .utils import patch_render_plot
+from forecast_evaluation.data.NowcastData import NowcastData
 
 # Apply global error handling
 patch_render_plot()
@@ -47,15 +49,26 @@ def dashboard_app(data) -> App:
     def app_ui(request):
         """Main UI function"""
 
+        is_nowcast = isinstance(data, NowcastData)
+
         tabs = [
             about(),
-            create_accuracy_tab(),
-            create_bias_tab(),
-            create_efficiency_tab(),
-            create_time_machine_tab(),
-            create_hedgehog_tab(),
-            create_radar_tab(),
+            create_accuracy_tab(show_intra_period=is_nowcast),
+            create_bias_tab(show_intra_period=is_nowcast),
         ]
+
+        # Efficiency tests are not supported for nowcasting data
+        if not is_nowcast:
+            tabs.append(create_efficiency_tab())
+
+        tabs.extend(
+            [
+                create_time_machine_tab(),
+                create_hedgehog_tab(),
+                create_outturn_revisions_tab(),
+                create_radar_tab(),
+            ]
+        )
 
         if getattr(data, "outturn_vintages", True):
             tabs.append(create_outturn_revisions_tab())
@@ -90,10 +103,18 @@ def dashboard_app(data) -> App:
         rolling_errors(input, output, session, data)
         bias(input, output, session, data)
         rolling_bias(input, output, session, data)
-        blanchard_leigh(input, output, session, data)
-        revisions_predictability(input, output, session, data)
-        weak_efficiency(input, output, session, data)
-        revisions_errors_correlation(input, output, session, data)
+
+        # Efficiency handlers are not needed for nowcasting data
+        if not isinstance(data, NowcastData):
+            blanchard_leigh(input, output, session, data)
+            revisions_predictability(input, output, session, data)
+            weak_efficiency(input, output, session, data)
+            revisions_errors_correlation(input, output, session, data)
+        else:
+            # Intra-period handlers only for nowcasting data
+            intra_period_accuracy(input, output, session, data)
+            intra_period_bias(input, output, session, data)
+
         hedgehog(input, output, session, data)
         if getattr(data, "outturn_vintages", True):
             outturn_revisions(input, output, session, data)

@@ -88,14 +88,10 @@ def build_random_walk_model(
 
         # Get unique forecast vintage dates for this variable/frequency
         raw_fc = data._raw_forecasts
-        relevant = raw_fc[
-            (raw_fc["variable"] == variable) & (raw_fc["frequency"] == frequency)
-        ]
+        relevant = raw_fc[(raw_fc["variable"] == variable) & (raw_fc["frequency"] == frequency)]
         vintage_dates = sorted(relevant["vintage_date"].dropna().unique())
         if len(vintage_dates) == 0:
-            raise ValueError(
-                f"No forecast vintage dates found for variable '{variable}' and frequency '{frequency}'."
-            )
+            raise ValueError(f"No forecast vintage dates found for variable '{variable}' and frequency '{frequency}'.")
 
         # Group by variable/metric/frequency only (no vintage_date in outturns)
         grouped = df.groupby(["variable", "metric", "frequency"])

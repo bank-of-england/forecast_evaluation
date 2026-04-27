@@ -12,7 +12,13 @@ from forecast_evaluation.core.transformations import prepare_forecasts, prepare_
 from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
-from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
+from forecast_evaluation.data.utils import (
+    compute_forecast_horizon,
+    construct_unique_id,
+    filter_fer_models,
+    filter_fer_variables,
+    filter_tables,
+)
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
@@ -39,6 +45,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: int = 0,
         outturn_vintages: bool = True,
     ):
         """Initialise with user data, FER data or null.
@@ -67,6 +74,11 @@ class ForecastData(PlottingMixin):
         data_check : bool, optional
             Whether to run data checks when adding forecasts. See :meth:`add_forecasts` for details.
             Default is True.
+        first_forecast_horizon : int, optional
+            The minimum forecast horizon to retain in processed forecasts.
+            Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
+            for periods that have already ended but whose data has not yet been released.
+            Default is 0 (only current-period and future forecasts).
         outturn_vintages : bool, optional
             Whether the outturn data contains vintage information (multiple releases of the same data
             point over time). When False, the data is assumed to contain a single final outturn per
@@ -82,6 +94,7 @@ class ForecastData(PlottingMixin):
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
+        self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
         if load_fer:
@@ -123,11 +136,16 @@ class ForecastData(PlottingMixin):
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
         # When outturn_vintages is False, auto-populate missing columns
+        # before compute_forecast_horizon which requires vintage_date
         if not self._outturn_vintages:
             if "vintage_date" not in df.columns:
                 df["vintage_date"] = pd.NaT
             if "forecast_horizon" not in df.columns:
                 df["forecast_horizon"] = -1
+
+        # Compute forecast_horizon if missing
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -220,6 +238,9 @@ class ForecastData(PlottingMixin):
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
 
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
+
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
             df["metric"] = metric
@@ -300,7 +321,13 @@ class ForecastData(PlottingMixin):
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
-        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns, compute_levels=compute_levels)
+        forecasts = prepare_forecasts(
+            df,
+            self._raw_outturns,
+            self._id_columns,
+            compute_levels=compute_levels,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
 
         # Compute main table
         main_table = build_main_table(
@@ -419,10 +446,7 @@ class ForecastData(PlottingMixin):
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
         # recompute forecast_horizon using each row's actual frequency
-        expanded_df["forecast_horizon"] = expanded_df.apply(
-            lambda row: (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n,
-            axis=1,
-        )
+        expanded_df = compute_forecast_horizon(expanded_df)
 
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
@@ -584,7 +608,12 @@ class ForecastData(PlottingMixin):
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
         # Separate forecasts and outturns
-        forecasts = prepare_forecasts(self._raw_forecasts, self._raw_outturns, self._id_columns)
+        forecasts = prepare_forecasts(
+            self._raw_forecasts,
+            self._raw_outturns,
+            self._id_columns,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
         outturns = prepare_outturns(self._raw_outturns)
 
         self._forecasts = forecasts
@@ -1073,7 +1102,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
 
     group_keys = ["source", "variable", "metric", "frequency"]
 
-    for keys, group in forecasts_df.groupby(group_keys, sort=False):
+    for keys, _group in forecasts_df.groupby(group_keys, sort=False):
         source, variable, metric, frequency = keys
         label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
 

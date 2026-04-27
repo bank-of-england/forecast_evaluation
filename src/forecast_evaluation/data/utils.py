@@ -212,3 +212,87 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame
         unique_id = unique_id + " + " + c
 
     return unique_id
+
+
+def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute forecast_horizon from date, vintage_date, and frequency.
+
+    The horizon is the integer number of periods (quarters or months) between
+    the vintage date and the target date: 0 for a same-period forecast,
+    1 for one period ahead, -1 for a backcast (vintage is in the period
+    after the target).
+
+    For nowcasting data with weekly vintages, multiple vintages within the
+    same period all map to the same integer horizon, giving many observations
+    per (source, date, horizon) group for robust accuracy statistics.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with 'date', 'vintage_date', and 'frequency' columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with 'forecast_horizon' column added or replaced.
+    """
+    df = df.copy()
+    dates = pd.to_datetime(df["date"])
+    vintages = pd.to_datetime(df["vintage_date"])
+    result = pd.Series(index=df.index, dtype=int)
+
+    for freq in df["frequency"].unique():
+        mask = df["frequency"] == freq
+        date_periods = dates[mask].dt.to_period(freq).astype("int64")
+        vintage_periods = vintages[mask].dt.to_period(freq).astype("int64")
+        result[mask] = date_periods - vintage_periods
+
+    df["forecast_horizon"] = result
+    return df
+
+
+def compute_days_in_period(vintage_dates: pd.Series, frequencies: pd.Series) -> pd.Series:
+    """Compute the number of days from the start of the vintage date's own period.
+
+    For quarterly frequency, the period is the calendar quarter.
+    For monthly frequency, the period is the calendar month.
+
+    Parameters
+    ----------
+    vintage_dates : pd.Series
+        Series of vintage dates (datetime-like).
+    frequencies : pd.Series
+        Series of frequency strings ('Q' or 'M'), aligned with vintage_dates.
+
+    Returns
+    -------
+    pd.Series
+        Integer series with the number of days elapsed since the period start.
+
+    Examples
+    --------
+    >>> import pandas as pd
+    >>> dates = pd.Series([pd.Timestamp("2024-02-14"), pd.Timestamp("2024-05-10")])
+    >>> freqs = pd.Series(["Q", "Q"])
+    >>> compute_days_in_period(dates, freqs)
+    0    44
+    1    39
+    dtype: int64
+    """
+    vintage_dates = pd.to_datetime(vintage_dates)
+    result = pd.Series(index=vintage_dates.index, dtype=int)
+
+    for freq in frequencies.unique():
+        mask = frequencies == freq
+        dates = vintage_dates[mask]
+
+        if freq == "Q":
+            period_starts = dates.dt.to_period("Q").dt.start_time
+        elif freq == "M":
+            period_starts = dates.dt.to_period("M").dt.start_time
+        else:
+            raise ValueError(f"Unsupported frequency: {freq}")
+
+        result[mask] = (dates - period_starts).dt.days
+
+    return result
