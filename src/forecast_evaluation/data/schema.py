@@ -8,7 +8,12 @@ import pandera.pandas as pa
 ALLOWED_FREQUENCIES = ["Q", "M"]
 
 
-def create_data_schema(forecast: bool = False, optional_columns: Optional[list[str]] = None):
+def create_data_schema(
+    forecast: bool = False,
+    optional_columns: Optional[list[str]] = None,
+    *,
+    nullable_vintage: bool = False,
+):
     """Create validation schema for forecast/outturn data.
 
     Parameters
@@ -17,6 +22,9 @@ def create_data_schema(forecast: bool = False, optional_columns: Optional[list[s
         Whether the data is forecast data (True) or outturn data (False). Default is False.
     optional_columns : list of str, optional
         Additional optional columns to include in the schema.
+    nullable_vintage : bool, optional
+        Whether to allow nullable vintage_date values (e.g., when outturn vintages are not
+        available). Default is False.
 
     Returns
     -------
@@ -26,7 +34,7 @@ def create_data_schema(forecast: bool = False, optional_columns: Optional[list[s
     # Required columns
     columns = {
         "date": pa.Column(pd.Timestamp, coerce=True),
-        "vintage_date": pa.Column(pd.Timestamp, coerce=True),
+        "vintage_date": pa.Column(pd.Timestamp, coerce=True, nullable=nullable_vintage),
         "variable": pa.Column(str, pa.Check(lambda s: s.str.len() >= 1)),
         "frequency": pa.Column(
             str, pa.Check(lambda s: s.isin(ALLOWED_FREQUENCIES), name=f"must be one of {ALLOWED_FREQUENCIES}")

@@ -18,6 +18,11 @@ def filter_k(df: pd.DataFrame, k: int = 12, fill_k: bool = True) -> pd.DataFrame
     pd.DataFrame
         Filtered DataFrame containing only rows where k matches or latest vintage is used
     """
+    # When outturn vintages are not available (latest_vintage is all NaT),
+    # there is only one outturn per date — return unfiltered.
+    if "latest_vintage" in df.columns and df["latest_vintage"].isna().all():
+        return df
+
     # Subset the data
     if fill_k:
         df = df[(df["k"] == k) | ((df["k"] < k) & (df["latest_vintage"] == df["vintage_date_outturn"]))]

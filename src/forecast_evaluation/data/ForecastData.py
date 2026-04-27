@@ -9,6 +9,7 @@ import pandas as pd
 
 from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
+from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import (
@@ -22,7 +23,7 @@ from forecast_evaluation.data.utils import (
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
 
-class ForecastData:
+class ForecastData(PlottingMixin):
     """Class for validation and extending forecast data.
 
     The main method is .add_forecasts() which validates the input data and compute relevant dataframes.
@@ -45,6 +46,7 @@ class ForecastData:
         compute_levels: bool = True,
         data_check: bool = True,
         first_forecast_horizon: int = 0,
+        outturn_vintages: bool = True,
     ):
         """Initialise with user data, FER data or null.
 
@@ -77,6 +79,14 @@ class ForecastData:
             Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
             for periods that have already ended but whose data has not yet been released.
             Default is 0 (only current-period and future forecasts).
+        outturn_vintages : bool, optional
+            Whether the outturn data contains vintage information (multiple releases of the same data
+            point over time). When False, the data is assumed to contain a single final outturn per
+            date, and columns ``vintage_date`` and ``forecast_horizon`` are not required in the
+            outturn data. The ``k`` and ``latest_vintage`` columns in the main table will be set to
+            sentinel values and ``filter_k`` will be a no-op. Features that depend on outturn
+            revisions (e.g., ``plot_outturn_revisions``, ``create_outturn_revisions``) will raise
+            an error. Default is True.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -85,6 +95,7 @@ class ForecastData:
         self._main_table = pd.DataFrame()
         self._id_columns = None
         self.first_forecast_horizon = first_forecast_horizon
+        self._outturn_vintages = outturn_vintages
 
         if load_fer:
             self.add_fer_data()
@@ -124,6 +135,14 @@ class ForecastData:
             Metric to assign to the outturns if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        # When outturn_vintages is False, auto-populate missing columns
+        # before compute_forecast_horizon which requires vintage_date
+        if not self._outturn_vintages:
+            if "vintage_date" not in df.columns:
+                df["vintage_date"] = pd.NaT
+            if "forecast_horizon" not in df.columns:
+                df["forecast_horizon"] = -1
+
         # Compute forecast_horizon if missing
         if "forecast_horizon" not in df.columns:
             df = compute_forecast_horizon(df)
@@ -143,7 +162,7 @@ class ForecastData:
 
         # Validate records using the ForecastRecord model
         # Include 'metric' as an optional column in validation
-        df_validated = _validate_records(df, optional_columns=["metric"])
+        df_validated = _validate_records(df, optional_columns=["metric"], nullable_vintage=not self._outturn_vintages)
 
         # Check for duplicates if there are already some records stored
         if not self._raw_outturns.empty:
@@ -311,7 +330,9 @@ class ForecastData:
         )
 
         # Compute main table
-        main_table = build_main_table(forecasts, self._outturns, self._id_columns)
+        main_table = build_main_table(
+            forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+        )
 
         # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
         # This is needed because derived/transformed rows (e.g. levels back-computed from
@@ -436,7 +457,9 @@ class ForecastData:
 
         # Recompute main table if forecasts exist
         if not self._forecasts.empty:
-            main_table = build_main_table(self._forecasts, self._outturns, self._id_columns)
+            main_table = build_main_table(
+                self._forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+            )
             self._main_table = main_table
 
     def add_fer_outturns(self) -> None:
@@ -595,7 +618,9 @@ class ForecastData:
 
         self._forecasts = forecasts
         self._outturns = outturns
-        self._main_table = build_main_table(forecasts, outturns, self._id_columns)
+        self._main_table = build_main_table(
+            forecasts, outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+        )
 
     @property
     def df(self) -> pd.DataFrame:
@@ -626,6 +651,11 @@ class ForecastData:
     def id_columns(self) -> list[str]:
         """Get identification / labelling columns."""
         return self._id_columns
+
+    @property
+    def outturn_vintages(self) -> bool:
+        """Whether the outturn data contains vintage information."""
+        return self._outturn_vintages
 
     def run_dashboard(self, from_jupyter: bool = False, host="127.0.0.1", port=8000):
         """Run the Shiny dashboard with the current data.
@@ -685,6 +715,9 @@ class ForecastData:
         ForecastData
            Updated ForecastData instance containing merged data from both instances.
         """
+
+        if self._outturn_vintages != other._outturn_vintages:
+            raise ValueError("Cannot merge ForecastData instances with different outturn_vintages settings.")
 
         if not other._raw_outturns.empty:
             self.add_outturns(other._raw_outturns)
@@ -864,7 +897,12 @@ class ForecastData:
             self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
 
 
-def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Optional[list[str]] = None) -> pd.DataFrame:
+def _validate_records(
+    df: pd.DataFrame,
+    forecast=False,
+    optional_columns: Optional[list[str]] = None,
+    nullable_vintage: bool = False,
+) -> pd.DataFrame:
     """Validate a DataFrame of forecast records using the Pandera ForecastSchema.
 
     Parameters
@@ -875,6 +913,8 @@ def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Option
         Whether the data is forecast data (True) or outturn data (False). Default is False.
     optional_columns : list of str, optional
         List of optional labelling columns to include in the schema validation. Default is empty.
+    nullable_vintage : bool, optional
+        Whether to allow nullable vintage_date values. Default is False.
 
     Returns
     -------
@@ -890,7 +930,7 @@ def _validate_records(df: pd.DataFrame, forecast=False, optional_columns: Option
         error_col = f"Attempting to add data but the following columns are missing: {sorted(missing_columns)}"
         raise ValueError(error_col)
 
-    schema = create_data_schema(forecast, optional_columns)
+    schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
     validated_df = schema.validate(df, lazy=False)
 
     # make sure that the dates are end-of-period dates according to frequency

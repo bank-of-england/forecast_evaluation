@@ -70,6 +70,9 @@ def dashboard_app(data) -> App:
             ]
         )
 
+        if getattr(data, "outturn_vintages", True):
+            tabs.append(create_outturn_revisions_tab())
+
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
             tabs.append(create_quantile_time_machine_tab())
 
@@ -113,8 +116,9 @@ def dashboard_app(data) -> App:
             intra_period_bias(input, output, session, data)
 
         hedgehog(input, output, session, data)
-        outturn_revisions(input, output, session, data)
-        outturns(input, output, session, data)
+        if getattr(data, "outturn_vintages", True):
+            outturn_revisions(input, output, session, data)
+            outturns(input, output, session, data)
         radar(input, output, session, data)
         time_machine(input, output, session, data)
 

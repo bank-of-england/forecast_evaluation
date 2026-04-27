@@ -49,6 +49,8 @@ def build_main_table(
     variables: Union[str, list[str]] = None,
     forecast_ids: Union[str, list[str]] = None,
     frequency: Literal["Q", "M"] = "Q",
+    *,
+    outturn_vintages: bool = True,
 ) -> pd.DataFrame:
     """Calculate the k-diagonal table for forecast evaluation.
 
@@ -67,6 +69,10 @@ def build_main_table(
         Can be elements of column 'source' or extra_ids columns.
     frequency : {"Q", "M"}, default "Q"
         Frequency of the data, either quarterly or monthly.
+    outturn_vintages : bool, default True
+        Whether the outturn data contains vintage information. When False, skips
+        ``compute_k`` and ``latest_vintage`` computation and sets sentinel values
+        (``k=0``, ``latest_vintage=NaT``) instead.
 
     Returns
     -------
@@ -120,10 +126,6 @@ def build_main_table(
         suffixes=("_forecast", "_outturn"),
     )
 
-    # Keep only outturns fro; the forecasted date
-    # >= and not > because some data can be released before the end of the period
-    # e.g. some surveys. Plus this line can be problematic when constructing artificial vintages
-    merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
     merged = merged.rename(columns={"id_forecast": "unique_id", "forecast_horizon_forecast": "forecast_horizon"})
 
     merged = merged[
@@ -141,11 +143,17 @@ def build_main_table(
         ]
     ].copy()
 
-    merged = compute_k(merged, frequency)
+    if outturn_vintages:
+        # Keep only outturns from the forecasted date
+        merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
+        merged = compute_k(merged, frequency)
 
-    merged["latest_vintage"] = merged.groupby(["variable", "metric", "frequency", "unique_id", "date"])[
-        "vintage_date_outturn"
-    ].transform("max")
+        merged["latest_vintage"] = merged.groupby(["variable", "metric", "frequency", "unique_id", "date"])[
+            "vintage_date_outturn"
+        ].transform("max")
+    else:
+        merged["k"] = 0
+        merged["latest_vintage"] = pd.NaT
 
     # Compute forecast errors
     merged["forecast_error"] = merged["value_outturn"] - merged["value_forecast"]

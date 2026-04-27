@@ -13,7 +13,7 @@ def plot_hedgehog(
     variable: str,
     forecast_source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Union[Literal["Q", "M"], None] = None,
     k: int = 12,
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
@@ -35,8 +35,9 @@ def plot_hedgehog(
         Source of the forecasts.
     metric : {"levels", "pop", "yoy"}
         Type of transformation to apply to the data.
-    frequency : {"Q", "M"}, default "Q"
-        Frequency of the data, either quarterly or monthly.
+    frequency : {"Q", "M"} or None, default None
+        Frequency of the data, either quarterly or monthly. If None, inferred
+        from the data.
     k : int, default 12
         Number of revisions used to define the outturns.
     date_start : str, date, or None, default None
@@ -61,6 +62,15 @@ def plot_hedgehog(
     df_forecasts = data._forecasts.copy()
     df_outturns = data._main_table.copy()
     df_outturns = filter_k(df_outturns, k)
+
+    if frequency is None:
+        inferred = df_forecasts["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
 
     # Filter the data
     df_outturns_filtered = df_outturns[

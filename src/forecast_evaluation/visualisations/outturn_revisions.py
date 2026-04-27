@@ -56,6 +56,10 @@ def plot_outturn_revisions(
     tuple or None
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
+    if not data.outturn_vintages:
+        raise ValueError(
+            "Outturn revision plots require outturn vintages. Set outturn_vintages=True when creating ForecastData."
+        )
     # Normalize k to a list
     k_list = [k] if isinstance(k, int) else k
 
@@ -196,6 +200,11 @@ def plot_outturns(
     tuple or None
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
+    if not data.outturn_vintages:
+        raise ValueError(
+            "Outturn plots with vintage selection require outturn vintages. "
+            "Set outturn_vintages=True when creating ForecastData."
+        )
     # Normalize k to a list
     k_list = [k] if isinstance(k, int) else k
 

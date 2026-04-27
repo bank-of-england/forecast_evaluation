@@ -13,7 +13,7 @@ def plot_accuracy(
     df: Union[pd.DataFrame, "TestResult"],
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Union[Literal["Q", "M"], None] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -37,8 +37,9 @@ def plot_accuracy(
     metric : str
         Metric to analyse ('levels', 'pop', or 'yoy').
 
-    frequency : str
-        Data frequency ('Q' for quarterly or 'M' for monthly).
+    frequency : {"Q", "M"} or None, default None
+        Data frequency ('Q' for quarterly or 'M' for monthly). If None, inferred
+        from the data.
 
     statistic : str
         Accuracy statistic to plot ('rmse', 'rmedse', 'mse', or 'mean_abs_error').
@@ -57,6 +58,15 @@ def plot_accuracy(
     # Extract DataFrame if TestResult object is passed
     if hasattr(df, "to_df"):
         df = df.to_df()
+
+    if frequency is None:
+        inferred = df["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
 
     # Filter data for the specific combination
     mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)

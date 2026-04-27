@@ -114,7 +114,7 @@ def revision_predictability_analysis(
     data,
     variable: Union[str, list[str]] = None,
     source: Union[None, str, list[str]] = None,
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Union[Literal["Q", "M"], None] = None,
     n_revisions: PositiveInt = 5,
     same_date_range: bool = True,
 ) -> TestResult:
@@ -129,7 +129,8 @@ def revision_predictability_analysis(
     data: An instance of the ForecastData class containing ForecastData._forecasts.
     variable: Single variable name or list of variable names to analyse.
     source: Single source or list of forecast sources to include.
-    frequency: Frequency of the data, either quarterly ("Q") or monthly ("M").
+    frequency: Frequency of the data, either quarterly ("Q") or monthly ("M"). If None,
+        inferred from the data.
     n_revisions: Maximum number of forecast horizons/revisions to include in each test
     same_date_range: If True, ensures consistent date ranges across sources when multiple sources are analysed.
 
@@ -159,6 +160,17 @@ def revision_predictability_analysis(
         raise ValueError("Revision predictability analysis is not supported for nowcasting data. ")
 
     df = data._forecasts.copy()
+
+    if frequency is None:
+        inferred = df["frequency"].unique()
+        if len(inferred) != 1:
+            raise ValueError(
+                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                "Please specify the 'frequency' argument explicitly."
+            )
+        frequency = inferred[0]
+    else:
+        df = df[df["frequency"] == frequency]
 
     # Filter by source if specified
     if source is not None:
