@@ -40,14 +40,14 @@ def transform_series(
         return df
 
     if transform == "diff":
-        df["value"] = df.groupby(grouping_cols)["value"].diff(periods=1)
+        df["value"] = df.groupby(grouping_cols, dropna=False)["value"].diff(periods=1)
         df["metric"] = "diff"
     elif transform == "pop":
-        df["value"] = df.groupby(grouping_cols)["value"].pct_change(periods=1)
+        df["value"] = df.groupby(grouping_cols, dropna=False)["value"].pct_change(periods=1)
         df["metric"] = "pop"
     elif transform == "yoy":
         n_periods = {"Q": 4, "M": 12}[frequency]
-        df["value"] = df.groupby(grouping_cols)["value"].pct_change(periods=n_periods)
+        df["value"] = df.groupby(grouping_cols, dropna=False)["value"].pct_change(periods=n_periods)
         df["metric"] = "yoy"
 
     df = df[df["value"].notna()]
@@ -138,6 +138,21 @@ def prepare_forecasts(
         n_periods = {"Q": 4, "M": 12}[frequency]
         outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= -(n_periods + 1)].copy()
         outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
+
+        # When outturns have NaT vintage_dates (outturn_vintages=False),
+        # create synthetic vintage copies for each forecast vintage_date
+        # so that transform_series can group outturns and forecasts together.
+        if not outturns_filtered.empty and outturns_filtered["vintage_date"].isna().all():
+            forecast_vintage_dates = forecasts_freq["vintage_date"].dropna().unique()
+            synthetic_frames = []
+            for v_date in forecast_vintage_dates:
+                outturn_copy = outturns_filtered[outturns_filtered["date"] < v_date].copy()
+                # Keep the last n_periods+1 observations per variable for YoY computation
+                outturn_copy = outturn_copy.sort_values("date").groupby("variable").tail(n_periods + 1)
+                outturn_copy["vintage_date"] = v_date
+                synthetic_frames.append(outturn_copy)
+            if synthetic_frames:
+                outturns_filtered = pd.concat(synthetic_frames, ignore_index=True)
 
         # We need to loop through each id and concat to the outturns
         forecast_dfs = []
@@ -302,6 +317,21 @@ def transform_forecast_to_levels(
                 .sort_values("date")
                 .copy()
             )
+
+            # When outturns have NaT vintage_dates (outturn_vintages=False),
+            # fall back to using all outturns for this variable with dates
+            # before the forecast vintage_date.
+            if outturns_subset.empty:
+                outturns_subset = (
+                    outturns[
+                        (outturns["variable"] == variable)
+                        & (outturns["vintage_date"].isna())
+                        & (outturns["metric"] == "levels")
+                        & (outturns["date"] < vintage_date)
+                    ]
+                    .sort_values("date")
+                    .copy()
+                )
 
             if outturns_subset.empty:
                 raise ValueError(f"No outturn data available for variable '{variable}', vintage_date '{vintage_date}'.")

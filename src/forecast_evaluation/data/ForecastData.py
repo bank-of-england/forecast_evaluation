@@ -127,7 +127,7 @@ class ForecastData(PlottingMixin):
             if "vintage_date" not in df.columns:
                 df["vintage_date"] = pd.NaT
             if "forecast_horizon" not in df.columns:
-                df["forecast_horizon"] = 0
+                df["forecast_horizon"] = -1
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -144,9 +144,7 @@ class ForecastData(PlottingMixin):
 
         # Validate records using the ForecastRecord model
         # Include 'metric' as an optional column in validation
-        df_validated = _validate_records(
-            df, optional_columns=["metric"], nullable_vintage=not self._outturn_vintages
-        )
+        df_validated = _validate_records(df, optional_columns=["metric"], nullable_vintage=not self._outturn_vintages)
 
         # Check for duplicates if there are already some records stored
         if not self._raw_outturns.empty:
@@ -690,9 +688,7 @@ class ForecastData(PlottingMixin):
         """
 
         if self._outturn_vintages != other._outturn_vintages:
-            raise ValueError(
-                "Cannot merge ForecastData instances with different outturn_vintages settings."
-            )
+            raise ValueError("Cannot merge ForecastData instances with different outturn_vintages settings.")
 
         if not other._raw_outturns.empty:
             self.add_outturns(other._raw_outturns)

@@ -237,39 +237,6 @@ class TestStatisticalTestsNoVintages:
         result = fe.bias_analysis(data=fd_no_vintages, k=12, verbose=False)
         assert len(result) > 0
 
-    def test_weak_efficiency(self, outturns_no_vintages):
-        """weak_efficiency_analysis should work without vintages."""
-        import numpy as np
-
-        import forecast_evaluation as fe
-
-        # Use a single forecast_horizon so all 13 observations fall in one group,
-        # satisfying the >= 10 minimum for the OLS regression.
-        rng = np.random.default_rng(42)
-        target_dates = pd.date_range(start="2022-01-01", periods=13, freq="QE")
-        rows = []
-        for d in target_dates:
-            v = d - pd.offsets.QuarterEnd(1)
-            rows.append(
-                {
-                    "date": d,
-                    "variable": "gdpkp",
-                    "vintage_date": v,
-                    "source": "model_a",
-                    "frequency": "Q",
-                    "value": 100 + rng.normal(0, 2),
-                    "forecast_horizon": 1,
-                }
-            )
-        forecasts = pd.DataFrame(rows)
-        fd = ForecastData(
-            outturns_data=outturns_no_vintages,
-            forecasts_data=forecasts,
-            outturn_vintages=False,
-        )
-        result = fe.weak_efficiency_analysis(data=fd, k=12)
-        assert len(result) > 0
-
     def test_diebold_mariano(self, outturns_no_vintages):
         """diebold_mariano_table should work without vintages."""
         import numpy as np

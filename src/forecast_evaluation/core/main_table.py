@@ -121,11 +121,6 @@ def build_main_table(
         suffixes=("_forecast", "_outturn"),
     )
 
-    # Keep only outturns from the forecasted date
-    # >= and not > because some data can be released before the end of the period
-    # e.g. some surveys. Plus this line can be problematic when constructing artificial vintages
-    if outturn_vintages:
-        merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
     merged = merged.rename(columns={"id_forecast": "unique_id", "forecast_horizon_forecast": "forecast_horizon"})
 
     merged = merged[
@@ -144,6 +139,8 @@ def build_main_table(
     ].copy()
 
     if outturn_vintages:
+        # Keep only outturns from the forecasted date
+        merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
         merged = compute_k(merged, frequency)
 
         merged["latest_vintage"] = merged.groupby(["variable", "metric", "frequency", "unique_id", "date"])[
