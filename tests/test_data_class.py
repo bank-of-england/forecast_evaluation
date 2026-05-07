@@ -47,10 +47,24 @@ def forecastdata_multi_ids() -> ForecastData:
     forecast_df_2 = create_sample_forecasts()
     forecast_df_2["new label"] = "EFG"
 
+    forecast_df_3 = create_sample_forecasts()
+    forecast_df_3["source"] = "mpr1"
+    forecast_df_3["new label"] = "ABC"
+
+    forecast_df_4 = create_sample_forecasts()
+    forecast_df_4["source"] = "mpr1"
+    forecast_df_4["new label"] = "EFG"
+
+    forecast_df_5 = create_sample_forecasts()
+    forecast_df_5["source"] = "mpr1"
+
     # Add own forecasts
     forecast_data = ForecastData(outturns_data=outturns_df)
     forecast_data.add_forecasts(forecast_df_1, extra_ids=["new label"])
     forecast_data.add_forecasts(forecast_df_2, extra_ids=["new label"])
+    forecast_data.add_forecasts(forecast_df_3, extra_ids=["new label"])
+    forecast_data.add_forecasts(forecast_df_4, extra_ids=["new label"])
+    forecast_data.add_forecasts(forecast_df_5)
 
     return forecast_data
 
@@ -370,6 +384,11 @@ def test_filtering_single_source_when_multi_ids(forecastdata_multi_ids):
     assert forecastdata_multi_ids.forecasts["new_label"].unique() == "ABC"
     assert forecastdata_multi_ids._main_table["new_label"].unique() == "ABC"
 
+def test_filtering_extra_check_multi_id(forecastdata_multi_ids):
+    forecastdata_multi_ids.filter(sources=["EFG", "mpr2"])
+    forecastdata_multi_ids.forecasts["unique_id"].unique()
+    
+    assert forecastdata_multi_ids.forecasts["unique_id"].unique() == ['mpr2 + EFG']
 
 def test_filtering_single_source_when_single_id(sample_outturns, sample_forecasts):
     fd = ForecastData(outturns_data=sample_outturns, forecasts_data=sample_forecasts)
