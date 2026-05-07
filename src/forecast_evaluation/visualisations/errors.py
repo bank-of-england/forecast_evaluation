@@ -65,27 +65,28 @@ def plot_errors_across_time(
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
 
-    forecast_errors = data._main_table.copy()
-    forecast_errors = clean_unique_id(forecast_errors)
-
     if sources is None:
-        sources = forecast_errors["unique_id"].unique().tolist()
+        sources = data._main_table["unique_id"].unique().tolist()
     elif isinstance(sources, str):
         sources = [sources]
 
     if frequency is None:
-        frequency = forecast_errors["frequency"].mode()[0]
-
-    if horizons is None:
-        horizons = [forecast_errors["forecast_horizon"].min()]
-    elif isinstance(horizons, int):
-        horizons = [horizons]
+        frequency = data._main_table["frequency"].mode()[0]
 
     # filter
     data_filtered = data.copy()
     data_filtered.filter(variables=variable, metrics=metric, frequencies=frequency, sources=sources)
     forecast_errors = data_filtered._main_table.copy()
     forecast_errors = filter_k(forecast_errors, k=k)
+
+    # cleaning ids
+    forecast_errors = clean_unique_id(forecast_errors)  # for cleaner viz
+    sources = forecast_errors["unique_id"].unique().tolist()  # update sources after cleaning
+
+    if horizons is None:
+        horizons = [forecast_errors["forecast_horizon"].min()]
+    elif isinstance(horizons, int):
+        horizons = [horizons]
 
     # Determine subplot layout
     n_horizons = len(horizons)

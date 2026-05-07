@@ -32,7 +32,6 @@ def errors(input, output, session, data):
 
         if input.covid_filter() == "Yes":
             data_filtered.filter(custom_filter=fe.covid_filter)
-
         return data_filtered
 
     def get_plot():

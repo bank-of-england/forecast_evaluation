@@ -62,7 +62,7 @@ class TestResult:
         pd.DataFrame
             Copy of the test results DataFrame
         """
-        return clean_unique_id(self._df)
+        return self._df.copy()
 
     def __repr__(self) -> str:
         """
