@@ -17,8 +17,7 @@ def create_outturn_revisions(data: ForecastData):
     """
     if not data.outturn_vintages:
         raise ValueError(
-            "Outturn revisions require outturn vintages. "
-            "Set outturn_vintages=True when creating ForecastData."
+            "Outturn revisions require outturn vintages. Set outturn_vintages=True when creating ForecastData."
         )
 
     outturns = data.outturns

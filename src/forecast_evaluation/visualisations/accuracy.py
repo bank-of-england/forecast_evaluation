@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Literal, Union
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 if TYPE_CHECKING:
@@ -72,6 +73,7 @@ def plot_accuracy(
     mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
 
     df = df.loc[mask].copy()
+    df = clean_unique_id(df)
 
     if len(df) == 0:
         raise ValueError(f"No data available for {variable}, {metric}")
@@ -123,7 +125,7 @@ def plot_accuracy(
     ax.set_xlabel("Forecast Horizon", fontsize=12)
     ax.set_ylabel(f"{stat_label}", fontsize=12)
     ax.grid(True, alpha=0.3)
-    ax.legend(title="unique_id", loc="best")
+    ax.legend(loc="best")
 
     if return_plot:
         return fig, ax
@@ -184,6 +186,7 @@ def plot_compare_to_benchmark(
     )
 
     df = df.loc[mask].copy()
+    df = clean_unique_id(df)
 
     if len(df) == 0:
         raise ValueError(f"No data available for {variable}, {metric}")
@@ -227,7 +230,7 @@ def plot_compare_to_benchmark(
     ax.set_xlabel("Forecast Horizon", fontsize=12)
     ax.set_ylabel(f"{stat_label} Relative to Benchmark", fontsize=12)
     ax.grid(True, alpha=0.3)
-    ax.legend(title="unique_id", loc="best")
+    ax.legend(loc="best")
 
     if return_plot:
         return fig, ax
@@ -262,6 +265,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
 
     # Ensure window_end is datetime
     df = df.copy()
+    df = clean_unique_id(df)
     df["window_end"] = pd.to_datetime(df["window_end"])
 
     # Filter for specified horizons
@@ -387,7 +391,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
             ]
 
             # Combine legends
-            first_legend = ax.legend(handles=source_handles, title="unique_id", loc="upper left", fontsize=9)
+            first_legend = ax.legend(handles=source_handles, loc="upper left", fontsize=9)
             ax.add_artist(first_legend)
 
             ax.legend(handles=sig_handles, title="Significance", loc="upper right", fontsize=9)

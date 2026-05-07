@@ -1,4 +1,37 @@
+import re
+
 import pandas as pd
+
+
+def clean_unique_id(obj: pd.DataFrame | str) -> pd.DataFrame | str:
+    """Strip trailing ``' + '`` separators from *unique_id* values.
+
+    When forecasts have unequal numbers of id components the concatenated
+    ``unique_id`` column may contain trailing ``" + "`` fragments
+    (e.g. ``"mpr2 + + "``).  This helper removes them so that display
+    labels are clean.
+
+    Parameters
+    ----------
+    obj : pd.DataFrame or str
+        If a DataFrame, a **copy** is returned with the ``unique_id``
+        column cleaned.  If a string, the cleaned string is returned.
+
+    Returns
+    -------
+    pd.DataFrame or str
+        Cleaned object (never modifies the original DataFrame in-place).
+    """
+
+    def _strip(x: str) -> str:
+        """Remove trailing '+' separators and whitespace."""
+        return re.sub(r"(\s*\+\s*)+$", "", str(x)).strip()
+
+    if isinstance(obj, pd.DataFrame):
+        df = obj.copy()
+        df["unique_id"] = df["unique_id"].map(_strip)
+        return df
+    return _strip(obj)
 
 
 def filter_k(df: pd.DataFrame, k: int = 12, fill_k: bool = True) -> pd.DataFrame:

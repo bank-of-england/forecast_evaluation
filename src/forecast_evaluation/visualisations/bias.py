@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 if TYPE_CHECKING:
@@ -100,7 +101,8 @@ def plot_bias_by_horizon(
 
     # Customize plot
     ax.set_title(
-        f"Bias estimate with 95% CI by Forecast Horizon\n{variable.upper()} - {source} ({metric})", fontsize=14
+        f"Bias estimate with 95% CI by Forecast Horizon\n{variable.upper()} - {clean_unique_id(source)} ({metric})",
+        fontsize=14,
     )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
 
@@ -178,7 +180,7 @@ def plot_rolling_bias(
         sources = df["unique_id"].unique()
         df = df[df["unique_id"] == sources[0]]
         # warning message
-        print(f"No source provided. Plotting for source: {sources[0]}")
+        print(f"No source provided. Plotting for source: {clean_unique_id(sources[0])}")
 
     df = df[df["forecast_horizon"].isin(horizons)]
     n_horizons = df["forecast_horizon"].nunique()

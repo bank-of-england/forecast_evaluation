@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import THEME
 
 if TYPE_CHECKING:
@@ -337,6 +338,9 @@ def plot_radar(
 
     else:
         raise ValueError(f"Invalid mode {mode!r}. Choose from 'metrics', 'variables', 'tests'.")
+
+    # Clean unique_id labels
+    pivot = clean_unique_id(pivot.reset_index()).set_index("unique_id")
 
     # Drop any spoke that is all NaN, then drop sources with missing spokes
     pivot = pivot.dropna(axis=1, how="all").dropna(axis=0, how="any")

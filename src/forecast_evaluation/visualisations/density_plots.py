@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from forecast_evaluation.data import DensityForecastData
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -93,6 +94,8 @@ def plot_density_vintage(
         & (outturns["date"] >= min_date)
     ].copy()
 
+    forecasts_filtered = clean_unique_id(forecasts_filtered)
+
     fig, ax = create_themed_figure()
 
     # Plot each source separately with quantile bands
@@ -177,7 +180,7 @@ def plot_density_vintage(
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
     ax.set_ylabel(f"{variable} ({metric})")
-    ax.legend(title="unique_id")
+    ax.legend()
 
     # Return or show the plot
     if return_plot:

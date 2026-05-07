@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -66,6 +66,7 @@ def plot_errors_across_time(
     """
 
     forecast_errors = data._main_table.copy()
+    forecast_errors = clean_unique_id(forecast_errors)
 
     if sources is None:
         sources = forecast_errors["unique_id"].unique().tolist()

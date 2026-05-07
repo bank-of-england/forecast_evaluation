@@ -6,7 +6,7 @@ import pandas as pd
 from scipy.stats import gaussian_kde
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -164,6 +164,7 @@ def plot_forecast_errors_by_horizon(
     )
 
     subset = df.loc[mask].copy()
+    subset = clean_unique_id(subset)
 
     if len(subset) == 0:
         raise ValueError(
@@ -215,7 +216,7 @@ def plot_forecast_errors_by_horizon(
     ax.axhline(y=0, color="red", linestyle="--", linewidth=1, alpha=0.7, label="Zero Error")
 
     # Customize plot
-    source_label = sources[0] if len(sources) == 1 else "Multiple Sources"
+    source_label = clean_unique_id(sources[0]) if len(sources) == 1 else "Multiple Sources"
     ax.set_title(
         f"Average Forecast Errors by Forecast Horizon\n{variable.upper()} - {source_label} ({metric})", fontsize=14
     )
@@ -391,7 +392,8 @@ def plot_forecast_error_density(
             )
 
     ax.set_title(
-        f"Distribution of Forecast Errors for {variable.upper()}({source}, horizon={horizon})\n{metric}, k={k}"
+        f"Distribution of Forecast Errors for {variable.upper()}({clean_unique_id(source)}, "
+        f"horizon={horizon})\n{metric}, k={k}"
     )
     ax.set_xlabel("Forecast Error")
     ax.set_ylabel("Density")

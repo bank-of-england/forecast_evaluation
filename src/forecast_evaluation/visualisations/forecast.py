@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -127,6 +128,7 @@ def plot_vintage(
         )
 
     multiplier = 100 if convert_to_percentage else 1
+    forecasts_filtered = clean_unique_id(forecasts_filtered)
 
     fig, ax = create_themed_figure()
 
@@ -177,7 +179,7 @@ def plot_vintage(
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
     y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
     ax.set_ylabel(y_label)
-    ax.legend(title="unique_id")
+    ax.legend()
 
     # Return or show the plot
     if return_plot:

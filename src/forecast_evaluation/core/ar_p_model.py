@@ -104,14 +104,10 @@ def build_ar_p_model(
 
         # Get unique forecast vintage dates for this variable/frequency
         raw_fc = data._raw_forecasts
-        relevant = raw_fc[
-            (raw_fc["variable"] == variable) & (raw_fc["frequency"] == frequency)
-        ]
+        relevant = raw_fc[(raw_fc["variable"] == variable) & (raw_fc["frequency"] == frequency)]
         vintage_dates = sorted(relevant["vintage_date"].dropna().unique())
         if len(vintage_dates) == 0:
-            raise ValueError(
-                f"No forecast vintage dates found for variable '{variable}' and frequency '{frequency}'."
-            )
+            raise ValueError(f"No forecast vintage dates found for variable '{variable}' and frequency '{frequency}'.")
 
         # Group by variable/metric/frequency only (no vintage_date in outturns)
         grouped = df.groupby(["variable", "metric", "frequency"])
@@ -199,9 +195,7 @@ def build_ar_p_model(
                         )
 
                 except Exception as e:
-                    print(
-                        f"Skipping vintage {grp_vintage_date} for {grp_variable}, {grp_frequency} due to error: {e}"
-                    )
+                    print(f"Skipping vintage {grp_vintage_date} for {grp_variable}, {grp_frequency} due to error: {e}")
                     continue
     else:
         # --- Standard path: outturn vintages available ---
@@ -268,16 +262,12 @@ def build_ar_p_model(
                 final_model = fit_ar_t_mle(model_data["value"], optimal_lag)
 
                 if not final_model["success"]:
-                    print(
-                        f"  Warning: Final model fit failed for {grp_variable}, {grp_vintage_date}. Using fallback."
-                    )
+                    print(f"  Warning: Final model fit failed for {grp_variable}, {grp_vintage_date}. Using fallback.")
                     # Fallback to simple forecasts
                     forecast_values = np.full(forecast_periods, latest_value)
                 else:
                     # Generate forecasts directly (no integration needed)
-                    forecast_values = generate_ar_t_forecasts(
-                        model_data["value"], final_model, steps=forecast_periods
-                    )
+                    forecast_values = generate_ar_t_forecasts(model_data["value"], final_model, steps=forecast_periods)
 
                 # Generate forecast dates
                 forecast_dates = pd.date_range(

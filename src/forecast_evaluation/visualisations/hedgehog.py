@@ -4,7 +4,7 @@ from typing import Literal, Union
 import matplotlib.pyplot as plt
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -155,7 +155,7 @@ def plot_hedgehog(
         ax.axhline(y=target_value, color="red", linestyle="--", linewidth=2, alpha=0.8, label="2% Target")
 
     # Customize the plot
-    ax.set_title(f"{variable} forecasts and actuals ({forecast_source}, k={k})", fontsize=14)
+    ax.set_title(f"{variable} forecasts and actuals ({clean_unique_id(forecast_source)}, k={k})", fontsize=14)
 
     # Update y-axis label based on whether values were multiplied
     if convert_to_percentage and metric.lower() == "levels":

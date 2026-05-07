@@ -380,7 +380,9 @@ def create_sidebar(data):
             [
                 ui.panel_conditional(
                     "input.tabs != 'About' && input.tabs != 'Outturn Revisions' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability')",
-                    ui.input_select("k", f"Data vintage ({period_label} after first release)", choices=k_values, selected=12),
+                    ui.input_select(
+                        "k", f"Data vintage ({period_label} after first release)", choices=k_values, selected=12
+                    ),
                 ),
                 # Outturn taken at t + (multiple selection for outturn revisions)
                 ui.panel_conditional(
@@ -411,7 +413,9 @@ def create_sidebar(data):
                 ui.div(
                     ui.input_select("k", "k", choices=[0], selected=0),
                     ui.input_selectize("k_multiple", "k_multiple", choices=[0], multiple=True, selected=[0]),
-                    ui.input_selectize("k_multiple_outturns", "k_multiple_outturns", choices=[0], multiple=True, selected=[0]),
+                    ui.input_selectize(
+                        "k_multiple_outturns", "k_multiple_outturns", choices=[0], multiple=True, selected=[0]
+                    ),
                     style="display: none;",
                 ),
             ]

@@ -9,7 +9,7 @@ from typing import Any, Literal, Optional, Union
 
 import pandas as pd
 
-from forecast_evaluation.utils import filter_sources, reconstruct_id_cols_from_unique_id
+from forecast_evaluation.utils import clean_unique_id, filter_sources, reconstruct_id_cols_from_unique_id
 
 
 class TestResult:
@@ -62,7 +62,7 @@ class TestResult:
         pd.DataFrame
             Copy of the test results DataFrame
         """
-        return self._df.copy()
+        return clean_unique_id(self._df)
 
     def __repr__(self) -> str:
         """
@@ -75,7 +75,7 @@ class TestResult:
         """
         test_name = self._metadata.get("test_name", "Test Results")
         metadata_str = "\n".join([f"  {k}: {v}" for k, v in self._metadata.items()])
-        return f"TestResult: {test_name}\n{metadata_str}\n\nResults:\n{self._df.__repr__()}"
+        return f"TestResult: {test_name}\n{metadata_str}\n\nResults:\n{clean_unique_id(self._df).__repr__()}"
 
     def __len__(self) -> int:
         """
