@@ -34,10 +34,14 @@
 ### Added
 - Radar charts
 
-## [0.1.6] - 2027-04-27
+## [0.1.6] - 2026-04-27
 ### Added
 - Added plotting methods directly to `ForecastData` via `PlottingMixin`: `plot_hedgehog()`, `plot_forecast_errors()`, `plot_forecast_errors_by_horizon()`, `plot_forecast_error_density()`, `plot_outturn_revisions()`, `plot_outturns()`, `plot_average_revision_by_period()`, `plot_vintage()`, `plot_errors_across_time()`
 - Added `outturn_revisions` argument to `ForecastData` to support forecast evaluation without outturn vintages. Users don't need to provide the "vintage_date" or "forecast_horizon" columns in their outturns if the argument is False. 
 
 ### Adjustments
 - Made `frequency` argument optional (default `None`) and inferred from the data in: `plot_hedgehog()`, `build_ar_p_model`, `build_random_walk_model`, `plot_density_vintage`, `plot_vintage`, `plot_radar`, `plot_accuracy`, `strong_efficiency_analysis`, `revision_predictability_analysis`, `blanchard_leigh_horizon_analysis`, `plot_accuracy`
+
+## [0.1.7] - 2026-05-07
+### Fixed
+- Clean the `unique_id` when using multi id cols.
