@@ -34,6 +34,8 @@ The package contains tools to inspect the accuracy, unbiasedness and efficiency 
 * Hedgehog plots
 * Outturn revisions
 * Forecast error distributions
+* Forecast error correlation
+* Radar plots
 
 ### Statistical tests
 * Accuracy analysis (Diebold-Mariano test)

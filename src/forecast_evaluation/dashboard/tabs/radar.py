@@ -43,12 +43,12 @@ def radar(input, output, session, data):
     def get_plot():
         mode = input.radar_mode()
 
-        # tests mode and variables mode with bias/efficiency need ForecastData
+        # tests mode and variables mode with bias/efficiency/correlation need ForecastData
         if mode == "tests":
             df_arg = get_filtered_data()
         elif mode == "variables":
             test_type = input.radar_test_type()
-            if test_type in ("bias", "efficiency"):
+            if test_type in ("bias", "efficiency", "correlation"):
                 df_arg = get_filtered_data()
             else:
                 df_arg = get_filtered_data()
@@ -76,6 +76,8 @@ def radar(input, output, session, data):
                 kwargs["bias_type"] = input.radar_bias_type()
             elif input.radar_test_type() == "efficiency":
                 kwargs["efficiency_type"] = input.radar_efficiency_type()
+            elif input.radar_test_type() == "correlation":
+                kwargs["anchor_source"] = input.radar_anchor()
         elif mode == "tests":
             kwargs["variable"] = input.variable()
             kwargs["metric"] = input.transform()

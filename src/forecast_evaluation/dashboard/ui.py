@@ -121,6 +121,10 @@ def create_sidebar(data):
     dm_tab = "input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano'"
     error_dist_tab = "input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Error Distribution'"
 
+    # Correlation tabs
+    correlation_heatmap_tab = "input.tabs == 'Correlation' && input.correlation_subtabs == 'Heatmap'"
+    rolling_correlation_tab = "input.tabs == 'Correlation' && input.correlation_subtabs == 'Rolling window'"
+
     # Prepare potential additional selectors for labelling/id variables
     id_columns = [col for col in data.id_columns if col != "source"]  # source is always a selector
     additional_selectors = []
@@ -155,7 +159,11 @@ def create_sidebar(data):
                     + _or
                     + rolling_errors_tab
                     + _or
-                    + radar_tab,
+                    + radar_tab
+                    + _or
+                    + correlation_heatmap_tab
+                    + _or
+                    + rolling_correlation_tab,
                     ui.input_selectize(id_multi, f"{col}s:", choices=col_choices, multiple=True, selected=col_choices),
                 )
             )
@@ -220,7 +228,11 @@ def create_sidebar(data):
                         + _or
                         + rolling_errors_tab
                         + _or
-                        + radar_tab,
+                        + radar_tab
+                        + _or
+                        + correlation_heatmap_tab
+                        + _or
+                        + rolling_correlation_tab,
                         ui.input_selectize("sources", "Sources:", choices=sources, multiple=True, selected=sources),
                     ),
                     ui.panel_conditional(
@@ -333,8 +345,19 @@ def create_sidebar(data):
                     "accuracy": "Accuracy",
                     "bias": "Bias",
                     "efficiency": "Efficiency",
+                    "correlation": "Correlation of errors",
                 },
                 selected="accuracy",
+            ),
+        ),
+        # Radar anchor source (variables mode + correlation)
+        ui.panel_conditional(
+            radar_tab + " && input.radar_mode == 'variables' && input.radar_test_type == 'correlation'",
+            ui.input_select(
+                "radar_anchor",
+                "Correlation with:",
+                choices=unique_ids,
+                selected=unique_ids[0] if unique_ids else None,
             ),
         ),
         # Radar bias type selector (tests mode, or variables mode with bias)
@@ -440,7 +463,9 @@ def create_sidebar(data):
             + _or
             + rolling_accuracy_tab
             + _or
-            + rolling_errors_tab,
+            + rolling_errors_tab
+            + _or
+            + rolling_correlation_tab,
             ui.input_selectize(
                 "window_size", "Window size:", choices=list(range(1, len(vintages))), multiple=False, selected=20
             ),
@@ -463,7 +488,9 @@ def create_sidebar(data):
             + _or
             + rolling_errors_tab
             + _or
-            + errors_tab,
+            + errors_tab
+            + _or
+            + rolling_correlation_tab,
             ui.input_selectize(
                 "horizons",
                 "Horizons:",
@@ -472,8 +499,18 @@ def create_sidebar(data):
                 selected=horizons[:3] if len(horizons) >= 3 else horizons,
             ),
         ),
+        # Anchor source for rolling correlation
         ui.panel_conditional(
-            error_dist_tab,
+            rolling_correlation_tab,
+            ui.input_select(
+                "corr_anchor",
+                "Anchor source:",
+                choices=unique_ids,
+                selected=unique_ids[0] if unique_ids else None,
+            ),
+        ),
+        ui.panel_conditional(
+            error_dist_tab + _or + correlation_heatmap_tab,
             ui.input_select("horizon", "Horizon:", choices=horizons, selected=horizons[0]),
         ),
         # Benchmark
@@ -732,6 +769,42 @@ def create_quantile_time_machine_tab():
         ui.output_ui("quantile_time_machine_plot_ui"),
         ui.output_ui("quantile_time_machine_legend_ui"),
         ui.download_button("quantile_time_machine_download", "Download data behind chart"),
+    )
+
+
+def create_correlation_tab():
+    """Create the Correlation tab UI"""
+    return ui.nav_panel(
+        "Correlation",
+        ui.navset_tab(
+            ui.nav_panel(
+                "Heatmap",
+                ui.output_ui("correlation_heatmap_plot_ui"),
+                ui.output_ui("correlation_heatmap_legend_ui"),
+                ui.accordion(
+                    ui.accordion_panel(
+                        "Sample information",
+                        ui.output_data_frame("info_correlation_heatmap"),
+                    ),
+                    open=False,
+                ),
+                ui.download_button("download_correlation_heatmap", "Download data behind chart"),
+            ),
+            ui.nav_panel(
+                "Rolling window",
+                ui.output_ui("rolling_correlation_plot_ui"),
+                ui.output_ui("rolling_correlation_legend_ui"),
+                ui.accordion(
+                    ui.accordion_panel(
+                        "Sample information",
+                        ui.output_data_frame("info_rolling_correlation"),
+                    ),
+                    open=False,
+                ),
+                ui.download_button("download_rolling_correlation", "Download data behind chart"),
+            ),
+            id="correlation_subtabs",
+        ),
     )
 
 
