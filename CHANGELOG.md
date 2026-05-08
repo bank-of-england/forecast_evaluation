@@ -45,3 +45,6 @@
 ## [0.1.7] - 2026-05-07
 ### Fixed
 - Clean the `unique_id` when using multi id cols.
+
+## [0.1.8] - 2026-05-08
+- Added forecast error correlation analysis and plots.
