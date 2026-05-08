@@ -16,6 +16,7 @@ from .tabs.accuracy import (
 )
 from .tabs.about import about
 from .tabs.bias import errors, rolling_errors, bias, rolling_bias
+from .tabs.correlation import correlation_heatmap, rolling_correlation
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
 from .tabs.outturn_revisions import outturn_revisions, outturns
@@ -25,6 +26,7 @@ from .tabs.quantile_time_machine import quantile_time_machine
 from .ui import (
     create_accuracy_tab,
     create_bias_tab,
+    create_correlation_tab,
     create_efficiency_tab,
     create_hedgehog_tab,
     create_outturn_revisions_tab,
@@ -52,6 +54,7 @@ def dashboard_app(data) -> App:
             create_accuracy_tab(),
             create_bias_tab(),
             create_efficiency_tab(),
+            create_correlation_tab(),
             create_time_machine_tab(),
             create_hedgehog_tab(),
             create_radar_tab(),
@@ -94,6 +97,8 @@ def dashboard_app(data) -> App:
         revisions_predictability(input, output, session, data)
         weak_efficiency(input, output, session, data)
         revisions_errors_correlation(input, output, session, data)
+        correlation_heatmap(input, output, session, data)
+        rolling_correlation(input, output, session, data)
         hedgehog(input, output, session, data)
         if getattr(data, "outturn_vintages", True):
             outturn_revisions(input, output, session, data)

@@ -324,6 +324,8 @@ class TestResult:
             raise NotImplementedError("Diebold-Mariano plotting is not yet implemented.")
         elif test_name == "revisions_errors_correlation_analysis":
             raise NotImplementedError("Revisions correlation plotting is not yet implemented.")
+        elif test_name == "forecast_errors_correlation_analysis":
+            return self._plot_correlation_heatmap(**kwargs)
         elif test_name == "revision_predictability_analysis":
             raise NotImplementedError(
                 "RevisionsPredictabilityResults.plot() requires access to the original ForecastData object. "
@@ -458,6 +460,52 @@ class TestResult:
             **kwargs,
         )
 
+    def _plot_correlation_heatmap(
+        self,
+        variable: Optional[str] = None,
+        metric: Optional[Literal["levels", "pop", "yoy"]] = None,
+        horizon: Optional[int] = None,
+        frequency: Optional[Literal["Q", "M"]] = None,
+        return_plot: bool = False,
+        **kwargs,
+    ):
+        """Plot pairwise forecast-error correlations as a single heatmap."""
+        from forecast_evaluation.visualisations.correlation import plot_correlation_heatmap
+
+        if variable is None:
+            unique_vars = self._df["variable"].unique()
+            if len(unique_vars) == 1:
+                variable = unique_vars[0]
+            else:
+                raise ValueError(f"Multiple variables found: {unique_vars}. Please specify 'variable' parameter.")
+
+        if metric is None:
+            unique_metrics = self._df["metric"].unique()
+            if len(unique_metrics) == 1:
+                metric = unique_metrics[0]
+            else:
+                raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
+
+        if frequency is None:
+            unique_freqs = self._df["frequency"].unique()
+            if len(unique_freqs) == 1:
+                frequency = unique_freqs[0]
+            else:
+                raise ValueError(f"Multiple frequencies found: {unique_freqs}. Please specify 'frequency' parameter.")
+
+        if horizon is None:
+            horizon = int(min(self._df["forecast_horizon"].unique()))
+
+        return plot_correlation_heatmap(
+            df=self._df,
+            variable=variable,
+            metric=metric,
+            horizon=horizon,
+            frequency=frequency,
+            return_plot=return_plot,
+            **kwargs,
+        )
+
     def _plot_blanchard_leigh(
         self,
         return_plot: bool = False,
@@ -494,13 +542,19 @@ class TestResult:
 
             return plot_rolling_relative_accuracy(df=self._df, **kwargs)
 
+        elif analysis_func_name == "forecast_errors_correlation_analysis":
+            from forecast_evaluation.visualisations.correlation import plot_rolling_correlation
+
+            return plot_rolling_correlation(df=self._df, **kwargs)
+
         elif analysis_func_name == "weak_efficiency_analysis":
             raise NotImplementedError("Weak efficiency rolling analysis plotting is not yet implemented.")
 
         else:
             raise NotImplementedError(
                 f"Rolling analysis plotting for '{analysis_func_name}' is not yet implemented. "
-                f"Supported analysis functions: bias_analysis, diebold_mariano_table."
+                f"Supported analysis functions: bias_analysis, diebold_mariano_table, "
+                f"forecast_errors_correlation_analysis."
             )
 
     def _plot_fluctuation_tests(
@@ -545,6 +599,11 @@ class TestResult:
             from forecast_evaluation.visualisations.accuracy import plot_rolling_relative_accuracy
 
             return plot_rolling_relative_accuracy(df=self._df, **kwargs)
+
+        elif test_func_name == "forecast_errors_correlation_analysis":
+            from forecast_evaluation.visualisations.correlation import plot_rolling_correlation
+
+            return plot_rolling_correlation(df=self._df, **kwargs)
 
         elif test_func_name == "weak_efficiency_analysis":
             raise NotImplementedError("Weak efficiency fluctuation test plotting is not yet implemented.")
