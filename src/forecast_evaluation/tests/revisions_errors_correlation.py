@@ -15,7 +15,6 @@ def revisions_errors_regression(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     forecast_horizon: int,
 ) -> Optional[RegressionResultsWrapper]:
     """
@@ -71,12 +70,10 @@ def revisions_errors_regression(
     - Rejecting H0 suggests forecast inefficiency
     """
 
-    # Filter data for the specific combination
     subset = df[
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["forecast_horizon"] == forecast_horizon)
     ].copy()
 
@@ -197,7 +194,7 @@ def revisions_errors_correlation_analysis(
         forecast_horizon = row["forecast_horizon"]
 
         try:
-            results = revisions_errors_regression(df, variable, source, metric, frequency, forecast_horizon)
+            results = revisions_errors_regression(df, variable, source, metric, forecast_horizon)
             results_list[i] = {
                 "unique_id": source,
                 "variable": variable,
@@ -216,8 +213,8 @@ def revisions_errors_correlation_analysis(
             }
         except Exception as e:
             print(
-                f"Failed regression for variable={variable}, source={source}, metric={metric}, "
-                + f"frequency={frequency}, h={forecast_horizon}: {e}"
+                f"Failed regression for variable={variable}, "
+                f"source={source}, metric={metric}, h={forecast_horizon}: {e}"
             )
 
     # Convert results list to DataFrame

@@ -16,7 +16,6 @@ def plot_forecast_errors(
     metric: Literal["levels", "pop", "yoy"],
     source: str,
     vintage_date_forecast: str,
-    frequency: Union[Literal["Q", "M"], None] = None,
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -32,8 +31,6 @@ def plot_forecast_errors(
         The variable to analyse (e.g., 'gdpkp')
     metric : str
         The metric to analyse (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyse (e.g., 'Q', 'M')
     source : str
         The source of the forecasts (e.g., 'compass')
     vintage_date_forecast : str
@@ -56,21 +53,11 @@ def plot_forecast_errors(
     df = data._main_table.copy()
     df = filter_k(df, k)
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-
     # Filter data for the specific combination
     mask = (
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["vintage_date_forecast"] == vintage_date_forecast)
     )
 
@@ -78,8 +65,7 @@ def plot_forecast_errors(
 
     if len(subset) == 0:
         raise ValueError(
-            f"No data available for {variable} from {source} ({vintage_date_forecast})"
-            + f" with metric {metric} and frequency {frequency}"
+            f"No data available for {variable} from {source} ({vintage_date_forecast}) with metric {metric}"
         )
 
     # Multiply forecast errors by 100 if convert_to_percentage = True
@@ -122,7 +108,6 @@ def plot_forecast_errors_by_horizon(
     variable: str,
     source: Union[str, list[str]],
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Union[Literal["Q", "M"], None] = None,
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -141,8 +126,6 @@ def plot_forecast_errors_by_horizon(
         When a list is provided, each source is plotted as a separate line on the same axes.
     metric : str
         The metric to analyze (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
     k : int
         The k to analyze (e.g., 12)
     convert_to_percentage : bool, default=False
@@ -164,30 +147,14 @@ def plot_forecast_errors_by_horizon(
     df = data._main_table.copy()
     df = filter_k(df, k)
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-
     # Filter data for the specific variable, sources and metric
-    mask = (
-        (df["variable"] == variable)
-        & (df["unique_id"].isin(sources))
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-    )
+    mask = (df["variable"] == variable) & (df["unique_id"].isin(sources)) & (df["metric"] == metric)
 
     subset = df.loc[mask].copy()
     subset = clean_unique_id(subset)
 
     if len(subset) == 0:
-        raise ValueError(
-            f"No data available for {variable} from {sources} with metric {metric} and frequency {frequency}"
-        )
+        raise ValueError(f"No data available for {variable} from {sources} with metric {metric}")
 
     # Multiply by 100 if convert_to_percentage = True
     if convert_to_percentage:
@@ -264,7 +231,6 @@ def plot_forecast_error_density(
     horizon: int,
     metric: Literal["levels", "pop", "yoy"],
     source: str,
-    frequency: Union[Literal["Q", "M"], None] = None,
     k: int = 12,
     highlight_dates: Optional[Union[str, list[str]]] = None,
     highlight_vintages: Optional[Union[str, list[str]]] = None,
@@ -283,8 +249,6 @@ def plot_forecast_error_density(
         The forecast horizon to analyze
     metric : str
         The metric to analyze (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyze (e.g., 'Q', 'M')
     source : str
         The source of the forecasts (e.g., 'compass')
     k : int
@@ -307,30 +271,18 @@ def plot_forecast_error_density(
     df = data._main_table.copy()
     df = filter_k(df, k)
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-
     # Filter data for the specific combination
     mask = (
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["forecast_horizon"] == horizon)
     )
 
     subset = df.loc[mask].copy().sort_values("date")
 
     if len(subset) == 0:
-        raise ValueError(
-            f"No data available for {variable} from {source} ({horizon}) with metric {metric} and frequency {frequency}"
-        )
+        raise ValueError(f"No data available for {variable} from {source} ({horizon}) with metric {metric}")
 
     # Calculate statistics
     mean_error = subset["forecast_error"].mean()
