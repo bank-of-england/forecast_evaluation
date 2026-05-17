@@ -207,7 +207,6 @@ def create_comparison_table(
     df: pd.DataFrame,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     benchmark_model: str,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     horizons: list[int] = [0, 1, 2, 4, 8, 12],
@@ -216,7 +215,7 @@ def create_comparison_table(
     Create a comparison table showing the ratio of each model's accuracy statistic
     to a benchmark model's statistic across selected forecast horizons.
 
-    This function filters the data for a specific variable, metric and frequency combination,
+    This function filters the data for a specific variable and metric combination,
     then creates a pivot table with forecast sources as rows and forecast horizons as columns.
     The values represent the ratio of each model's accuracy statistic to the benchmark model.
 
@@ -261,7 +260,7 @@ def create_comparison_table(
     ratio_col = f"{statistic}_to_benchmark"
 
     # Filter data for the specific combination
-    mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
+    mask = (df["variable"] == variable) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
 

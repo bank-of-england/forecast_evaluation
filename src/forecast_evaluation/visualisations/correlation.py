@@ -24,7 +24,6 @@ def plot_correlation_heatmap(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     horizon: int,
-    frequency: Optional[Literal["Q", "M"]] = None,
     cmap: str = "RdBu_r",
     annotate: bool = True,
     return_plot: bool = False,
@@ -43,8 +42,6 @@ def plot_correlation_heatmap(
         Metric to plot.
     horizon : int
         Forecast horizon to plot.
-    frequency : {"Q", "M"} or None, default None
-        Data frequency. If None, inferred from the data.
     cmap : str, default 'RdBu_r'
         Matplotlib colormap. Diverging maps centred at 0 are recommended.
     annotate : bool, default True
@@ -62,26 +59,11 @@ def plot_correlation_heatmap(
 
     df = df.copy()
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-
-    df = df[
-        (df["variable"] == variable)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-        & (df["forecast_horizon"] == horizon)
-    ]
+    df = df[(df["variable"] == variable) & (df["metric"] == metric) & (df["forecast_horizon"] == horizon)]
 
     if df.empty:
         raise ValueError(
-            f"No correlation data available for variable='{variable}', metric='{metric}', "
-            f"frequency='{frequency}', horizon={horizon}."
+            f"No correlation data available for variable='{variable}', metric='{metric}', horizon={horizon}."
         )
 
     df = _clean_pair_columns(df)
@@ -134,7 +116,7 @@ def plot_correlation_heatmap(
     cbar.set_label("Correlation")
 
     fig.suptitle(
-        f"Forecast error correlation - {variable.upper()} ({metric}, {frequency}, horizon {horizon})",
+        f"Forecast error correlation - {variable.upper()} ({metric}, horizon {horizon})",
         y=0.98,
     )
 
@@ -150,7 +132,6 @@ def plot_rolling_correlation(
     anchor_source: str,
     horizons: Union[int, list[int]],
     metric: Optional[Literal["levels", "pop", "yoy"]] = None,
-    frequency: Optional[Literal["Q", "M"]] = None,
     return_plot: bool = False,
 ):
     """Plot rolling forecast-error correlation between an anchor source and others.
@@ -173,8 +154,6 @@ def plot_rolling_correlation(
         Forecast horizon(s) to plot.
     metric : {"levels", "pop", "yoy"} or None, default None
         Metric to plot. If None, inferred from the data when unique.
-    frequency : {"Q", "M"} or None, default None
-        Frequency. If None, inferred from the data when unique.
     return_plot : bool, default False
         If True, returns (fig, axes) instead of displaying.
 
@@ -201,22 +180,12 @@ def plot_rolling_correlation(
             )
         metric = unique_metrics[0]
 
-    if frequency is None:
-        unique_freqs = df["frequency"].unique()
-        if len(unique_freqs) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(unique_freqs)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = unique_freqs[0]
-
     df = _clean_pair_columns(df)
     anchor_source_clean = clean_unique_id(anchor_source)
 
     df = df[
         (df["variable"] == variable)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["unique_id"] == anchor_source_clean)
         & (df["unique_id_b"] != anchor_source_clean)
     ]
