@@ -39,6 +39,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Union[int, dict[str, int]] = 0,
         outturn_vintages: bool = True,
     ):
         """Initialise with user data, FER data or null.
@@ -75,6 +76,13 @@ class ForecastData(PlottingMixin):
             sentinel values and ``filter_k`` will be a no-op. Features that depend on outturn
             revisions (e.g., ``plot_outturn_revisions``, ``create_outturn_revisions``) will raise
             an error. Default is True.
+        first_forecast_horizon : int or dict[str, int], optional
+            The minimum forecast horizon to retain in processed forecasts. Pass an int to apply
+            the same threshold to all variables, or a dict mapping variable names to per-variable
+            thresholds (variables not in the dict default to 0). Set to a negative value (e.g.,
+            -1, -2) to include backcasts, i.e., forecasts for periods that have already ended
+            but whose data has not yet been released. Default is 0 (only current-period and
+            future forecasts).
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -82,6 +90,7 @@ class ForecastData(PlottingMixin):
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
+        self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
         if load_fer:
@@ -300,7 +309,13 @@ class ForecastData(PlottingMixin):
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
-        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns, compute_levels=compute_levels)
+        forecasts = prepare_forecasts(
+            df,
+            self._raw_outturns,
+            self._id_columns,
+            compute_levels=compute_levels,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
 
         # Compute main table
         main_table = build_main_table(
@@ -584,7 +599,12 @@ class ForecastData(PlottingMixin):
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
         # Separate forecasts and outturns
-        forecasts = prepare_forecasts(self._raw_forecasts, self._raw_outturns, self._id_columns)
+        forecasts = prepare_forecasts(
+            self._raw_forecasts,
+            self._raw_outturns,
+            self._id_columns,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
         outturns = prepare_outturns(self._raw_outturns)
 
         self._forecasts = forecasts
