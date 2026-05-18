@@ -40,7 +40,6 @@ def quantile_time_machine(input, output, session, data):
 
         fig, ax = data_filtered.plot_density_vintage(
             variable=input.variable(),
-            frequency="Q",
             vintage_date=input.vintage(),
             outturn_start_date=input.start_date(),
             metric=input.transform(),

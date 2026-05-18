@@ -40,7 +40,6 @@ def time_machine(input, output, session, data):
         fig, ax = fe.plot_vintage(
             data=data_filtered,
             variable=input.variable(),
-            frequency="Q",
             vintage_date=input.vintage(),
             outturn_start_date=input.start_date(),
             metric=input.transform(),

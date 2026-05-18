@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -152,7 +152,6 @@ def strong_efficiency_analysis(
     instrument_metric: Literal["levels", "pop", "yoy"],
     horizons: np.ndarray = np.arange(13),
     j: int = 2,
-    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     alpha: float = 0.05,
 ) -> TestResult:
@@ -183,9 +182,6 @@ def strong_efficiency_analysis(
         Array of forecast horizons to test, by default np.arange(1, 13).
     j : int, optional
         Forecast horizon of the instrument variable, by default 2.
-    frequency : str or None, optional
-        Frequency of the data, either quarterly ("Q") or monthly ("M"). If None,
-        inferred from the data. Default is None.
     k : int, optional
         Number of revisions used to define the outturns, by default 12.
     alpha : float, optional
@@ -202,19 +198,12 @@ def strong_efficiency_analysis(
 
     df = data._main_table.copy()
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+    frequency = df["frequency"].iloc[0]
 
     # We first align the main table with what is used in this function
     df = filter_k(df, k)
 
-    # Filter variables, sources and frequency
+    # Filter variables and sources
     df = (
         df[
             (
@@ -222,7 +211,6 @@ def strong_efficiency_analysis(
                 | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
             )
             & (df["unique_id"] == source)
-            & (df["frequency"] == frequency)
         ]
         .reset_index(drop=True)
         .drop(columns=["unique_id", "metric", "frequency"])

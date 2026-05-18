@@ -12,4 +12,7 @@ def test_forecast_errors_correlation_snapshot(fer_minimal_fd, snapshot):
     # Take a deterministic slice of the result so the snapshot stays small.
     df = result.to_df().sample(n=10, random_state=123)
 
+    # Round floats to 10 decimal places to account for numerical precision differences
+    df = df.round(10)
+
     assert df.to_dict() == snapshot

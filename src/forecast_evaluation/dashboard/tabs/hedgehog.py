@@ -40,7 +40,6 @@ def hedgehog(input, output, session, data):
             data=data_filtered,
             variable=input.variable(),
             forecast_source=unique_id,
-            frequency="Q",
             k=int(input.k()),
             metric=input.transform(),
             return_plot=True,

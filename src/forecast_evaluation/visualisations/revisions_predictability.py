@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
-def plot_average_revision_by_period(data, source, variable, metric, frequency, return_plot: bool = False):
+def plot_average_revision_by_period(data, source, variable, metric, return_plot: bool = False):
     """Plot the average revision grouped by forecast_horizon.
 
     Creates a line plot showing how the average size of forecast revisions
@@ -19,8 +19,6 @@ def plot_average_revision_by_period(data, source, variable, metric, frequency, r
         Variable to analyse (e.g., 'gdpkp', 'cpisa').
     metric : str
         Metric to analyse ('levels', 'pop', or 'yoy').
-    frequency : str
-        Data frequency ('Q' for quarterly or 'M' for monthly).
     return_plot : bool, default False
         If True, returns (fig, ax) tuple instead of displaying the plot.
 
@@ -36,10 +34,7 @@ def plot_average_revision_by_period(data, source, variable, metric, frequency, r
     forecasts = data._forecasts.copy()
 
     df = forecasts[
-        (forecasts["variable"] == variable)
-        & (forecasts["unique_id"] == source)
-        & (forecasts["metric"] == metric)
-        & (forecasts["frequency"] == frequency)
+        (forecasts["variable"] == variable) & (forecasts["unique_id"] == source) & (forecasts["metric"] == metric)
     ].copy()
 
     df = df.sort_values(by=["date", "vintage_date"], ascending=True).reset_index(drop=True)

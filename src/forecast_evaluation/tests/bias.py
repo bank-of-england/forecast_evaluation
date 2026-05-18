@@ -15,7 +15,6 @@ def evaluate_bias(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     forecast_horizon: int,
     verbose: bool = True,
 ) -> Optional[RegressionResultsWrapper]:
@@ -92,7 +91,6 @@ def evaluate_bias(
         - Negative α: Forecasts systematically over-predict (pessimistic bias)
     """
 
-    # Filter data for the specific combination
     subset = df[
         (df["variable"] == variable)
         & (df["unique_id"] == source)
@@ -225,7 +223,7 @@ def bias_analysis(
         forecast_horizon = row["forecast_horizon"]
 
         # Run bias test
-        result = evaluate_bias(df, variable, source, metric, frequency, forecast_horizon, verbose=verbose)
+        result = evaluate_bias(df, variable, source, metric, forecast_horizon, verbose=verbose)
 
         # Extract key statistics
         bias_estimate = result.params.iloc[0]
