@@ -14,7 +14,6 @@ def plot_accuracy(
     df: Union[pd.DataFrame, "TestResult"],
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Union[Literal["Q", "M"], None] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -60,17 +59,7 @@ def plot_accuracy(
     if hasattr(df, "to_df"):
         df = df.to_df()
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-
-    # Filter data for the specific combination
-    mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
+    mask = (df["variable"] == variable) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
     df = clean_unique_id(df)
@@ -138,7 +127,6 @@ def plot_compare_to_benchmark(
     df: pd.DataFrame,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     benchmark_model: str,
     statistic: Literal["rmse", "rmedse", "mean_abs_error"] = "rmse",
     return_plot: bool = False,
@@ -177,13 +165,7 @@ def plot_compare_to_benchmark(
     # Extract the ratio column name
     ratio_col = f"{statistic}_to_benchmark"
 
-    # Filter data for the specific combination
-    mask = (
-        (df["variable"] == variable)
-        & (df["unique_id"] != benchmark_model)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-    )
+    mask = (df["variable"] == variable) & (df["unique_id"] != benchmark_model) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
     df = clean_unique_id(df)

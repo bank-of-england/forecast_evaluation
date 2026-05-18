@@ -17,7 +17,6 @@ def plot_bias_by_horizon(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     convert_to_percentage: bool = False,
     return_plot: bool = False,
 ):
@@ -34,8 +33,6 @@ def plot_bias_by_horizon(
         The source of the forecasts (e.g., 'compass conditional', 'mpr')
     metric : str
         The metric to analyse (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyse (e.g., 'Q', 'M')
     convert_to_percentage : bool, default=False
         If True, multiplies values on the y-axis by 100
     return_plot : bool, default=False
@@ -50,20 +47,12 @@ def plot_bias_by_horizon(
     if hasattr(df, "to_df"):
         df = df.to_df()
 
-    # Filter data for the specific variable, source and metric
-    mask = (
-        (df["variable"] == variable)
-        & (df["unique_id"] == source)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-    )
+    mask = (df["variable"] == variable) & (df["unique_id"] == source) & (df["metric"] == metric)
 
     df_filtered = df.loc[mask].copy()
 
     if len(df_filtered) == 0:
-        raise ValueError(
-            f"No data available for {variable} from {source} with metric {metric} and frequency {frequency}"
-        )
+        raise ValueError(f"No data available for {variable} from {source} with metric {metric}")
 
     # Multiply by 100 if convert_to_percentage = True
     if convert_to_percentage:
@@ -285,4 +274,4 @@ if __name__ == "__main__":
     # Generate bias analysis data
     bias_results = bias_analysis(forecast_data)
 
-    plot_bias_by_horizon(bias_results, "aweagg", "compass conditional", "yoy", "Q")
+    plot_bias_by_horizon(bias_results, "aweagg", "compass conditional", "yoy")

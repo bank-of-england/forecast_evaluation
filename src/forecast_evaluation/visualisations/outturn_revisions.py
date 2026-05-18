@@ -13,7 +13,6 @@ def plot_outturn_revisions(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     k: Union[int, list[int]] = 12,
     fill_k: bool = False,
     ma_window: int = 1,
@@ -33,8 +32,6 @@ def plot_outturn_revisions(
         The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     metric : str
         The metric to analyse (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyse (e.g., 'Q', 'M')
     k : int or list of int, default=12
         Number of revisions used to define the outturns. Can be a single integer
         or a list of integers to compare multiple revision horizons on the same plot.
@@ -66,13 +63,9 @@ def plot_outturn_revisions(
     # Create outturn revisions dataframe
     revisions_df = create_outturn_revisions(data=data)
 
-    # Filter for the specified variable, metric, and frequency
+    # Filter for the specified variable and metric
     filtered_df = (
-        revisions_df[
-            (revisions_df["variable"] == variable)
-            & (revisions_df["metric"] == metric)
-            & (revisions_df["frequency"] == frequency)
-        ]
+        revisions_df[(revisions_df["variable"] == variable) & (revisions_df["metric"] == metric)]
         .copy()
         .sort_values("date")
     )
@@ -165,7 +158,6 @@ def plot_outturns(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     k: Union[int, list[int]] = 12,
     fill_k: bool = True,
     start_date: Union[date, str] = None,
@@ -184,8 +176,6 @@ def plot_outturns(
         The variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp')
     metric : str
         The metric to analyse (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyse (e.g., 'Q', 'M')
     start_date : date or str, default=None
         The start date for the plot. If None, uses the earliest date in the data.
     end_date : date or str, default=None
@@ -211,13 +201,9 @@ def plot_outturns(
     # Create outturn revisions dataframe
     revisions_df = create_outturn_revisions(data=data)
 
-    # Filter for the specified variable, metric, and frequency
+    # Filter for the specified variable and metric
     filtered_df = (
-        revisions_df[
-            (revisions_df["variable"] == variable)
-            & (revisions_df["metric"] == metric)
-            & (revisions_df["frequency"] == frequency)
-        ]
+        revisions_df[(revisions_df["variable"] == variable) & (revisions_df["metric"] == metric)]
         .copy()
         .sort_values("date")
     )

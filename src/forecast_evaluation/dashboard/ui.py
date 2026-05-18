@@ -247,7 +247,13 @@ def create_sidebar(data):
                         + rolling_bias_tab
                         + _or
                         + hedgehog_tab,
-                        ui.input_selectize("source", "Source:", choices=sources, multiple=False, selected="mpr"),
+                        ui.input_selectize(
+                            "source",
+                            "Source:",
+                            choices=sources,
+                            multiple=False,
+                            selected=sources[0],
+                        ),
                     ),
                     # Dynamic additional selectors for labelling/id variables
                     *additional_selectors,
@@ -299,7 +305,7 @@ def create_sidebar(data):
         # Variables (single select – hidden when Radar tab is in variables mode)
         ui.panel_conditional(
             "input.tabs != 'About' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Radar' && input.radar_mode == 'variables')",
-            ui.input_selectize("variable", "Variable:", choices=variable, multiple=False, selected=["cpisa"]),
+            ui.input_selectize("variable", "Variable:", choices=variable, multiple=False, selected=variable[0]),
         ),
         # Variables (multi select – only for Radar variables mode)
         ui.panel_conditional(
@@ -452,7 +458,11 @@ def create_sidebar(data):
         ui.panel_conditional(
             "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && input.tabs != 'About'",
             ui.input_selectize(
-                "transform", "Transformation:", choices=transformations, multiple=False, selected=["yoy"]
+                "transform",
+                "Transformation:",
+                choices=transformations,
+                multiple=False,
+                selected=transformations[0] if transformations else None,
             ),
         ),
         # Window size for rolling tabs
@@ -545,13 +555,21 @@ def create_sidebar(data):
         ui.panel_conditional(
             bl_tab,
             ui.input_selectize(
-                "outcome_metric", "Outcome Metric:", choices=transformations, multiple=False, selected=["yoy"]
+                "outcome_metric",
+                "Outcome Metric:",
+                choices=transformations,
+                multiple=False,
+                selected=transformations[0] if transformations else None,
             ),
         ),
         ui.panel_conditional(
             bl_tab,
             ui.input_selectize(
-                "instrument_metric", "Instrument Metric:", choices=transformations, multiple=False, selected=["yoy"]
+                "instrument_metric",
+                "Instrument Metric:",
+                choices=transformations,
+                multiple=False,
+                selected=transformations[0] if transformations else None,
             ),
         ),
         ui.panel_conditional(
