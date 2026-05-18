@@ -379,6 +379,7 @@ class ForecastData(PlottingMixin):
         self,
         fill_to: str,
         vintage_frequency: Literal["M", "Q"] = "Q",
+        publication_lags: dict[str, int] | None = None,
     ) -> None:
         """Create pseudo vintages for outturns.
 
@@ -396,6 +397,9 @@ class ForecastData(PlottingMixin):
         vintage_frequency : str, optional
             Frequency at which to create vintages. Default is 'Q' (quarterly).
             Options: 'M' (monthly), 'Q' (quarterly).
+        publication_lags : dict[str, int] or None, optional
+            A dictionary mapping variable names to their publication lag (in units of
+            ``vintage_frequency``). If None (default), the lag is computed from existing data.
 
         Notes
         -----
@@ -416,6 +420,20 @@ class ForecastData(PlottingMixin):
 
         df = self._raw_outturns.copy()
 
+        # if vintage_date is NaT (when outturn_vintages=False),
+        # set vintage to latest date in the data
+        if df["vintage_date"].isna().all():
+            latest_date = df["date"].max()
+            df["vintage_date"] = latest_date
+
+            # recompute forecast horizon
+            df["forecast_horizon"] = df.apply(
+                lambda row: (
+                    (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n
+                ),
+                axis=1,
+            )
+
         # Create the dataframe that will be propagated to the new vintages
         # For each variable, select only the rows from the earliest available vintage
         df_propagate = df[df["vintage_date"] == df.groupby("variable")["vintage_date"].transform("min")]
@@ -426,6 +444,12 @@ class ForecastData(PlottingMixin):
             - df_propagate["date"].dt.to_period(vintage_frequency)
         ).apply(lambda x: x.n)
         df_propagate["publication_lag"] = lag_diff.groupby(df_propagate["variable"]).transform("min")
+
+        # Override with user-provided lags where available
+        if publication_lags is not None:
+            provided = df_propagate["variable"].map(publication_lags)
+            mask = provided.notna()
+            df_propagate.loc[mask, "publication_lag"] = provided[mask].astype(int)
 
         # Precompute publication_date: earliest vintage at which each data point becomes available
         offset = pd.tseries.frequencies.to_offset(f"{vintage_frequency}E")
