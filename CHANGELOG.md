@@ -48,3 +48,11 @@
 
 ## [0.1.8] - 2026-05-08
 - Added forecast error correlation analysis and plots.
+
+## [0.1.8.dev] - 
+
+### Adjustments
+- Made "frequency" argument optional with a deprecation warning.
+
+### Fixed
+- Removed hardcoded quarterly frequency in some of the dashboard tabs.
