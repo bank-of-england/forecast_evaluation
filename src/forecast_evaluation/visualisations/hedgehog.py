@@ -1,10 +1,11 @@
+import warnings
 from datetime import date
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -13,7 +14,7 @@ def plot_hedgehog(
     variable: str,
     forecast_source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Union[Literal["Q", "M"], None] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
@@ -35,9 +36,6 @@ def plot_hedgehog(
         Source of the forecasts.
     metric : {"levels", "pop", "yoy"}
         Type of transformation to apply to the data.
-    frequency : {"Q", "M"} or None, default None
-        Frequency of the data, either quarterly or monthly. If None, inferred
-        from the data.
     k : int, default 12
         Number of revisions used to define the outturns.
     date_start : str, date, or None, default None
@@ -59,32 +57,28 @@ def plot_hedgehog(
     if data._main_table is None:
         raise ValueError("ForecastData not available. Please ensure data has been added and processed.")
 
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     df_forecasts = data._forecasts.copy()
     df_outturns = data._main_table.copy()
     df_outturns = filter_k(df_outturns, k)
-
-    if frequency is None:
-        inferred = df_forecasts["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
 
     # Filter the data
     df_outturns_filtered = df_outturns[
         (df_outturns["variable"] == variable)
         & (df_outturns["unique_id"] == forecast_source)
         & (df_outturns["metric"] == metric)
-        & (df_outturns["frequency"] == frequency)
     ]
 
     df_forecasts_filtered = df_forecasts[
         (df_forecasts["variable"] == variable)
         & (df_forecasts["unique_id"] == forecast_source)
         & (df_forecasts["metric"] == metric)
-        & (df_forecasts["frequency"] == frequency)
         & (df_forecasts["forecast_horizon"] >= 0)
     ]
 
@@ -155,7 +149,7 @@ def plot_hedgehog(
         ax.axhline(y=target_value, color="red", linestyle="--", linewidth=2, alpha=0.8, label="2% Target")
 
     # Customize the plot
-    ax.set_title(f"{variable} forecasts and actuals ({forecast_source}, k={k})", fontsize=14)
+    ax.set_title(f"{variable} forecasts and actuals ({clean_unique_id(forecast_source)}, k={k})", fontsize=14)
 
     # Update y-axis label based on whether values were multiplied
     if convert_to_percentage and metric.lower() == "levels":

@@ -32,7 +32,6 @@ def errors(input, output, session, data):
 
         if input.covid_filter() == "Yes":
             data_filtered.filter(custom_filter=fe.covid_filter)
-
         return data_filtered
 
     def get_plot():
@@ -203,7 +202,6 @@ def bias(input, output, session, data):
             variable=input.variable(),
             source=unique_id,
             metric=input.transform(),
-            frequency="Q",
             return_plot=True,
         )
 

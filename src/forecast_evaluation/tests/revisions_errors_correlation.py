@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import pandas as pd
@@ -16,8 +17,8 @@ def revisions_errors_regression(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     forecast_horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
 ) -> Optional[RegressionResultsWrapper]:
     """
     Perform a regression of forecast errors on forecast revisions and test for
@@ -72,12 +73,17 @@ def revisions_errors_regression(
     - Rejecting H0 suggests forecast inefficiency
     """
 
-    # Filter data for the specific combination
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     subset = df[
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["forecast_horizon"] == forecast_horizon)
     ].copy()
 
@@ -201,7 +207,7 @@ def revisions_errors_correlation_analysis(
         forecast_horizon = row["forecast_horizon"]
 
         try:
-            results = revisions_errors_regression(df, variable, source, metric, frequency, forecast_horizon)
+            results = revisions_errors_regression(df, variable, source, metric, forecast_horizon)
             results_list[i] = {
                 "unique_id": source,
                 "variable": variable,
@@ -220,8 +226,8 @@ def revisions_errors_correlation_analysis(
             }
         except Exception as e:
             print(
-                f"Failed regression for variable={variable}, source={source}, metric={metric}, "
-                + f"frequency={frequency}, h={forecast_horizon}: {e}"
+                f"Failed regression for variable={variable}, "
+                f"source={source}, metric={metric}, h={forecast_horizon}: {e}"
             )
 
     # Convert results list to DataFrame

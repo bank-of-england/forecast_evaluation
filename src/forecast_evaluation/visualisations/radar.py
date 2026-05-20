@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import THEME
 
 if TYPE_CHECKING:
@@ -37,9 +38,10 @@ def plot_radar(
     frequency: Union[Literal["Q", "M"], None] = None,
     statistic: Literal["rmse", "rmedse", "mean_abs_error"] = "rmse",
     k: int = 12,
-    test_type: Literal["accuracy", "bias", "efficiency"] = "accuracy",
+    test_type: Literal["accuracy", "bias", "efficiency", "correlation"] = "accuracy",
     bias_type: Literal["mean", "mz"] = "mean",
     efficiency_type: Literal["revision_predictability", "revisions_errors"] = "revision_predictability",
+    anchor_source: Optional[str] = None,
     normalise: bool = True,
     return_plot: bool = False,
 ):
@@ -88,12 +90,15 @@ def plot_radar(
         Accuracy statistic to use when ``test_type='accuracy'``.
     k : int, default 12
         Number of revisions used to define outturns.
-    test_type : {"accuracy", "bias", "efficiency"}, default "accuracy"
+    test_type : {"accuracy", "bias", "efficiency", "correlation"}, default "accuracy"
         Which test to evaluate in ``"variables"`` mode:
 
         - ``"accuracy"``: the selected ``statistic`` from accuracy results.
         - ``"bias"``: bias measure (see ``bias_type``).
         - ``"efficiency"``: efficiency measure (see ``efficiency_type``).
+        - ``"correlation"``: absolute Pearson correlation of forecast errors
+          between ``anchor_source`` and each other source. Each radar trace is a
+          partner source; each spoke is a variable.
     bias_type : {"mean", "mz"}, default "mean"
         Bias definition (used in ``"tests"`` mode and
         ``"variables"`` mode with ``test_type='bias'``):
@@ -109,6 +114,9 @@ def plot_radar(
           joint test p-value from ``weak_efficiency_analysis``.
         - ``"revisions_errors"``: p-value of the slope coefficient from
           ``revisions_errors_correlation_analysis``.
+    anchor_source : str, optional
+        Anchor model held fixed when ``test_type='correlation'`` in
+        ``"variables"`` mode. Each partner source becomes a separate trace.
     normalise : bool, default True
         If True, values are min-max normalised **per edge** so that
         different scales become comparable.
@@ -163,6 +171,7 @@ def plot_radar(
 
         from forecast_evaluation.tests.accuracy import compute_accuracy_statistics
         from forecast_evaluation.tests.bias import bias_analysis
+        from forecast_evaluation.tests.correlation import forecast_errors_correlation_analysis
         from forecast_evaluation.tests.revisions_errors_correlation import revisions_errors_correlation_analysis
         from forecast_evaluation.tests.weak_efficiency import weak_efficiency_analysis
 
@@ -231,6 +240,35 @@ def plot_radar(
                 re_df["value"] = re_df["beta_pvalue"].astype(float)
                 pivot = re_df.pivot_table(index="unique_id", columns="variable", values="value", aggfunc="first")
                 title = f"Revisions-errors corr. p-value by variable – {metric} (h={horizon})"
+
+        elif test_type == "correlation":
+            if not hasattr(df, "_main_table"):
+                raise ValueError("test_type='correlation' requires a ForecastData object.")
+            if anchor_source is None:
+                raise ValueError("test_type='correlation' requires an `anchor_source` argument.")
+
+            corr_df = forecast_errors_correlation_analysis(data=df, k=k, min_observations=2).to_df()
+            corr_df = corr_df.loc[
+                (corr_df["frequency"] == frequency)
+                & (corr_df["metric"] == metric)
+                & (corr_df["forecast_horizon"] == horizon)
+                & (corr_df["unique_id"] == anchor_source)
+                & (corr_df["unique_id_b"] != anchor_source)
+            ]
+            if corr_df.empty:
+                raise ValueError(
+                    f"No correlation data for anchor={anchor_source!r}, metric={metric!r}, horizon={horizon}."
+                )
+            # Use absolute correlation so the polar radius is non-negative and
+            # the trace is interpretable as "how related are these models'
+            # errors regardless of sign".
+            corr_df["value"] = corr_df["correlation"].abs()
+            # Each partner becomes a trace. Re-key on the partner so the
+            # downstream pivot uses partner ids as the index (i.e. the lines).
+            corr_df = corr_df.rename(columns={"unique_id_b": "partner_id"})
+            pivot = corr_df.pivot_table(index="partner_id", columns="variable", values="value", aggfunc="first")
+            pivot.index.name = "unique_id"
+            title = f"Absolute correlation of errors vs. {anchor_source} by variable – {metric} (h={horizon})"
         else:
             raise ValueError(f"Invalid test_type {test_type!r}.")
 
@@ -337,6 +375,9 @@ def plot_radar(
 
     else:
         raise ValueError(f"Invalid mode {mode!r}. Choose from 'metrics', 'variables', 'tests'.")
+
+    # Clean unique_id labels
+    pivot = clean_unique_id(pivot.reset_index()).set_index("unique_id")
 
     # Drop any spoke that is all NaN, then drop sources with missing spokes
     pivot = pivot.dropna(axis=1, how="all").dropna(axis=0, how="any")

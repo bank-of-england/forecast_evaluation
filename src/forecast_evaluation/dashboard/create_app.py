@@ -16,6 +16,7 @@ from .tabs.accuracy import (
 )
 from .tabs.about import about
 from .tabs.bias import errors, rolling_errors, bias, rolling_bias
+from .tabs.correlation import correlation_heatmap, rolling_correlation
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
 from .tabs.intra_period import intra_period_accuracy, intra_period_bias
@@ -26,6 +27,7 @@ from .tabs.quantile_time_machine import quantile_time_machine
 from .ui import (
     create_accuracy_tab,
     create_bias_tab,
+    create_correlation_tab,
     create_efficiency_tab,
     create_hedgehog_tab,
     create_outturn_revisions_tab,
@@ -65,6 +67,7 @@ def dashboard_app(data) -> App:
             [
                 create_time_machine_tab(),
                 create_hedgehog_tab(),
+                create_correlation_tab(),
                 create_outturn_revisions_tab(),
                 create_radar_tab(),
             ]
@@ -110,6 +113,8 @@ def dashboard_app(data) -> App:
             revisions_predictability(input, output, session, data)
             weak_efficiency(input, output, session, data)
             revisions_errors_correlation(input, output, session, data)
+            correlation_heatmap(input, output, session, data)
+            rolling_correlation(input, output, session, data)
         else:
             # Intra-period handlers only for nowcasting data
             intra_period_accuracy(input, output, session, data)

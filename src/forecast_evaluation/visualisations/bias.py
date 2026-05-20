@@ -1,10 +1,12 @@
+import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.lines import Line2D
 
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 if TYPE_CHECKING:
@@ -16,7 +18,7 @@ def plot_bias_by_horizon(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
 ):
@@ -33,8 +35,6 @@ def plot_bias_by_horizon(
         The source of the forecasts (e.g., 'compass conditional', 'mpr')
     metric : str
         The metric to analyse (e.g., 'yoy', 'pop', 'levels')
-    frequency : str
-        The frequency to analyse (e.g., 'Q', 'M')
     convert_to_percentage : bool, default=False
         If True, multiplies values on the y-axis by 100
     return_plot : bool, default=False
@@ -49,20 +49,19 @@ def plot_bias_by_horizon(
     if hasattr(df, "to_df"):
         df = df.to_df()
 
-    # Filter data for the specific variable, source and metric
-    mask = (
-        (df["variable"] == variable)
-        & (df["unique_id"] == source)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-    )
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    mask = (df["variable"] == variable) & (df["unique_id"] == source) & (df["metric"] == metric)
 
     df_filtered = df.loc[mask].copy()
 
     if len(df_filtered) == 0:
-        raise ValueError(
-            f"No data available for {variable} from {source} with metric {metric} and frequency {frequency}"
-        )
+        raise ValueError(f"No data available for {variable} from {source} with metric {metric}")
 
     # Multiply by 100 if convert_to_percentage = True
     if convert_to_percentage:
@@ -100,7 +99,8 @@ def plot_bias_by_horizon(
 
     # Customize plot
     ax.set_title(
-        f"Bias estimate with 95% CI by Forecast Horizon\n{variable.upper()} - {source} ({metric})", fontsize=14
+        f"Bias estimate with 95% CI by Forecast Horizon\n{variable.upper()} - {clean_unique_id(source)} ({metric})",
+        fontsize=14,
     )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
 
@@ -178,7 +178,7 @@ def plot_rolling_bias(
         sources = df["unique_id"].unique()
         df = df[df["unique_id"] == sources[0]]
         # warning message
-        print(f"No source provided. Plotting for source: {sources[0]}")
+        print(f"No source provided. Plotting for source: {clean_unique_id(sources[0])}")
 
     df = df[df["forecast_horizon"].isin(horizons)]
     n_horizons = df["forecast_horizon"].nunique()
@@ -283,4 +283,4 @@ if __name__ == "__main__":
     # Generate bias analysis data
     bias_results = bias_analysis(forecast_data)
 
-    plot_bias_by_horizon(bias_results, "aweagg", "compass conditional", "yoy", "Q")
+    plot_bias_by_horizon(bias_results, "aweagg", "compass conditional", "yoy")

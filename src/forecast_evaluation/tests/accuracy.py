@@ -1,4 +1,5 @@
-from typing import Literal, Union
+import warnings
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -207,8 +208,8 @@ def create_comparison_table(
     df: pd.DataFrame,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     benchmark_model: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     horizons: list[int] = [0, 1, 2, 4, 8, 12],
 ) -> pd.DataFrame:
@@ -216,7 +217,7 @@ def create_comparison_table(
     Create a comparison table showing the ratio of each model's accuracy statistic
     to a benchmark model's statistic across selected forecast horizons.
 
-    This function filters the data for a specific variable, metric and frequency combination,
+    This function filters the data for a specific variable and metric combination,
     then creates a pivot table with forecast sources as rows and forecast horizons as columns.
     The values represent the ratio of each model's accuracy statistic to the benchmark model.
 
@@ -257,11 +258,18 @@ def create_comparison_table(
     # Compute comparison to benchmark model
     df = compare_to_benchmark(df, benchmark_model=benchmark_model, statistic=statistic)
 
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Extract the ratio column name
     ratio_col = f"{statistic}_to_benchmark"
 
     # Filter data for the specific combination
-    mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
+    mask = (df["variable"] == variable) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
 
