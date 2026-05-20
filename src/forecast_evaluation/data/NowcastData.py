@@ -79,6 +79,8 @@ class NowcastData(ForecastData):
         whose outturn had been released by *V*, the row with the **latest**
         outturn ``vintage_date <= V`` is selected.  The resulting snapshot is
         stamped with ``vintage_date = V``.
+        # TODO: Maybe this could be generated on the fly to save memory
+
 
         ===
         The following is important when backcasting outturns that have already

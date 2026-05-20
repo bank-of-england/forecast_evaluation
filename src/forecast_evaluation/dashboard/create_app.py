@@ -68,7 +68,6 @@ def dashboard_app(data) -> App:
                 create_time_machine_tab(),
                 create_hedgehog_tab(),
                 create_correlation_tab(),
-                create_outturn_revisions_tab(),
                 create_radar_tab(),
             ]
         )
