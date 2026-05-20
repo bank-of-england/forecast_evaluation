@@ -50,6 +50,8 @@
 - Added forecast error correlation analysis and plots.
 
 ## [0.1.8.dev] - 
+### Added
+- first_forecast_horizons arg; a dict to provide an horizon for each var; computed from the data if not given. Allow for backtesting and forecasting in additioning to "nowcasting".
 
 ### Adjustments
 - Made "frequency" argument optional with a deprecation warning.
