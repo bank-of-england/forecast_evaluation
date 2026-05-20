@@ -1,4 +1,5 @@
-from typing import Literal, Union
+import warnings
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -208,6 +209,7 @@ def create_comparison_table(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     benchmark_model: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     horizons: list[int] = [0, 1, 2, 4, 8, 12],
 ) -> pd.DataFrame:
@@ -255,6 +257,13 @@ def create_comparison_table(
     """
     # Compute comparison to benchmark model
     df = compare_to_benchmark(df, benchmark_model=benchmark_model, statistic=statistic)
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # Extract the ratio column name
     ratio_col = f"{statistic}_to_benchmark"

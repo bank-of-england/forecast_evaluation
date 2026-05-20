@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -15,6 +16,7 @@ def plot_errors_across_time(
     error: Literal["raw", "absolute", "squared"] = "raw",
     horizons: int | list[int] = None,
     sources: str | list[str] = None,
+    frequency: Literal["Q", "M"] = None,
     k: int = 12,
     ma_window: int = 1,
     show_mean: bool = True,
@@ -66,6 +68,13 @@ def plot_errors_across_time(
         sources = data._main_table["unique_id"].unique().tolist()
     elif isinstance(sources, str):
         sources = [sources]
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # filter
     data_filtered = data.copy()

@@ -1,3 +1,4 @@
+import warnings
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
@@ -24,6 +25,7 @@ def plot_correlation_heatmap(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
     cmap: str = "RdBu_r",
     annotate: bool = True,
     return_plot: bool = False,
@@ -58,6 +60,13 @@ def plot_correlation_heatmap(
         df = df.to_df()
 
     df = df.copy()
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df = df[(df["variable"] == variable) & (df["metric"] == metric) & (df["forecast_horizon"] == horizon)]
 
@@ -132,6 +141,7 @@ def plot_rolling_correlation(
     anchor_source: str,
     horizons: Union[int, list[int]],
     metric: Optional[Literal["levels", "pop", "yoy"]] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     return_plot: bool = False,
 ):
     """Plot rolling forecast-error correlation between an anchor source and others.
@@ -182,6 +192,13 @@ def plot_rolling_correlation(
 
     df = _clean_pair_columns(df)
     anchor_source_clean = clean_unique_id(anchor_source)
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df = df[
         (df["variable"] == variable)

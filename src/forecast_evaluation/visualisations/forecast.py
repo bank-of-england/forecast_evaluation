@@ -1,4 +1,5 @@
-from typing import Literal
+import warnings
+from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -14,6 +15,7 @@ def plot_vintage(
     vintage_date: str | pd.Timestamp,
     forecast_source: list[str] = None,
     outturn_start_date: str | pd.Timestamp = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     k: int = 12,
     convert_to_percentage: bool = False,
@@ -48,6 +50,13 @@ def plot_vintage(
     """
     if data._forecasts is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     frequency = data._forecasts["frequency"].iloc[0]
 

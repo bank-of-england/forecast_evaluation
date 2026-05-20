@@ -1,5 +1,6 @@
+import warnings
 from collections import OrderedDict
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -182,6 +183,7 @@ def blanchard_leigh_horizon_analysis(
     instrument_metric: Literal["levels", "pop", "yoy"],
     horizons: np.ndarray = np.arange(13),
     j: int = 2,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     alpha: float = 0.05,
 ) -> TestResult:
@@ -222,6 +224,13 @@ def blanchard_leigh_horizon_analysis(
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
     df = data._main_table.copy()
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     frequency = df["frequency"].iloc[0]
 

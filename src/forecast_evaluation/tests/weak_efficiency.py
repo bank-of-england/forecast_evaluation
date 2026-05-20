@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import numpy as np
@@ -16,6 +17,7 @@ def weak_efficiency_test(
     source: str,
     metric: Literal["levels", "pop", "yoy"],
     forecast_horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
 ) -> Optional[RegressionResultsWrapper]:
     """
@@ -82,6 +84,13 @@ def weak_efficiency_test(
 
         Returns None if insufficient data (< 10 observations)
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     subset = df[
         (df["variable"] == variable)

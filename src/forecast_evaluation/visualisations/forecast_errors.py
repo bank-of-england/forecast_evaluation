@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
@@ -16,6 +17,7 @@ def plot_forecast_errors(
     metric: Literal["levels", "pop", "yoy"],
     source: str,
     vintage_date_forecast: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -49,6 +51,13 @@ def plot_forecast_errors(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df = data._main_table.copy()
     df = filter_k(df, k)
@@ -108,6 +117,7 @@ def plot_forecast_errors_by_horizon(
     variable: str,
     source: Union[str, list[str]],
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -140,6 +150,13 @@ def plot_forecast_errors_by_horizon(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # Normalise source to a list
     sources = [source] if isinstance(source, str) else source
@@ -231,6 +248,7 @@ def plot_forecast_error_density(
     horizon: int,
     metric: Literal["levels", "pop", "yoy"],
     source: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     highlight_dates: Optional[Union[str, list[str]]] = None,
     highlight_vintages: Optional[Union[str, list[str]]] = None,
@@ -267,6 +285,13 @@ def plot_forecast_error_density(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df = data._main_table.copy()
     df = filter_k(df, k)

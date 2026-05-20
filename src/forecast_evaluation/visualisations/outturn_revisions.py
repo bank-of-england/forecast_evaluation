@@ -1,5 +1,6 @@
+import warnings
 from datetime import date
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 
@@ -13,6 +14,7 @@ def plot_outturn_revisions(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: Union[int, list[int]] = 12,
     fill_k: bool = False,
     ma_window: int = 1,
@@ -57,6 +59,14 @@ def plot_outturn_revisions(
         raise ValueError(
             "Outturn revision plots require outturn vintages. Set outturn_vintages=True when creating ForecastData."
         )
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Normalize k to a list
     k_list = [k] if isinstance(k, int) else k
 
@@ -158,6 +168,7 @@ def plot_outturns(
     data: ForecastData,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: Union[int, list[int]] = 12,
     fill_k: bool = True,
     start_date: Union[date, str] = None,
@@ -195,6 +206,14 @@ def plot_outturns(
             "Outturn plots with vintage selection require outturn vintages. "
             "Set outturn_vintages=True when creating ForecastData."
         )
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Normalize k to a list
     k_list = [k] if isinstance(k, int) else k
 

@@ -1,4 +1,5 @@
-from typing import Literal, Union
+import warnings
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ def revision_test(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     n_revisions: int = 5,
 ) -> dict:
     """
@@ -55,6 +57,13 @@ def revision_test(
     - Regression equation: revision_t = α + β₁*revision_{t-1} + ... + βₖ*revision_{t-k} + ε_t,
       where k is the number of revisions (up to n_revisions).
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     if not isinstance(variable, str) or not isinstance(source, str) or not isinstance(metric, str):
         raise ValueError("All parameters must be strings.")
@@ -101,6 +110,7 @@ def revision_predictability_analysis(
     data,
     variable: Union[str, list[str]] = None,
     source: Union[None, str, list[str]] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     n_revisions: PositiveInt = 5,
     same_date_range: bool = True,
 ) -> TestResult:
@@ -137,6 +147,13 @@ def revision_predictability_analysis(
 
         Returns None if data is not available. Failed tests are excluded from the results.
     """
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     if data._forecasts is None:
         raise ValueError(
             "ForecastData forecasts data is not available." + " Please ensure data has been added and processed."

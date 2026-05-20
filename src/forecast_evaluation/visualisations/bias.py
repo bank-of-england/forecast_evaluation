@@ -1,5 +1,6 @@
+import warnings
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, Union
+from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -17,6 +18,7 @@ def plot_bias_by_horizon(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
 ):
@@ -46,6 +48,13 @@ def plot_bias_by_horizon(
     # Extract DataFrame if TestResult object is passed
     if hasattr(df, "to_df"):
         df = df.to_df()
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     mask = (df["variable"] == variable) & (df["unique_id"] == source) & (df["metric"] == metric)
 

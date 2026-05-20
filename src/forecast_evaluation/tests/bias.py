@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import numpy as np
@@ -16,6 +17,7 @@ def evaluate_bias(
     source: str,
     metric: Literal["levels", "pop", "yoy"],
     forecast_horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
 ) -> Optional[RegressionResultsWrapper]:
     """
@@ -90,6 +92,13 @@ def evaluate_bias(
         - Positive α: Forecasts systematically under-predict (optimistic bias)
         - Negative α: Forecasts systematically over-predict (pessimistic bias)
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     subset = df[
         (df["variable"] == variable)

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Literal, Union
+import warnings
+from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -14,6 +15,7 @@ def plot_accuracy(
     df: Union[pd.DataFrame, "TestResult"],
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -58,6 +60,13 @@ def plot_accuracy(
     # Extract DataFrame if TestResult object is passed
     if hasattr(df, "to_df"):
         df = df.to_df()
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     mask = (df["variable"] == variable) & (df["metric"] == metric)
 
@@ -128,6 +137,7 @@ def plot_compare_to_benchmark(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     benchmark_model: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mean_abs_error"] = "rmse",
     return_plot: bool = False,
 ):
@@ -158,6 +168,13 @@ def plot_compare_to_benchmark(
         If return_plot is True, returns the figure and axes objects. Otherwise, displays the plot and returns None.
     """
     from forecast_evaluation.tests.accuracy import compare_to_benchmark
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # Compute comparison to benchmark model
     df = compare_to_benchmark(df, benchmark_model=benchmark_model, statistic=statistic)

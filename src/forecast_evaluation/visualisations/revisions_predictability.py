@@ -1,9 +1,11 @@
+import warnings
+
 import matplotlib.pyplot as plt
 
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
-def plot_average_revision_by_period(data, source, variable, metric, return_plot: bool = False):
+def plot_average_revision_by_period(data, source, variable, metric, frequency=None, return_plot: bool = False):
     """Plot the average revision grouped by forecast_horizon.
 
     Creates a line plot showing how the average size of forecast revisions
@@ -32,6 +34,13 @@ def plot_average_revision_by_period(data, source, variable, metric, return_plot:
         raise ValueError("ForecastData forecasts is not available. Please ensure data has been added and processed.")
 
     forecasts = data._forecasts.copy()
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df = forecasts[
         (forecasts["variable"] == variable) & (forecasts["unique_id"] == source) & (forecasts["metric"] == metric)

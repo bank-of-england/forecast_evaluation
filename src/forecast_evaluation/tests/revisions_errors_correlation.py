@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import pandas as pd
@@ -16,6 +17,7 @@ def revisions_errors_regression(
     source: str,
     metric: Literal["levels", "pop", "yoy"],
     forecast_horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
 ) -> Optional[RegressionResultsWrapper]:
     """
     Perform a regression of forecast errors on forecast revisions and test for
@@ -69,6 +71,13 @@ def revisions_errors_regression(
     - Tests null hypothesis H0: β = 0 (no correlation between revisions and errors)
     - Rejecting H0 suggests forecast inefficiency
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     subset = df[
         (df["variable"] == variable)

@@ -1,5 +1,6 @@
+import warnings
 from datetime import date
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 
@@ -13,6 +14,7 @@ def plot_hedgehog(
     variable: str,
     forecast_source: str,
     metric: Literal["levels", "pop", "yoy"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
@@ -54,6 +56,13 @@ def plot_hedgehog(
         raise ValueError("ForecastData forecasts are not available. Please ensure data has been added and processed.")
     if data._main_table is None:
         raise ValueError("ForecastData not available. Please ensure data has been added and processed.")
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     df_forecasts = data._forecasts.copy()
     df_outturns = data._main_table.copy()
