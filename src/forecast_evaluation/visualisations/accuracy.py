@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Literal, Union
+import warnings
+from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -14,7 +15,7 @@ def plot_accuracy(
     df: Union[pd.DataFrame, "TestResult"],
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Union[Literal["Q", "M"], None] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
     convert_to_percentage: bool = False,
     return_plot: bool = False,
@@ -60,17 +61,14 @@ def plot_accuracy(
     if hasattr(df, "to_df"):
         df = df.to_df()
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-    # Filter data for the specific combination
-    mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
+    mask = (df["variable"] == variable) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
     df = clean_unique_id(df)
@@ -138,8 +136,8 @@ def plot_compare_to_benchmark(
     df: pd.DataFrame,
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     benchmark_model: str,
+    frequency: Optional[Literal["Q", "M"]] = None,
     statistic: Literal["rmse", "rmedse", "mean_abs_error"] = "rmse",
     return_plot: bool = False,
 ):
@@ -171,19 +169,20 @@ def plot_compare_to_benchmark(
     """
     from forecast_evaluation.tests.accuracy import compare_to_benchmark
 
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     # Compute comparison to benchmark model
     df = compare_to_benchmark(df, benchmark_model=benchmark_model, statistic=statistic)
 
     # Extract the ratio column name
     ratio_col = f"{statistic}_to_benchmark"
 
-    # Filter data for the specific combination
-    mask = (
-        (df["variable"] == variable)
-        & (df["unique_id"] != benchmark_model)
-        & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
-    )
+    mask = (df["variable"] == variable) & (df["unique_id"] != benchmark_model) & (df["metric"] == metric)
 
     df = df.loc[mask].copy()
     df = clean_unique_id(df)

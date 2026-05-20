@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import numpy as np
@@ -15,8 +16,8 @@ def weak_efficiency_test(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
     forecast_horizon: int,
+    frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
 ) -> Optional[RegressionResultsWrapper]:
     """
@@ -84,14 +85,21 @@ def weak_efficiency_test(
         Returns None if insufficient data (< 10 observations)
     """
 
-    # Filter data for the specific combination
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     subset = df[
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["forecast_horizon"] == forecast_horizon)
     ].copy()
+
+    frequency = subset["frequency"].iloc[0] if len(subset) > 0 else None
 
     # Check if we have enough observations after filtering
     if len(subset) < 10:
@@ -276,11 +284,10 @@ def weak_efficiency_analysis(
         variable = row["variable"]
         source = row["unique_id"]
         metric = row["metric"]
-        frequency = row["frequency"]
         forecast_horizon = row["forecast_horizon"]
 
         # Run weak efficiency test with date exclusion
-        result = weak_efficiency_test(df, variable, source, metric, frequency, forecast_horizon, verbose=verbose)
+        result = weak_efficiency_test(df, variable, source, metric, forecast_horizon, verbose=verbose)
 
         # Store results in preallocated list
         results_list[i] = result

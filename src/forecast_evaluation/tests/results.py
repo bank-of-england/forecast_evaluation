@@ -354,7 +354,6 @@ class TestResult:
         """Plot bias estimates with confidence intervals by forecast horizon."""
         from forecast_evaluation.visualisations.bias import plot_bias_by_horizon
 
-        # Auto-detect parameters if only one unique value exists
         if variable is None:
             unique_vars = self._df["variable"].unique()
             if len(unique_vars) == 1:
@@ -376,13 +375,6 @@ class TestResult:
             else:
                 raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
 
-        if frequency is None:
-            unique_freqs = self._df["frequency"].unique()
-            if len(unique_freqs) == 1:
-                frequency = unique_freqs[0]
-            else:
-                raise ValueError(f"Multiple frequencies found: {unique_freqs}. Please specify 'frequency' parameter.")
-
         return plot_bias_by_horizon(
             df=self._df,
             variable=variable,
@@ -398,7 +390,7 @@ class TestResult:
         self,
         variable: Optional[str] = None,
         metric: Optional[Literal["levels", "pop", "yoy"]] = None,
-        frequency: Optional[Literal["Q", "M"]] = "Q",
+        frequency: Optional[Literal["Q", "M"]] = None,
         statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
         benchmark_model: str = None,
         convert_to_percentage: bool = False,
@@ -408,7 +400,6 @@ class TestResult:
         """Plot accuracy statistics by forecast horizon."""
         from forecast_evaluation.visualisations.accuracy import plot_accuracy, plot_compare_to_benchmark
 
-        # Auto-detect parameters if only one unique value exists
         if variable is None:
             unique_vars = self._df["variable"].unique()
             if len(unique_vars) == 1:
@@ -485,13 +476,6 @@ class TestResult:
                 metric = unique_metrics[0]
             else:
                 raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
-
-        if frequency is None:
-            unique_freqs = self._df["frequency"].unique()
-            if len(unique_freqs) == 1:
-                frequency = unique_freqs[0]
-            else:
-                raise ValueError(f"Multiple frequencies found: {unique_freqs}. Please specify 'frequency' parameter.")
 
         if horizon is None:
             horizon = int(min(self._df["forecast_horizon"].unique()))

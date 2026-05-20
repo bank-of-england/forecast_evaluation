@@ -202,7 +202,6 @@ def bias(input, output, session, data):
             variable=input.variable(),
             source=unique_id,
             metric=input.transform(),
-            frequency="Q",
             return_plot=True,
         )
 

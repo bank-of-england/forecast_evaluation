@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal
 
 import matplotlib.pyplot as plt
@@ -42,8 +43,6 @@ def plot_errors_across_time(
         If a list is provided, creates faceted subplots by horizon.
     sources : str or list[str], default=None
         The source(s) of the forecasts (e.g., 'compass conditional', 'mpr'). If None, all sources in the data are used.
-    frequency : str, default=None
-        The frequency to analyse (e.g., 'Q', 'M'). If None the most prevalent frequency in the data is used.
     k : int, default=12
         Number of revisions used to define the outturns.
     ma_window : int, default=1
@@ -70,12 +69,16 @@ def plot_errors_across_time(
     elif isinstance(sources, str):
         sources = [sources]
 
-    if frequency is None:
-        frequency = data._main_table["frequency"].mode()[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     # filter
     data_filtered = data.copy()
-    data_filtered.filter(variables=variable, metrics=metric, frequencies=frequency, sources=sources)
+    data_filtered.filter(variables=variable, metrics=metric, sources=sources)
     forecast_errors = data_filtered._main_table.copy()
     forecast_errors = filter_k(forecast_errors, k=k)
 

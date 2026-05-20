@@ -1,3 +1,4 @@
+import warnings
 from collections import OrderedDict
 from typing import Literal, Optional
 
@@ -206,9 +207,6 @@ def blanchard_leigh_horizon_analysis(
         Array of forecast horizons to test
     j : int, default=2
         Forecast horizon of instrument variable
-    frequency : str or None, default None
-        Frequency of the data (quarterly or monthly). If None, inferred from
-        the data.
     k : int, default=12
         Number of revisions used to define the outturn
     alpha : float, default=0.05
@@ -227,14 +225,14 @@ def blanchard_leigh_horizon_analysis(
 
     df = data._main_table.copy()
 
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    frequency = df["frequency"].iloc[0]
 
     # Ensure horizons is a NumPy array
     horizons = np.array(horizons)
@@ -242,7 +240,7 @@ def blanchard_leigh_horizon_analysis(
     # Filter the table for a particular k
     df = filter_k(df, k)
 
-    # Filter variables, sources and frequency
+    # Filter variables and sources
     df = (
         df[
             (
@@ -250,7 +248,6 @@ def blanchard_leigh_horizon_analysis(
                 | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
             )
             & (df["unique_id"] == source)
-            & (df["frequency"] == frequency)
         ]
         .reset_index(drop=True)
         .drop(columns=["unique_id", "metric", "frequency"])
@@ -259,8 +256,7 @@ def blanchard_leigh_horizon_analysis(
     if df.empty:
         raise ValueError(
             f"No data available for variables '{outcome_variable}' with metric '{outcome_metric}',"
-            f"'{instrument_variable}' with metric '{instrument_metric}' and source '{source}'"
-            f" and frequency '{frequency}'."
+            f"'{instrument_variable}' with metric '{instrument_metric}' and source '{source}'."
         )
 
     # Pivot data wider

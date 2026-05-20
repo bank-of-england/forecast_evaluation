@@ -58,7 +58,6 @@ def average_accuracy(input, output, session, data):
         fig, ax = accuracy_results.plot(
             variable=input.variable(),
             metric=input.transform(),
-            frequency="Q",
             statistic=input.stat(),
             convert_to_percentage=True,
             return_plot=True,
@@ -140,7 +139,6 @@ def relative_accuracy(input, output, session, data):
         fig, ax = accuracy_results.plot(
             variable=input.variable(),
             metric=input.transform(),
-            frequency="Q",
             statistic=input.stat(),
             benchmark_model=input.benchmark(),
             return_plot=True,
@@ -457,7 +455,6 @@ def error_distribution(input, output, session, data):
             horizon=int(input.horizon()),
             variable=input.variable(),
             metric=input.transform(),
-            frequency="Q",
             source=unique_id,
             k=int(input.k()),
             highlight_dates=input.dates_to_highlight(),

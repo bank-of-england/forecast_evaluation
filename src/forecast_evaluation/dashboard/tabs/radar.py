@@ -57,7 +57,6 @@ def radar(input, output, session, data):
 
         kwargs = dict(
             mode=mode,
-            frequency="Q",
             statistic=input.stat(),
             normalise=input.radar_normalise(),
             return_plot=True,

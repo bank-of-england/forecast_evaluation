@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
@@ -34,9 +35,6 @@ def plot_vintage(
         The vintage date to plot, either as string or pandas Timestamp.
     outturn_start_date : str or pd.Timestamp, optional
         Start date for outturn data to display (inclusive). If None, all available outturns are used.
-    frequency : {"Q", "M"} or None, default None
-        Frequency of the data, either quarterly or monthly. If None, inferred
-        from the data.
     metric : {"levels", "pop", "yoy"}, default "levels"
         Type of transformation to apply to the data.
     convert_to_percentage : bool, default False
@@ -53,14 +51,14 @@ def plot_vintage(
     if data._forecasts is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
-    if frequency is None:
-        inferred = data._forecasts["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    frequency = data._forecasts["frequency"].iloc[0]
 
     # add a check here
     vintage_date = pd.to_datetime(vintage_date)
@@ -71,7 +69,6 @@ def plot_vintage(
     filtered_data.filter(
         variables=variable,
         metrics=metric,
-        frequencies=frequency,
         sources=forecast_source,
         start_vintage=vintage_date,
         end_vintage=vintage_date,

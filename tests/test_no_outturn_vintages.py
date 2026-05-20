@@ -296,12 +296,12 @@ class TestGuardsNoVintages:
     def test_plot_outturn_revisions_raises(self, fd_no_vintages):
         """plot_outturn_revisions should raise ValueError."""
         with pytest.raises(ValueError, match="outturn vintages"):
-            fd_no_vintages.plot_outturn_revisions(variable="gdpkp", metric="levels", frequency="Q")
+            fd_no_vintages.plot_outturn_revisions(variable="gdpkp", metric="levels")
 
     def test_plot_outturns_raises(self, fd_no_vintages):
         """plot_outturns should raise ValueError."""
         with pytest.raises(ValueError, match="outturn vintages"):
-            fd_no_vintages.plot_outturns(variable="gdpkp", metric="levels", frequency="Q")
+            fd_no_vintages.plot_outturns(variable="gdpkp", metric="levels")
 
 
 # -----------------------

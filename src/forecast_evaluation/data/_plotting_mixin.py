@@ -12,7 +12,7 @@ class PlottingMixin:
         variable: str,
         forecast_source: str,
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Union[Literal["Q", "M"], None] = None,
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: int = 12,
         date_start: Union[str, date, None] = None,
         convert_to_percentage: bool = False,
@@ -28,8 +28,6 @@ class PlottingMixin:
             Source of the forecasts.
         metric : {"levels", "pop", "yoy"}
             Type of transformation to apply to the data.
-        frequency : {"Q", "M"} or None, default None
-            Frequency of the data. If None, inferred from the data.
         k : int, default 12
             Number of revisions used to define the outturns.
         date_start : str, date, or None, default None
@@ -63,9 +61,9 @@ class PlottingMixin:
         self,
         variable: str,
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Literal["Q", "M"],
         source: str,
         vintage_date_forecast: str,
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: int = 12,
         convert_to_percentage: bool = False,
         return_plot: bool = False,
@@ -78,8 +76,6 @@ class PlottingMixin:
             The variable to analyse (e.g., 'gdpkp').
         metric : {"levels", "pop", "yoy"}
             The metric to analyse.
-        frequency : {"Q", "M"}
-            The frequency to analyse.
         source : str
             The source of the forecasts.
         vintage_date_forecast : str
@@ -102,9 +98,9 @@ class PlottingMixin:
             data=self,
             variable=variable,
             metric=metric,
-            frequency=frequency,
             source=source,
             vintage_date_forecast=vintage_date_forecast,
+            frequency=frequency,
             k=k,
             convert_to_percentage=convert_to_percentage,
             return_plot=return_plot,
@@ -115,7 +111,7 @@ class PlottingMixin:
         variable: str,
         source: Union[str, list[str]],
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Literal["Q", "M"],
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: int = 12,
         convert_to_percentage: bool = False,
         return_plot: bool = False,
@@ -131,8 +127,6 @@ class PlottingMixin:
             plotted as a separate line on the same axes.
         metric : {"levels", "pop", "yoy"}
             The metric to analyse.
-        frequency : {"Q", "M"}
-            The frequency to analyse.
         k : int, default 12
             Number of revisions used to define the outturns.
         convert_to_percentage : bool, default False
@@ -162,7 +156,7 @@ class PlottingMixin:
         self,
         variable: str,
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Literal["Q", "M"],
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: Union[int, list[int]] = 12,
         fill_k: bool = False,
         ma_window: int = 1,
@@ -179,8 +173,6 @@ class PlottingMixin:
             The variable to analyse (e.g., 'gdpkp').
         metric : {"levels", "pop", "yoy"}
             The metric to analyse.
-        frequency : {"Q", "M"}
-            The frequency to analyse.
         k : int or list of int, default 12
             Number of revisions used to define the outturns. A list plots multiple
             revision horizons on the same axes.
@@ -222,7 +214,7 @@ class PlottingMixin:
         self,
         variable: str,
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Literal["Q", "M"],
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: Union[int, list[int]] = 12,
         fill_k: bool = True,
         start_date: Union[date, str, None] = None,
@@ -238,8 +230,6 @@ class PlottingMixin:
             The variable to analyse (e.g., 'gdpkp').
         metric : {"levels", "pop", "yoy"}
             The metric to analyse.
-        frequency : {"Q", "M"}
-            The frequency to analyse.
         k : int or list of int, default 12
             Number of revisions used to define the outturns.
         fill_k : bool, default True
@@ -278,7 +268,7 @@ class PlottingMixin:
         source: str,
         variable: str,
         metric: str,
-        frequency: str,
+        frequency=None,
         return_plot: bool = False,
     ):
         """Plot the average revision grouped by forecast horizon.
@@ -291,8 +281,6 @@ class PlottingMixin:
             Variable to analyse (e.g., 'gdpkp', 'cpisa').
         metric : str
             Metric to analyse ('levels', 'pop', or 'yoy').
-        frequency : str
-            Data frequency ('Q' for quarterly or 'M' for monthly).
         return_plot : bool, default False
             If True, returns (fig, ax) tuple instead of displaying the plot.
 
@@ -336,8 +324,6 @@ class PlottingMixin:
             List of forecast sources to include. If None, all sources are used.
         outturn_start_date : str or pd.Timestamp, optional
             Start date for outturn data to display. If None, all available outturns are used.
-        frequency : {"Q", "M"} or None, default None
-            Frequency of the data. If None, inferred from the data.
         metric : {"levels", "pop", "yoy"}, default "levels"
             Type of transformation to apply to the data.
         k : int, default 12
@@ -398,8 +384,6 @@ class PlottingMixin:
             data is used. A list creates faceted subplots by horizon.
         sources : str or list of str, default None
             The source(s) of the forecasts. If None, all sources in the data are used.
-        frequency : {"Q", "M"} or None, default None
-            The frequency to analyse. If None, the most prevalent frequency is used.
         k : int, default 12
             Number of revisions used to define the outturns.
         ma_window : int, default 1
@@ -444,8 +428,8 @@ class PlottingMixin:
         variable: str,
         horizon: int,
         metric: Literal["levels", "pop", "yoy"],
-        frequency: Literal["Q", "M"],
         source: str,
+        frequency: Optional[Literal["Q", "M"]] = None,
         k: int = 12,
         highlight_dates: Optional[Union[str, list[str]]] = None,
         highlight_vintages: Optional[Union[str, list[str]]] = None,
@@ -461,8 +445,6 @@ class PlottingMixin:
             The forecast horizon to analyse.
         metric : {"levels", "pop", "yoy"}
             The metric to analyse.
-        frequency : {"Q", "M"}
-            The frequency to analyse.
         source : str
             The source of the forecasts.
         k : int, default 12
@@ -487,8 +469,8 @@ class PlottingMixin:
             variable=variable,
             horizon=horizon,
             metric=metric,
-            frequency=frequency,
             source=source,
+            frequency=frequency,
             k=k,
             highlight_dates=highlight_dates,
             highlight_vintages=highlight_vintages,

@@ -1,4 +1,5 @@
-from typing import Literal, Union
+import warnings
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -15,7 +16,7 @@ def revision_test(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    frequency: Literal["Q", "M"],
+    frequency: Optional[Literal["Q", "M"]] = None,
     n_revisions: int = 5,
 ) -> dict:
     """
@@ -37,8 +38,6 @@ def revision_test(
     metric : Literal["levels", "pop", "yoy"]
         Metric type: 'levels' for raw values, 'pop' for period-on-period percentage change,
         'yoy' for year-on-year percentage change
-    frequency : Literal["Q", "M"]
-        Data frequency: 'Q' for quarterly, 'M' for monthly
     n_revisions : int, default=5
         Maximum number of forecast horizons/revisions to include in analysis
 
@@ -59,23 +58,22 @@ def revision_test(
       where k is the number of revisions (up to n_revisions).
     """
 
-    # Validate input parameters
-    if (
-        not isinstance(variable, str)
-        or not isinstance(source, str)
-        or not isinstance(metric, str)
-        or not isinstance(frequency, str)
-    ):
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    if not isinstance(variable, str) or not isinstance(source, str) or not isinstance(metric, str):
         raise ValueError("All parameters must be strings.")
     if not isinstance(n_revisions, int) or n_revisions < 1:
         raise ValueError("n_revisions must be a positive integer.")
 
-    # Filter the DataFrame based on the input parameters
     df_filtered = df[
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["frequency"] == frequency)
         & (df["forecast_horizon"] <= n_revisions)
     ].copy()
 
@@ -99,8 +97,7 @@ def revision_test(
         model = OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": 1})
     except Exception as e:
         raise ValueError(
-            f"OLS regression failed for {variable} from source {source} "
-            f"with metric {metric} and frequency {frequency}. Error: {str(e)}"
+            f"OLS regression failed for {variable} from source {source} with metric {metric}. Error: {str(e)}"
         )
 
     restriction_matrix = np.eye(len(X.columns))[1:]
@@ -113,7 +110,7 @@ def revision_predictability_analysis(
     data,
     variable: Union[str, list[str]] = None,
     source: Union[None, str, list[str]] = None,
-    frequency: Union[Literal["Q", "M"], None] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     n_revisions: PositiveInt = 5,
     same_date_range: bool = True,
 ) -> TestResult:
@@ -150,23 +147,19 @@ def revision_predictability_analysis(
 
         Returns None if data is not available. Failed tests are excluded from the results.
     """
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     if data._forecasts is None:
         raise ValueError(
             "ForecastData forecasts data is not available." + " Please ensure data has been added and processed."
         )
 
     df = data._forecasts.copy()
-
-    if frequency is None:
-        inferred = df["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
-    else:
-        df = df[df["frequency"] == frequency]
 
     # Filter by source if specified
     if source is not None:
@@ -205,7 +198,7 @@ def revision_predictability_analysis(
 
         # Run revision test
         try:
-            model, joint_test = revision_test(df, variable, source, metric, frequency, n_revisions)
+            model, joint_test = revision_test(df, variable, source, metric, n_revisions)
 
             # Extract F-statistic - handle both array and scalar cases
             if hasattr(joint_test.fvalue, "__getitem__"):
@@ -226,7 +219,7 @@ def revision_predictability_analysis(
 
             results_list.append(result_dict)
         except Exception as e:
-            print(f"Combination {i + 1}/{n_combinations}: {variable}, {source}, {metric}, {frequency} - Failed: {e}")
+            print(f"Combination {i + 1}/{n_combinations}: {variable}, {source}, {metric} - Failed: {e}")
 
     # Convert list of dictionaries to DataFrame
     if len(results_list) == 0:
@@ -240,7 +233,6 @@ def revision_predictability_analysis(
         "parameters": {
             "n_revisions": n_revisions,
             "same_date_range": same_date_range,
-            "frequency": frequency,
         },
         "filters": {
             "unique_id": source,
