@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import pandas as pd
 from tqdm import tqdm
@@ -14,6 +14,7 @@ def build_random_walk_model(
     metric: Literal["levels", "pop", "yoy"],
     frequency: Optional[Literal["Q", "M"]] = None,
     forecast_periods: int = 13,
+    first_forecast_horizon: Union[int, dict[str, int]] = 0,
     show_progress: bool = False,
 ):
     """
@@ -39,6 +40,13 @@ def build_random_walk_model(
     -------
     pd.DataFrame
         DataFrame containing the random walk forecasts.
+
+    Parameters
+    ----------
+    first_forecast_horizon : int, optional
+        The minimum forecast horizon to produce. Training data is restricted to periods
+        strictly before this horizon, so the benchmark never uses data it is supposed to
+        predict. Default is 0.
 
     Notes
     -----
@@ -75,6 +83,11 @@ def build_random_walk_model(
     if "vintage_date" in df.columns:
         df["vintage_date"] = pd.to_datetime(df["vintage_date"])
 
+    if isinstance(first_forecast_horizon, dict):
+        first_forecast_horizon = first_forecast_horizon.get(variable, 0)
+
+    date_offset = pd.offsets.QuarterEnd() if frequency == "Q" else pd.offsets.MonthEnd()
+
     # Generate random walk forecasts
     forecasts = []
 
@@ -103,8 +116,8 @@ def build_random_walk_model(
 
             for vintage_date in vintage_dates:
                 try:
-                    # Only use data available before this vintage date
-                    available = group[group["date"] < vintage_date]
+                    cutoff_date = vintage_date + first_forecast_horizon * date_offset
+                    available = group[group["date"] < cutoff_date]
                     if available.empty:
                         continue
 
@@ -120,7 +133,7 @@ def build_random_walk_model(
                             "value": latest_value,
                             "frequency": grp_frequency,
                             "source": "baseline random walk model",
-                            "forecast_horizon": -1,
+                            "forecast_horizon": first_forecast_horizon - 1,
                         }
                     )
 
@@ -133,7 +146,7 @@ def build_random_walk_model(
                             start=latest_date + pd.offsets.QuarterEnd(), periods=forecast_periods, freq="QE"
                         )
 
-                    for period, date in enumerate(forecast_dates):
+                    for period, date in enumerate(forecast_dates, start=first_forecast_horizon):
                         forecasts.append(
                             {
                                 "date": date,
@@ -159,11 +172,14 @@ def build_random_walk_model(
             group = group.sort_values("date")
 
             try:
-                # Get the latest date and value
-                latest_date = group["date"].max()
-                latest_value = group[group["date"] == latest_date]["value"].iloc[0]
+                cutoff_date = vintage_date + first_forecast_horizon * date_offset
+                training_data = group[group["date"] < cutoff_date]
+                if training_data.empty:
+                    continue
 
-                # Include the latest value in the forecast
+                latest_date = training_data["date"].max()
+                latest_value = training_data[training_data["date"] == latest_date]["value"].iloc[0]
+
                 forecasts.append(
                     {
                         "date": latest_date,
@@ -173,7 +189,7 @@ def build_random_walk_model(
                         "value": latest_value,
                         "frequency": frequency,
                         "source": "baseline random walk model",
-                        "forecast_horizon": -1,
+                        "forecast_horizon": first_forecast_horizon - 1,
                     }
                 )
 
@@ -188,7 +204,7 @@ def build_random_walk_model(
                     )
 
                 # Create forecast entries (random walk - same value for all forecasts)
-                for period, date in enumerate(forecast_dates):
+                for period, date in enumerate(forecast_dates, start=first_forecast_horizon):
                     forecasts.append(
                         {
                             "date": date,
@@ -283,6 +299,7 @@ def add_random_walk_forecasts(
             metric=metric,
             frequency=freq,
             forecast_periods=forecast_periods,
+            first_forecast_horizon=data.first_forecast_horizon,
             show_progress=show_progress,
         )
         for (var, freq) in pairs
@@ -294,6 +311,7 @@ def add_random_walk_forecasts(
     rw_forecasts_in_levels = transform_forecast_to_levels(
         outturns=data._raw_outturns,
         forecasts=rw_forecasts,
+        first_forecast_horizon=data.first_forecast_horizon,
     )
 
     # Append random walk forecasts to existing forecasts

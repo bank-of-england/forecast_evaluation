@@ -16,6 +16,8 @@ from forecast_evaluation.data.utils import construct_unique_id, filter_fer_model
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
+_UNSET = object()  # sentinel for "parameter not passed"
+
 
 class ForecastData(PlottingMixin):
     """Class for validation and extending forecast data.
@@ -39,6 +41,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
         outturn_vintages: bool = True,
     ):
         """Initialise with user data, FER data or null.
@@ -75,6 +78,14 @@ class ForecastData(PlottingMixin):
             sentinel values and ``filter_k`` will be a no-op. Features that depend on outturn
             revisions (e.g., ``plot_outturn_revisions``, ``create_outturn_revisions``) will raise
             an error. Default is True.
+        first_forecast_horizon : int, dict[str, int], or None, optional
+            The minimum forecast horizon to retain in processed forecasts. Pass an int to apply
+            the same threshold to all variables, or a dict mapping variable names to per-variable
+            thresholds (variables not in the dict default to 0). Set to a negative value (e.g.,
+            -1, -2) to include backcasts, i.e., forecasts for periods that have already ended
+            but whose data has not yet been released. When None (default), the threshold for each
+            variable is max(0, min(forecast_horizon)) — i.e. the smallest non-negative horizon
+            present in that variable's forecasts.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -82,6 +93,7 @@ class ForecastData(PlottingMixin):
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
+        self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
         if load_fer:
@@ -166,6 +178,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -206,6 +219,12 @@ class ForecastData(PlottingMixin):
 
             Warnings only; never raises errors. Set to ``False`` to disable.
             Default is True.
+        first_forecast_horizon : int, dict[str, int], or None, optional
+            The minimum forecast horizon to retain. Overrides the instance-level attribute
+            when provided. Pass an int to apply the same threshold to all variables, or a
+            dict mapping variable names to per-variable thresholds (variables not in the
+            dict default to 0). Set to None to auto-compute as max(0, min(forecast_horizon))
+            per variable. When not provided, uses the existing instance attribute.
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
@@ -219,6 +238,13 @@ class ForecastData(PlottingMixin):
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
+
+        # Update instance attribute if caller provided an explicit value
+        if first_forecast_horizon is not _UNSET:
+            if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
+                self.first_forecast_horizon.update(first_forecast_horizon)
+            else:
+                self.first_forecast_horizon = first_forecast_horizon
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -299,8 +325,32 @@ class ForecastData(PlottingMixin):
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
+        # Resolve first_forecast_horizon: auto-compute for new variables
+        if self.first_forecast_horizon is None:
+            self.first_forecast_horizon = (
+                df.groupby("variable")["forecast_horizon"].min().clip(lower=0).astype(int).to_dict()
+            )
+        elif isinstance(self.first_forecast_horizon, dict):
+            new_vars = set(df["variable"].unique()) - set(self.first_forecast_horizon.keys())
+            if new_vars:
+                new_thresholds = (
+                    df[df["variable"].isin(new_vars)]
+                    .groupby("variable")["forecast_horizon"]
+                    .min()
+                    .clip(lower=0)
+                    .astype(int)
+                    .to_dict()
+                )
+                self.first_forecast_horizon.update(new_thresholds)
+
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
-        forecasts = prepare_forecasts(df, self._raw_outturns, self._id_columns, compute_levels=compute_levels)
+        forecasts = prepare_forecasts(
+            df,
+            self._raw_outturns,
+            self._id_columns,
+            compute_levels=compute_levels,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
 
         # Compute main table
         main_table = build_main_table(
@@ -329,6 +379,7 @@ class ForecastData(PlottingMixin):
         self,
         fill_to: str,
         vintage_frequency: Literal["M", "Q"] = "Q",
+        publication_lags: dict[str, int] | None = None,
     ) -> None:
         """Create pseudo vintages for outturns.
 
@@ -346,6 +397,9 @@ class ForecastData(PlottingMixin):
         vintage_frequency : str, optional
             Frequency at which to create vintages. Default is 'Q' (quarterly).
             Options: 'M' (monthly), 'Q' (quarterly).
+        publication_lags : dict[str, int] or None, optional
+            A dictionary mapping variable names to their publication lag (in units of
+            ``vintage_frequency``). If None (default), the lag is computed from existing data.
 
         Notes
         -----
@@ -366,6 +420,20 @@ class ForecastData(PlottingMixin):
 
         df = self._raw_outturns.copy()
 
+        # if vintage_date is NaT (when outturn_vintages=False),
+        # set vintage to latest date in the data
+        if df["vintage_date"].isna().all():
+            latest_date = df["date"].max()
+            df["vintage_date"] = latest_date
+
+            # recompute forecast horizon
+            df["forecast_horizon"] = df.apply(
+                lambda row: (
+                    (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n
+                ),
+                axis=1,
+            )
+
         # Create the dataframe that will be propagated to the new vintages
         # For each variable, select only the rows from the earliest available vintage
         df_propagate = df[df["vintage_date"] == df.groupby("variable")["vintage_date"].transform("min")]
@@ -376,6 +444,12 @@ class ForecastData(PlottingMixin):
             - df_propagate["date"].dt.to_period(vintage_frequency)
         ).apply(lambda x: x.n)
         df_propagate["publication_lag"] = lag_diff.groupby(df_propagate["variable"]).transform("min")
+
+        # Override with user-provided lags where available
+        if publication_lags is not None:
+            provided = df_propagate["variable"].map(publication_lags)
+            mask = provided.notna()
+            df_propagate.loc[mask, "publication_lag"] = provided[mask].astype(int)
 
         # Precompute publication_date: earliest vintage at which each data point becomes available
         offset = pd.tseries.frequencies.to_offset(f"{vintage_frequency}E")
@@ -584,7 +658,12 @@ class ForecastData(PlottingMixin):
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""
         # Separate forecasts and outturns
-        forecasts = prepare_forecasts(self._raw_forecasts, self._raw_outturns, self._id_columns)
+        forecasts = prepare_forecasts(
+            self._raw_forecasts,
+            self._raw_outturns,
+            self._id_columns,
+            first_forecast_horizon=self.first_forecast_horizon,
+        )
         outturns = prepare_outturns(self._raw_outturns)
 
         self._forecasts = forecasts
@@ -725,6 +804,10 @@ class ForecastData(PlottingMixin):
                 f"Invalid model(s) specified in models argument."
                 f"Valid options are {BENCHMARK_MODELS}. Got: {invalid_models}"
             )
+
+        # Resolve first_forecast_horizon if no user forecasts were added yet
+        if self.first_forecast_horizon is None:
+            self.first_forecast_horizon = 0
 
         if "AR" in models:
             from forecast_evaluation.core.ar_p_model import add_ar_p_forecasts
