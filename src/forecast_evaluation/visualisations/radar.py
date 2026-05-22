@@ -43,6 +43,7 @@ def plot_radar(
     efficiency_type: Literal["revision_predictability", "revisions_errors"] = "revision_predictability",
     anchor_source: Optional[str] = None,
     normalise: bool = True,
+    individual_scales: bool = False,
     return_plot: bool = False,
 ):
     """Create a radar / spider chart of forecast accuracy statistics.
@@ -120,6 +121,11 @@ def plot_radar(
     normalise : bool, default True
         If True, values are min-max normalised **per edge** so that
         different scales become comparable.
+    individual_scales : bool, default False
+        If True and ``normalise`` is False, each spoke is independently
+        scaled to [0, 1] for plotting but annotated with its own original
+        tick values.  This lets you compare shapes across sources even
+        when the raw metrics live on very different scales.
     return_plot : bool, default False
         If True return ``(fig, ax)`` instead of displaying the plot.
 
@@ -387,7 +393,12 @@ def plot_radar(
     # ------------------------------------------------------------------
     # Normalise (per spoke) so different scales are comparable
     # ------------------------------------------------------------------
-    if normalise:
+    _spoke_ranges = None
+    if not normalise and individual_scales:
+        # Store original ranges before normalising internally for plotting
+        _spoke_ranges = {col: (pivot[col].min(), pivot[col].max()) for col in pivot.columns}
+        pivot = pivot.apply(_normalise_series, axis=0)
+    elif normalise:
         pivot = pivot.apply(_normalise_series, axis=0)
 
     # ------------------------------------------------------------------
@@ -413,6 +424,32 @@ def plot_radar(
 
     # Spoke labels
     ax.set_thetagrids(np.degrees(angles[:-1]), categories)
+
+    # Per-spoke tick labels when using individual scales
+    if _spoke_ranges is not None:
+        ax.set_yticklabels([])  # hide uniform radial tick labels
+        tick_radii = [0.25, 0.5, 0.75, 1.0]
+        for cat, angle in zip(categories, angles[:-1]):
+            min_val, max_val = _spoke_ranges[cat]
+            # Determine text alignment from spoke angle
+            angle_deg = np.degrees(angle) % 360
+            if 80 < angle_deg < 100 or 260 < angle_deg < 280:
+                ha, ang_offset = "center", 0.0
+            elif 90 < angle_deg < 270:
+                ha, ang_offset = "right", -np.pi / 60
+            else:
+                ha, ang_offset = "left", np.pi / 60
+            for r in tick_radii:
+                orig = min_val + r * (max_val - min_val) if max_val != min_val else min_val
+                ax.text(
+                    angle + ang_offset,
+                    r,
+                    f"{orig:.3g}",
+                    ha=ha,
+                    va="center",
+                    fontsize=6,
+                    color="grey",
+                )
 
     # Styling
     ax.set_title(title, size=THEME["axes"]["titlesize"], pad=20)

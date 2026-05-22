@@ -376,7 +376,12 @@ def create_sidebar(data):
         # Radar normalise toggle
         ui.panel_conditional(
             radar_tab,
-            ui.input_checkbox("radar_normalise", "Normalise values", value=True),
+            ui.input_checkbox("radar_normalise", "Normalise values", value=False),
+        ),
+        # Radar individual scales toggle (visible when normalise is off)
+        ui.panel_conditional(
+            radar_tab + " && !input.radar_normalise",
+            ui.input_checkbox("radar_individual_scales", "Individual axis scales", value=True),
         ),
         # Radar test type selector (variables mode)
         ui.panel_conditional(
