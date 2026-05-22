@@ -201,8 +201,7 @@ class TestEnsureConsistentDateRange:
 
         # check that all unique_id have the same set of (vintage_date_forecast, date) pairs
         pair_sets = {
-            uid: set(zip(group["vintage_date_forecast"], group["date"]))
-            for uid, group in df.groupby("unique_id")
+            uid: set(zip(group["vintage_date_forecast"], group["date"])) for uid, group in df.groupby("unique_id")
         }
         first_uid = next(iter(pair_sets))
         first_pairs = pair_sets[first_uid]

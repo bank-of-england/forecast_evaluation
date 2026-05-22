@@ -59,6 +59,7 @@ def radar(input, output, session, data):
             mode=mode,
             statistic=input.stat(),
             normalise=input.radar_normalise(),
+            individual_scales=input.radar_individual_scales() if not input.radar_normalise() else False,
             return_plot=True,
         )
 
