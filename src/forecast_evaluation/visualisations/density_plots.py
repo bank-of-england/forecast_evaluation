@@ -17,12 +17,12 @@ def plot_density_vintage(
     variable: str,
     vintage_date: str | pd.Timestamp,
     quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
-    forecast_source: list[str] = None,
-    outturn_start_date: str | pd.Timestamp = None,
+    forecast_source: Optional[list[str]] = None,
+    outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     return_plot: bool = False,
-) -> None:
+) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
 
     Parameters

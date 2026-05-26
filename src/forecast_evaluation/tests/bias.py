@@ -19,7 +19,7 @@ def evaluate_bias(
     forecast_horizon: int,
     frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
-) -> Optional[RegressionResultsWrapper]:
+) -> RegressionResultsWrapper:
     """
     Evaluate forecast bias using regression-based statistical testing.
 
@@ -54,12 +54,11 @@ def evaluate_bias(
 
     Returns
     -------
-    Optional[RegressionResultsWrapper]
+    RegressionResultsWrapper
         OLS regression results object containing:
         - Parameter estimates and standard errors
         - Test statistics and p-values
         - Model diagnostics and summary statistics
-        Returns None if insufficient data (< 10 observations)
 
     Notes
     -----

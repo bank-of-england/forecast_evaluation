@@ -16,7 +16,7 @@ def build_random_walk_model(
     forecast_periods: int = 13,
     first_forecast_horizon: Union[int, dict[str, int]] = 0,
     show_progress: bool = False,
-):
+) -> pd.DataFrame:
     """
     Build a random walk forecast model for the specified variable, metric, and frequency.
 
@@ -26,13 +26,17 @@ def build_random_walk_model(
         ForecastData object containing outturn data.
     variable : str
         The variable to build the model for (e.g., 'gdpkp').
-    metric : str
-        The metric to build the model for (e.g., 'levels').
-    frequency : str or None, optional
+    metric : {"levels", "pop", "yoy"}
+        The metric to build the model for.
+    frequency : {"Q", "M"} or None, optional
         The frequency of the data ('Q' for quarterly, 'M' for monthly). If None,
         inferred from the data. Default is None.
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
+    first_forecast_horizon : int or dict[str, int], optional
+        The minimum forecast horizon to produce. Training data is restricted to periods
+        strictly before this horizon, so the benchmark never uses data it is supposed to
+        predict. Default is 0.
     show_progress : bool, optional
         Whether to show a progress bar. Default is False.
 
@@ -40,13 +44,6 @@ def build_random_walk_model(
     -------
     pd.DataFrame
         DataFrame containing the random walk forecasts.
-
-    Parameters
-    ----------
-    first_forecast_horizon : int, optional
-        The minimum forecast horizon to produce. Training data is restricted to periods
-        strictly before this horizon, so the benchmark never uses data it is supposed to
-        predict. Default is 0.
 
     Notes
     -----

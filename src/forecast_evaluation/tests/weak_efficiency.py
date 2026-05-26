@@ -3,7 +3,7 @@ from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
-from statsmodels.regression.linear_model import OLS, RegressionResultsWrapper
+from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
@@ -19,7 +19,7 @@ def weak_efficiency_test(
     forecast_horizon: int,
     frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
-) -> Optional[RegressionResultsWrapper]:
+) -> dict:
     """
     Perform weak efficiency test on forecasts using the Mincer-Zarnowitz regression framework.
 
@@ -64,7 +64,7 @@ def weak_efficiency_test(
 
     Returns
     -------
-    Optional[RegressionResultsWrapper]
+    dict
         Dictionary containing test results with keys:
 
         - 'source' : str - Forecast source identifier

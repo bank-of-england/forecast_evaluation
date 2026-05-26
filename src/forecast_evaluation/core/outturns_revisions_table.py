@@ -1,7 +1,9 @@
+import pandas as pd
+
 from forecast_evaluation.data import ForecastData
 
 
-def create_outturn_revisions(data: ForecastData):
+def create_outturn_revisions(data: ForecastData) -> pd.DataFrame:
     """
     Create outturn revisions dataframe.
 

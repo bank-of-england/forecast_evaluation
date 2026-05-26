@@ -214,10 +214,10 @@ def find_ids_to_exclude(df: pd.DataFrame, sources: list[str]) -> list[str]:
 
     Parameters
     ----------
-    unique_id : str
-        Concatenated identifier string with parts separated by '+'
+    df : pd.DataFrame
+        DataFrame containing a 'unique_id' column with concatenated identifiers separated by '+'.
     sources : list[str]
-        List of source identifiers to check against
+        List of source identifiers to check against.
 
     Returns
     -------
