@@ -19,7 +19,7 @@ def plot_hedgehog(
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
-) -> None:
+) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a hedgehog plot comparing forecasts with outturns.
 
     A hedgehog plot displays multiple forecast vintages as light blue lines overlaid

@@ -13,7 +13,7 @@ def create_data_schema(
     optional_columns: Optional[list[str]] = None,
     *,
     nullable_vintage: bool = False,
-):
+) -> pa.DataFrameSchema:
     """Create validation schema for forecast/outturn data.
 
     Parameters

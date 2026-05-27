@@ -18,8 +18,8 @@ def plot_outturn_revisions(
     k: Union[int, list[int]] = 12,
     fill_k: bool = False,
     ma_window: int = 1,
-    start_date: Union[date, str] = None,
-    end_date: Union[date, str] = None,
+    start_date: Optional[Union[date, str]] = None,
+    end_date: Optional[Union[date, str]] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
 ):
@@ -171,8 +171,8 @@ def plot_outturns(
     frequency: Optional[Literal["Q", "M"]] = None,
     k: Union[int, list[int]] = 12,
     fill_k: bool = True,
-    start_date: Union[date, str] = None,
-    end_date: Union[date, str] = None,
+    start_date: Optional[Union[date, str]] = None,
+    end_date: Optional[Union[date, str]] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
 ):

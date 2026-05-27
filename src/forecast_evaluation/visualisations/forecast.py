@@ -13,14 +13,14 @@ def plot_vintage(
     data: ForecastData,
     variable: str,
     vintage_date: str | pd.Timestamp,
-    forecast_source: list[str] = None,
-    outturn_start_date: str | pd.Timestamp = None,
+    forecast_source: Optional[list[str]] = None,
+    outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
-) -> None:
+) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
 
     Parameters

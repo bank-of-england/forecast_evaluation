@@ -121,11 +121,11 @@ class ForecastData(PlottingMixin):
         """Return DataFrame representation when printing the class."""
         return self._raw_forecasts.__repr__()
 
-    def _repr_html_(self) -> str:
+    def _repr_html_(self) -> str | None:
         """Return HTML representation for Jupyter notebooks."""
         return self._raw_forecasts._repr_html_()
 
-    def copy(self):
+    def copy(self) -> "ForecastData":
         """Return a deep copy of the ForecastData object."""
         return copy.deepcopy(self)
 
@@ -140,6 +140,8 @@ class ForecastData(PlottingMixin):
             Metric to assign to the outturns if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        df = df.copy()
+
         # When outturn_vintages is False, auto-populate missing columns
         # before compute_forecast_horizon which requires vintage_date
         if not self._outturn_vintages:
@@ -212,10 +214,6 @@ class ForecastData(PlottingMixin):
             historical data), those groups will be skipped with a warning message.
             Default is True.
         data_check : bool, optional
-            Whether to run data checks on the forecasts against outturns. When True, two checks
-            are performed per (source, variable, metric, frequency) group:
-
-        data_check : bool, optional
             Whether to run data checks comparing forecast values to outturns
             per (source, variable, metric, frequency) group. When True:
 
@@ -249,6 +247,8 @@ class ForecastData(PlottingMixin):
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
+
+        df = df.copy()
 
         if "forecast_horizon" not in df.columns:
             df = compute_forecast_horizon(df)
@@ -547,10 +547,10 @@ class ForecastData(PlottingMixin):
         self,
         df: pd.DataFrame,
         rename_cols: bool,
-        start_date: str = None,
-        end_date: str = None,
-        start_vintage: str = None,
-        end_vintage: str = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        start_vintage: Optional[str] = None,
+        end_vintage: Optional[str] = None,
         variables: Optional[Union[str, list[str]]] = None,
         metrics: Optional[list[str]] = None,
         sources: Optional[Union[str, list[str]]] = None,
@@ -593,7 +593,7 @@ class ForecastData(PlottingMixin):
         sources: Optional[Union[str, list[str]]] = None,
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-    ):
+    ) -> None:
         """Filter the forecasts and main tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
 
@@ -611,13 +611,13 @@ class ForecastData(PlottingMixin):
         end_vintage : str, optional
             End vintage date to filter forecasts (inclusive). Format 'YYYY-MM-DD'.
             Default is None in which case the analysis ends with the latest vintage.
-        variables: Optional[Union[str, list[str]]] = None
+        variables : str or list of str, optional
             List of variable identifiers to filter. Default is None (no filtering).
-        metrics: Optional[list[str]] = None
+        metrics : list of str, optional
             List of metric identifiers to filter. Default is None (no filtering).
-        sources: Optional[Union[str, list[str]]] = None
+        sources : str or list of str, optional
             List of source identifiers to filter. Default is None (no filtering).
-        frequencies: Optional[Union[str, list[str]]] = None
+        frequencies : str or list of str, optional
             List of frequency identifiers to filter. Default is None (no filtering).
         custom_filter : Callable[[pd.DataFrame], pd.DataFrame], optional
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
@@ -709,7 +709,7 @@ class ForecastData(PlottingMixin):
         return OUTTURN_REQUIRED_COLUMNS
 
     @property
-    def id_columns(self) -> list[str]:
+    def id_columns(self) -> Optional[list[str]]:
         """Get identification / labelling columns."""
         return self._id_columns
 
@@ -718,7 +718,7 @@ class ForecastData(PlottingMixin):
         """Whether the outturn data contains vintage information."""
         return self._outturn_vintages
 
-    def run_dashboard(self, from_jupyter: bool = False, host="127.0.0.1", port=8000):
+    def run_dashboard(self, from_jupyter: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
         """Run the Shiny dashboard with the current data.
 
         Parameters
@@ -754,7 +754,7 @@ class ForecastData(PlottingMixin):
         else:
             app.run(host=host, port=port)
 
-    def merge(self, other: "ForecastData", compute_levels: bool = True) -> "ForecastData":
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData instance into this one.
 
         Parameters
@@ -773,8 +773,8 @@ class ForecastData(PlottingMixin):
 
         Returns
         -------
-        ForecastData
-           Updated ForecastData instance containing merged data from both instances.
+        None
+           The method modifies this instance in place.
         """
 
         if self._outturn_vintages != other._outturn_vintages:
@@ -799,9 +799,9 @@ class ForecastData(PlottingMixin):
         frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
         forecast_periods: int = 13,
         *,
-        estimation_start_date: pd.Timestamp = None,
+        estimation_start_date: Optional[pd.Timestamp] = None,
         show_progress: bool = False,
-    ):
+    ) -> None:
         """Add benchmark models to the ForecastData instance."""
 
         # validate models arg
@@ -845,7 +845,7 @@ class ForecastData(PlottingMixin):
                 show_progress=show_progress,
             )
 
-    def summary(self):
+    def summary(self) -> None:
         """Print a summary of the forecast and outturns datasets.
 
         For each dataset, displays:
@@ -977,7 +977,7 @@ def _validate_records(
     forecast : bool, optional
         Whether the data is forecast data (True) or outturn data (False). Default is False.
     optional_columns : list of str, optional
-        List of optional labelling columns to include in the schema validation. Default is empty.
+        List of optional labelling columns to include in the schema validation. Default is None.
     nullable_vintage : bool, optional
         Whether to allow nullable vintage_date values. Default is False.
 
@@ -1058,8 +1058,8 @@ def _exclude_existing_rows(new_df: pd.DataFrame, existing_df: pd.DataFrame, id_c
     return new_df.loc[mask].reset_index(drop=True)
 
 
-def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
-    """Check if there are duplicate records (same metadata) in the new data compared to existing data.
+def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame) -> pd.DataFrame:
+    """Check for duplicate records and return de-duplicated new data.
 
     Parameters
     ----------
@@ -1068,10 +1068,15 @@ def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
     old_df : pd.DataFrame
         Existing forecast data to compare against.
 
+    Returns
+    -------
+    pd.DataFrame
+        Subset of ``new_df`` with duplicates (rows already present in ``old_df``) removed.
+
     Raises
     ------
     ValueError
-        If duplicate forecast records are found.
+        If duplicate records are found with different values.
     """
 
     # Define metadata columns (all except value)
@@ -1111,7 +1116,7 @@ def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
     return filtered_new_df_unique
 
 
-def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> pd.DataFrame:
+def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> tuple[pd.DataFrame, list[str]]:
     # Shiny requires id columns to have only letters, numbers, and underscores
     # we construct the id using the column names so we need to sanitise them here
 
@@ -1212,7 +1217,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
                 )
 
 
-def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame):
+def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) -> None:
     """Check if all unique combinations of variable and frequency from forecasts
     have corresponding outturns.
 
@@ -1222,6 +1227,11 @@ def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFram
         Forecast data to check.
     outturns_df : pd.DataFrame
         Outturn data to compare against.
+
+    Raises
+    ------
+    ValueError
+        If no outturns data is available at all.
 
     Warnings
     --------

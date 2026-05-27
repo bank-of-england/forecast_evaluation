@@ -77,7 +77,7 @@ def fluctuation_tests(
     test_args: dict = {},
     start_vintage: Optional[str] = None,
     end_vintage: Optional[str] = None,
-):
+) -> TestResult:
     """
     Perform fluctuation tests. A fluctuation test in practice is a
     test performed on a rolling window with adjusted critical values.

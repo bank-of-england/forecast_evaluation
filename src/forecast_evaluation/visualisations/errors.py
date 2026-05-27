@@ -1,5 +1,5 @@
 import warnings
-from typing import Literal
+from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,17 +14,17 @@ def plot_errors_across_time(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     error: Literal["raw", "absolute", "squared"] = "raw",
-    horizons: int | list[int] = None,
-    sources: str | list[str] = None,
-    frequency: Literal["Q", "M"] = None,
+    horizons: Optional[Union[int, list[int]]] = None,
+    sources: Optional[Union[str, list[str]]] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     ma_window: int = 1,
     show_mean: bool = True,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
-    custom_labels: dict = None,
-    existing_plot: tuple = None,
-):
+    custom_labels: Optional[dict] = None,
+    existing_plot: Optional[tuple] = None,
+) -> tuple | None:
     """
     Plot average forecast errors by forecast horizon, averaged over all forecast vintages.
 

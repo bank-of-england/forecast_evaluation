@@ -7,6 +7,7 @@ from pydantic import PositiveInt
 from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
+from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range
@@ -108,8 +109,8 @@ def revision_test(
 
 
 def revision_predictability_analysis(
-    data,
-    variable: Union[str, list[str]] = None,
+    data: ForecastData,
+    variable: Optional[Union[str, list[str]]] = None,
     source: Union[None, str, list[str]] = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     n_revisions: PositiveInt = 5,
@@ -121,15 +122,20 @@ def revision_predictability_analysis(
     This function systematically applies the revision test to every unique combination
     of variable, source, metric, and frequency in the provided dataset.
 
-    Parameters:
-    -----------
-    data: An instance of the ForecastData class containing ForecastData._forecasts.
-    variable: Single variable name or list of variable names to analyse.
-    source: Single source or list of forecast sources to include.
-    frequency: Frequency of the data, either quarterly ("Q") or monthly ("M"). If None,
-        inferred from the data.
-    n_revisions: Maximum number of forecast horizons/revisions to include in each test
-    same_date_range: If True, ensures consistent date ranges across sources when multiple sources are analysed.
+    Parameters
+    ----------
+    data : ForecastData
+        An instance of the ForecastData class containing ForecastData._forecasts.
+    variable : str or list of str, optional
+        Single variable name or list of variable names to analyse. Default is None.
+    source : str or list of str, optional
+        Single source or list of forecast sources to include. Default is None.
+    frequency : {"Q", "M"} or None, optional
+        Frequency of the data. If None, inferred from the data.
+    n_revisions : int
+        Maximum number of forecast horizons/revisions to include in each test.
+    same_date_range : bool, optional
+        If True, ensures consistent date ranges across sources. Default is True.
 
     Returns
     -------

@@ -27,7 +27,7 @@ class TestResult:
         Metadata about the test including parameters, filters, and provenance
     """
 
-    def __init__(self, df: pd.DataFrame, id_columns: list[str] = None, metadata: Optional[dict] = None):
+    def __init__(self, df: pd.DataFrame, id_columns: Optional[list[str]] = None, metadata: Optional[dict] = None):
         """
         Initialize a TestResult object.
 

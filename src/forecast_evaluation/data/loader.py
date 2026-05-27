@@ -5,9 +5,16 @@ import pandas as pd
 
 def load_fer_outturns(minimal: bool = False) -> pd.DataFrame:
     """Load FER outturns data from embedded parquet file.
-    Args:
-        minimal: If True, load the minimal outturns dataset (only 2018).
-        Defaults to False (full dataset).
+
+    Parameters
+    ----------
+    minimal : bool, optional
+        If True, load the minimal outturns dataset (only 2018). Default is False.
+
+    Returns
+    -------
+    pd.DataFrame
+        FER outturns data.
     """
     outturns_file = "fer_outturns_minimal.parquet" if minimal else "fer_outturns.parquet"
     try:
@@ -22,9 +29,17 @@ def load_fer_outturns(minimal: bool = False) -> pd.DataFrame:
 
 def load_fer_forecasts(minimal: bool = False) -> pd.DataFrame:
     """Load FER forecasts data from embedded parquet file.
-    Args:
-        minimal: If True, load the minimal forecasts dataset (only 2018, 2 sources and 2 variables).
-        Defaults to False (full dataset).
+
+    Parameters
+    ----------
+    minimal : bool, optional
+        If True, load the minimal forecasts dataset (only 2018, 2 sources and 2 variables).
+        Default is False.
+
+    Returns
+    -------
+    pd.DataFrame
+        FER forecasts data.
     """
     forecast_file = "fer_forecasts_minimal.parquet" if minimal else "fer_forecasts.parquet"
 
