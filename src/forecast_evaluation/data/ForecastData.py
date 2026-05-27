@@ -134,6 +134,8 @@ class ForecastData(PlottingMixin):
             Metric to assign to the outturns if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        df = df.copy()
+
         # When outturn_vintages is False, auto-populate missing columns
         if not self._outturn_vintages:
             if "vintage_date" not in df.columns:
@@ -234,6 +236,8 @@ class ForecastData(PlottingMixin):
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
+
+        df = df.copy()
 
         # Update instance attribute if caller provided an explicit value
         if first_forecast_horizon is not _UNSET:
