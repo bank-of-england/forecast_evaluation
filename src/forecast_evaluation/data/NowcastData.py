@@ -68,7 +68,53 @@ class NowcastData(ForecastData):
         """Add forecasts, aligning outturn vintages to forecast vintages first."""
         self._align_outturn_vintages(df)
         super().add_forecasts(df, **kwargs)
+        self._set_revision_index_k()
         self._add_days_to_publication()
+
+    def _set_revision_index_k(self):
+        """Set ``k`` as a dense revision index over outturn vintages.
+
+        Generalises the parent's calendar-based ``k`` to the nowcasting case
+        where multiple outturn vintages can fall within a single period.
+        Within each ``(variable, metric, frequency, date)`` group:
+
+        - Post-release vintages (``vintage_date_outturn >= date``) are dense-
+          ranked in ascending order and indexed ``0, 1, 2, ...`` so ``k=0`` is
+          the first release, ``k=1`` the first revision, etc.
+        - Pre-release vintages (``vintage_date_outturn < date``, i.e. backcast
+          snapshots taken before the period ended) are dense-ranked in
+          descending order and indexed ``-1, -2, -3, ...`` so ``k=-1`` is the
+          latest pre-release snapshot, ``k=-2`` the one before, etc.
+
+        Guarantees one row per ``(date, k)`` for each forecast vintage / source.
+        """
+        if self._main_table.empty:
+            return
+
+        mt = self._main_table.copy()
+        group_cols = ["variable", "metric", "frequency", "date"]
+        key_cols = group_cols + ["vintage_date_outturn"]
+
+        def _ranked_k(subset: pd.DataFrame, ascending: bool, offset: int) -> pd.DataFrame:
+            unique_vintages = subset[key_cols].drop_duplicates().sort_values(key_cols)
+            ranks = (
+                unique_vintages.groupby(group_cols)["vintage_date_outturn"]
+                .rank(method="dense", ascending=ascending)
+                .astype(int)
+            )
+            unique_vintages = unique_vintages.assign(k=(ranks + offset) if ascending else -(ranks + offset))
+            return subset.drop(columns=["k"]).merge(unique_vintages, on=key_cols, how="left")
+
+        pre_release_mask = mt["vintage_date_outturn"] < mt["date"]
+        pieces = []
+        if pre_release_mask.any():
+            pieces.append(_ranked_k(mt.loc[pre_release_mask], ascending=False, offset=0))
+        if (~pre_release_mask).any():
+            pieces.append(_ranked_k(mt.loc[~pre_release_mask], ascending=True, offset=-1))
+
+        mt = pd.concat(pieces, ignore_index=True)
+        mt["k"] = mt["k"].astype(int)
+        self._main_table = mt
 
     def _align_outturn_vintages(self, forecasts_df: pd.DataFrame):
         """Build outturn snapshots so every forecast vintage has a full history.

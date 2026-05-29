@@ -120,9 +120,8 @@ class TestNowcastingFlow:
         # Multiple weekly vintages per (source, date, horizon) group
         assert len(fd._raw_forecasts) > len(fh.unique()) * 2
 
-        # k in main table is in quarterly units
+        # k in main table is revision index (0, 1, 2, ...), not calendar-quarter distance
         if not fd.df.empty:
-            assert fd.df["k"].max() <= 25
             assert fd.df["k"].min() >= -1
 
     def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
@@ -150,6 +149,22 @@ class TestNowcastingFlow:
         sources = set(fd._raw_forecasts["source"].unique())
         assert "mpr2" in sources
         assert "nowcast_dfm" in sources
+
+    def test_k_is_revision_index_unique_outturn_per_date_and_k(self, nowcast_outturns, nowcast_forecasts):
+        """For nowcasting, each (variable, metric, frequency, date, k) should map to one outturn vintage."""
+        fd = NowcastData(outturns_data=nowcast_outturns)
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
+
+        mt = fd.df.copy()
+        assert not mt.empty
+
+        grouped = (
+            mt.groupby(["variable", "metric", "frequency", "date", "k"])["vintage_date_outturn"]
+            .nunique()
+            .reset_index(name="n_vintages")
+        )
+
+        assert (grouped["n_vintages"] <= 1).all()
 
     def test_filter_by_source(self, nowcast_outturns, nowcast_forecasts):
         """Filtering by source should work with nowcast data."""
