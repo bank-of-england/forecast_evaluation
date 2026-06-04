@@ -13,7 +13,7 @@ def create_data_schema(
     optional_columns: Optional[list[str]] = None,
     *,
     nullable_vintage: bool = False,
-):
+) -> pa.DataFrameSchema:
     """Create validation schema for forecast/outturn data.
 
     Parameters
@@ -31,11 +31,13 @@ def create_data_schema(
     pa.DataFrameSchema
         Pandera schema for validation.
     """
+    non_empty_string = pa.Check(lambda s: s.str.len() >= 1, name="must not be empty")
+
     # Required columns
     columns = {
         "date": pa.Column(pd.Timestamp, coerce=True),
         "vintage_date": pa.Column(pd.Timestamp, coerce=True, nullable=nullable_vintage),
-        "variable": pa.Column(str, pa.Check(lambda s: s.str.len() >= 1)),
+        "variable": pa.Column(str, non_empty_string),
         "frequency": pa.Column(
             str, pa.Check(lambda s: s.isin(ALLOWED_FREQUENCIES), name=f"must be one of {ALLOWED_FREQUENCIES}")
         ),
@@ -45,7 +47,7 @@ def create_data_schema(
 
     # add source if data is forecast
     if forecast:
-        columns["source"] = pa.Column(str, pa.Check(lambda s: s.str.len() >= 1))
+        columns["source"] = pa.Column(str, non_empty_string)
 
     # Add optional columns
     if optional_columns:
@@ -59,7 +61,7 @@ def create_data_schema(
                     ),
                 )
             else:
-                columns[col] = pa.Column(str, pa.Check(lambda s: s.str.len() >= 1))
+                columns[col] = pa.Column(str, non_empty_string)
 
             if col == "quantile":
                 columns[col] = pa.Column(
@@ -74,7 +76,7 @@ def create_data_schema(
                     coerce=True,
                 )
             else:
-                columns[col] = pa.Column(str, pa.Check(lambda s: s.str.len() >= 1), nullable=True)
+                columns[col] = pa.Column(str, non_empty_string, nullable=True)
 
     return pa.DataFrameSchema(
         columns=columns,

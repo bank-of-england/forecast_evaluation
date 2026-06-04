@@ -1,5 +1,5 @@
 import warnings
-from typing import Literal
+from typing import Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -121,7 +121,7 @@ def diebold_mariano_table(
     benchmark_model: str,
     k: int = 12,
     loss_function: Literal["mse", "mae"] = "mse",
-    horizons: list[int] = None,
+    horizons: Optional[list[int]] = None,
 ) -> TestResult:
     """
     Run Diebold-Mariano tests comparing all models to a benchmark across all series.

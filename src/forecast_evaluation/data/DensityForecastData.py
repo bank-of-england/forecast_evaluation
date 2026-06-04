@@ -409,7 +409,7 @@ class DensityForecastData(ForecastData):
 
         super().add_forecasts(forecast_df)
 
-    def merge(self, other: "ForecastData", compute_levels: bool = True) -> "ForecastData":
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData or DensityForecastData instance into this one.
 
         Parameters
@@ -425,10 +425,6 @@ class DensityForecastData(ForecastData):
             If the transformation fails for specific groups (e.g., due to insufficient
             historical data), those groups will be skipped with a warning message.
             Default is True.
-        Returns
-        -------
-        DensityForecastData
-           Updated DensityForecastData instance containing merged data from both instances.
         """
 
         super().merge(other, compute_levels=compute_levels)
@@ -446,13 +442,13 @@ class DensityForecastData(ForecastData):
         variable: str,
         vintage_date: str | pd.Timestamp,
         quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
-        forecast_source: list[str] = None,
-        outturn_start_date: str | pd.Timestamp = None,
+        forecast_source: Optional[list[str]] = None,
+        outturn_start_date: str | pd.Timestamp | None = None,
         frequency: Union[Literal["Q", "M"], None] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         return_plot: bool = False,
         **kwargs,
-    ) -> None:
+    ) -> tuple | None:
         """Plot forecast density plots.
 
         Parameters

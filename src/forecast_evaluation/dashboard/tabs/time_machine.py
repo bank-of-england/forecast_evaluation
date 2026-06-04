@@ -42,7 +42,6 @@ def time_machine(input, output, session, data):
             fig, ax = fe.plot_nowcasts(
                 data=data_filtered,
                 variable=input.variable(),
-                frequency="Q",
                 target_date=input.vintage(),
                 metric=input.transform(),
                 k=int(input.k()),
@@ -52,7 +51,6 @@ def time_machine(input, output, session, data):
             fig, ax = fe.plot_vintage(
                 data=data_filtered,
                 variable=input.variable(),
-                frequency="Q",
                 vintage_date=input.vintage(),
                 outturn_start_date=input.start_date(),
                 metric=input.transform(),

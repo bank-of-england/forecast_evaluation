@@ -1,4 +1,4 @@
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 
 import pandas as pd
 
@@ -46,8 +46,8 @@ def build_main_table(
     forecasts: pd.DataFrame,
     outturns: pd.DataFrame,
     id_columns: list[str],
-    variables: Union[str, list[str]] = None,
-    forecast_ids: Union[str, list[str]] = None,
+    variables: Optional[Union[str, list[str]]] = None,
+    forecast_ids: Optional[Union[str, list[str]]] = None,
     frequency: Literal["Q", "M"] = "Q",
     *,
     outturn_vintages: bool = True,

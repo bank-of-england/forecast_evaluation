@@ -1,9 +1,11 @@
+import warnings
 from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -11,14 +13,14 @@ def plot_vintage(
     data: ForecastData,
     variable: str,
     vintage_date: str | pd.Timestamp,
-    forecast_source: list[str] = None,
-    outturn_start_date: str | pd.Timestamp = None,
+    forecast_source: Optional[list[str]] = None,
+    outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     k: int = 12,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
-) -> None:
+) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
 
     Parameters
@@ -33,9 +35,6 @@ def plot_vintage(
         The vintage date to plot, either as string or pandas Timestamp.
     outturn_start_date : str or pd.Timestamp, optional
         Start date for outturn data to display (inclusive). If None, all available outturns are used.
-    frequency : {"Q", "M"} or None, default None
-        Frequency of the data, either quarterly or monthly. If None, inferred
-        from the data.
     metric : {"levels", "pop", "yoy"}, default "levels"
         Type of transformation to apply to the data.
     convert_to_percentage : bool, default False
@@ -52,14 +51,14 @@ def plot_vintage(
     if data._forecasts is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 
-    if frequency is None:
-        inferred = data._forecasts["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    frequency = data._forecasts["frequency"].iloc[0]
 
     # add a check here
     vintage_date = pd.to_datetime(vintage_date)
@@ -70,7 +69,6 @@ def plot_vintage(
     filtered_data.filter(
         variables=variable,
         metrics=metric,
-        frequencies=frequency,
         sources=forecast_source,
         start_vintage=vintage_date,
         end_vintage=vintage_date,
@@ -127,6 +125,7 @@ def plot_vintage(
         )
 
     multiplier = 100 if convert_to_percentage else 1
+    forecasts_filtered = clean_unique_id(forecasts_filtered)
 
     fig, ax = create_themed_figure()
 
@@ -177,7 +176,7 @@ def plot_vintage(
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
     y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
     ax.set_ylabel(y_label)
-    ax.legend(title="unique_id")
+    ax.legend()
 
     # Return or show the plot
     if return_plot:

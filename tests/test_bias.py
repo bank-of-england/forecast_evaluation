@@ -201,7 +201,6 @@ def test_evaluate_bias_unbiased_forecasts(unbiased_forecast_data):
         variable="gdpkp",
         source="unbiased_model",
         metric="levels",
-        frequency="Q",
         forecast_horizon=0,
         verbose=False,
     )
@@ -233,7 +232,6 @@ def test_evaluate_bias_optimistic_forecasts(biased_forecast_data):
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        frequency="Q",
         forecast_horizon=0,
         verbose=False,
     )
@@ -264,7 +262,6 @@ def test_evaluate_bias_pessimistic_forecasts(biased_forecast_data):
         variable="gdpkp",
         source="pessimistic_model",
         metric="levels",
-        frequency="Q",
         forecast_horizon=0,
         verbose=False,
     )
@@ -479,7 +476,6 @@ def test_evaluate_bias_standard_errors(biased_forecast_data):
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        frequency="Q",
         forecast_horizon=0,
         verbose=False,
     )
@@ -502,7 +498,6 @@ def test_evaluate_bias_t_statistic(biased_forecast_data):
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        frequency="Q",
         forecast_horizon=0,
         verbose=False,
     )

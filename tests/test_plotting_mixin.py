@@ -15,7 +15,6 @@ from forecast_evaluation.data.ForecastData import ForecastData
 VARIABLE = "gdpkp"
 SOURCE = "mpr"
 METRIC = "yoy"
-FREQUENCY = "Q"
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +34,6 @@ def test_plot_hedgehog_returns_fig_ax(fer_minimal_fd: ForecastData):
         variable=VARIABLE,
         forecast_source=SOURCE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -49,7 +47,6 @@ def test_plot_hedgehog_no_return(fer_minimal_fd: ForecastData):
         variable=VARIABLE,
         forecast_source=SOURCE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=False,
     )
     assert result is None
@@ -61,7 +58,6 @@ def test_plot_forecast_errors_returns_fig_ax(fer_minimal_fd: ForecastData):
     result = fer_minimal_fd.plot_forecast_errors(
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         source=SOURCE,
         vintage_date_forecast=vintage,
         return_plot=True,
@@ -77,7 +73,6 @@ def test_plot_forecast_errors_by_horizon_returns_fig_ax(fer_minimal_fd: Forecast
         variable=VARIABLE,
         source=SOURCE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -92,7 +87,6 @@ def test_plot_forecast_errors_by_horizon_multiple_sources(fer_minimal_fd: Foreca
         variable=VARIABLE,
         source=sources,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -102,7 +96,6 @@ def test_plot_outturn_revisions_returns_fig_ax(fer_minimal_fd: ForecastData):
     result = fer_minimal_fd.plot_outturn_revisions(
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -115,7 +108,6 @@ def test_plot_outturn_revisions_multiple_k(fer_minimal_fd: ForecastData):
     result = fer_minimal_fd.plot_outturn_revisions(
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         k=[4, 8],
         return_plot=True,
     )
@@ -126,7 +118,6 @@ def test_plot_outturns_returns_fig_ax(fer_minimal_fd: ForecastData):
     result = fer_minimal_fd.plot_outturns(
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -140,7 +131,6 @@ def test_plot_average_revision_by_period_returns_fig_ax(fer_minimal_fd: Forecast
         source=SOURCE,
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -155,7 +145,6 @@ def test_plot_vintage_returns_fig_ax(fer_minimal_fd: ForecastData):
         variable=VARIABLE,
         vintage_date=vintage,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -168,7 +157,6 @@ def test_plot_errors_across_time_returns_fig_ax(fer_minimal_fd: ForecastData):
     result = fer_minimal_fd.plot_errors_across_time(
         variable=VARIABLE,
         metric=METRIC,
-        frequency=FREQUENCY,
         return_plot=True,
     )
     assert isinstance(result, tuple) and len(result) == 2
@@ -203,7 +191,6 @@ def test_plot_forecast_error_density_returns_fig_ax(fer_minimal_fd: ForecastData
         variable=VARIABLE,
         horizon=horizon,
         metric=METRIC,
-        frequency=FREQUENCY,
         source=SOURCE,
         return_plot=True,
     )

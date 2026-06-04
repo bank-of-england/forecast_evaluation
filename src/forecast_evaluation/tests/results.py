@@ -9,7 +9,7 @@ from typing import Any, Literal, Optional, Union
 
 import pandas as pd
 
-from forecast_evaluation.utils import filter_sources, reconstruct_id_cols_from_unique_id
+from forecast_evaluation.utils import clean_unique_id, filter_sources, reconstruct_id_cols_from_unique_id
 
 
 class TestResult:
@@ -27,7 +27,7 @@ class TestResult:
         Metadata about the test including parameters, filters, and provenance
     """
 
-    def __init__(self, df: pd.DataFrame, id_columns: list[str] = None, metadata: Optional[dict] = None):
+    def __init__(self, df: pd.DataFrame, id_columns: Optional[list[str]] = None, metadata: Optional[dict] = None):
         """
         Initialize a TestResult object.
 
@@ -75,7 +75,7 @@ class TestResult:
         """
         test_name = self._metadata.get("test_name", "Test Results")
         metadata_str = "\n".join([f"  {k}: {v}" for k, v in self._metadata.items()])
-        return f"TestResult: {test_name}\n{metadata_str}\n\nResults:\n{self._df.__repr__()}"
+        return f"TestResult: {test_name}\n{metadata_str}\n\nResults:\n{clean_unique_id(self._df).__repr__()}"
 
     def __len__(self) -> int:
         """
@@ -324,6 +324,8 @@ class TestResult:
             raise NotImplementedError("Diebold-Mariano plotting is not yet implemented.")
         elif test_name == "revisions_errors_correlation_analysis":
             raise NotImplementedError("Revisions correlation plotting is not yet implemented.")
+        elif test_name == "forecast_errors_correlation_analysis":
+            return self._plot_correlation_heatmap(**kwargs)
         elif test_name == "revision_predictability_analysis":
             raise NotImplementedError(
                 "RevisionsPredictabilityResults.plot() requires access to the original ForecastData object. "
@@ -352,7 +354,6 @@ class TestResult:
         """Plot bias estimates with confidence intervals by forecast horizon."""
         from forecast_evaluation.visualisations.bias import plot_bias_by_horizon
 
-        # Auto-detect parameters if only one unique value exists
         if variable is None:
             unique_vars = self._df["variable"].unique()
             if len(unique_vars) == 1:
@@ -374,13 +375,6 @@ class TestResult:
             else:
                 raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
 
-        if frequency is None:
-            unique_freqs = self._df["frequency"].unique()
-            if len(unique_freqs) == 1:
-                frequency = unique_freqs[0]
-            else:
-                raise ValueError(f"Multiple frequencies found: {unique_freqs}. Please specify 'frequency' parameter.")
-
         return plot_bias_by_horizon(
             df=self._df,
             variable=variable,
@@ -396,7 +390,7 @@ class TestResult:
         self,
         variable: Optional[str] = None,
         metric: Optional[Literal["levels", "pop", "yoy"]] = None,
-        frequency: Optional[Literal["Q", "M"]] = "Q",
+        frequency: Optional[Literal["Q", "M"]] = None,
         statistic: Literal["rmse", "rmedse", "mse", "mean_abs_error"] = "rmse",
         benchmark_model: str = None,
         convert_to_percentage: bool = False,
@@ -406,7 +400,6 @@ class TestResult:
         """Plot accuracy statistics by forecast horizon."""
         from forecast_evaluation.visualisations.accuracy import plot_accuracy, plot_compare_to_benchmark
 
-        # Auto-detect parameters if only one unique value exists
         if variable is None:
             unique_vars = self._df["variable"].unique()
             if len(unique_vars) == 1:
@@ -458,6 +451,45 @@ class TestResult:
             **kwargs,
         )
 
+    def _plot_correlation_heatmap(
+        self,
+        variable: Optional[str] = None,
+        metric: Optional[Literal["levels", "pop", "yoy"]] = None,
+        horizon: Optional[int] = None,
+        frequency: Optional[Literal["Q", "M"]] = None,
+        return_plot: bool = False,
+        **kwargs,
+    ):
+        """Plot pairwise forecast-error correlations as a single heatmap."""
+        from forecast_evaluation.visualisations.correlation import plot_correlation_heatmap
+
+        if variable is None:
+            unique_vars = self._df["variable"].unique()
+            if len(unique_vars) == 1:
+                variable = unique_vars[0]
+            else:
+                raise ValueError(f"Multiple variables found: {unique_vars}. Please specify 'variable' parameter.")
+
+        if metric is None:
+            unique_metrics = self._df["metric"].unique()
+            if len(unique_metrics) == 1:
+                metric = unique_metrics[0]
+            else:
+                raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
+
+        if horizon is None:
+            horizon = int(min(self._df["forecast_horizon"].unique()))
+
+        return plot_correlation_heatmap(
+            df=self._df,
+            variable=variable,
+            metric=metric,
+            horizon=horizon,
+            frequency=frequency,
+            return_plot=return_plot,
+            **kwargs,
+        )
+
     def _plot_blanchard_leigh(
         self,
         return_plot: bool = False,
@@ -494,13 +526,19 @@ class TestResult:
 
             return plot_rolling_relative_accuracy(df=self._df, **kwargs)
 
+        elif analysis_func_name == "forecast_errors_correlation_analysis":
+            from forecast_evaluation.visualisations.correlation import plot_rolling_correlation
+
+            return plot_rolling_correlation(df=self._df, **kwargs)
+
         elif analysis_func_name == "weak_efficiency_analysis":
             raise NotImplementedError("Weak efficiency rolling analysis plotting is not yet implemented.")
 
         else:
             raise NotImplementedError(
                 f"Rolling analysis plotting for '{analysis_func_name}' is not yet implemented. "
-                f"Supported analysis functions: bias_analysis, diebold_mariano_table."
+                f"Supported analysis functions: bias_analysis, diebold_mariano_table, "
+                f"forecast_errors_correlation_analysis."
             )
 
     def _plot_fluctuation_tests(
@@ -545,6 +583,11 @@ class TestResult:
             from forecast_evaluation.visualisations.accuracy import plot_rolling_relative_accuracy
 
             return plot_rolling_relative_accuracy(df=self._df, **kwargs)
+
+        elif test_func_name == "forecast_errors_correlation_analysis":
+            from forecast_evaluation.visualisations.correlation import plot_rolling_correlation
+
+            return plot_rolling_correlation(df=self._df, **kwargs)
 
         elif test_func_name == "weak_efficiency_analysis":
             raise NotImplementedError("Weak efficiency fluctuation test plotting is not yet implemented.")

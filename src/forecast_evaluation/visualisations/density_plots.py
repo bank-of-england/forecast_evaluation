@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from forecast_evaluation.data import DensityForecastData
+from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -16,12 +17,12 @@ def plot_density_vintage(
     variable: str,
     vintage_date: str | pd.Timestamp,
     quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
-    forecast_source: list[str] = None,
-    outturn_start_date: str | pd.Timestamp = None,
+    forecast_source: Optional[list[str]] = None,
+    outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     return_plot: bool = False,
-) -> None:
+) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a plot comparing forecasts from different sources for a specific vintage.
 
     Parameters
@@ -92,6 +93,8 @@ def plot_density_vintage(
         & (outturns["date"] <= forecasts_filtered["date"].max())
         & (outturns["date"] >= min_date)
     ].copy()
+
+    forecasts_filtered = clean_unique_id(forecasts_filtered)
 
     fig, ax = create_themed_figure()
 
@@ -177,7 +180,7 @@ def plot_density_vintage(
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
     ax.set_ylabel(f"{variable} ({metric})")
-    ax.legend(title="unique_id")
+    ax.legend()
 
     # Return or show the plot
     if return_plot:

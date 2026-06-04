@@ -73,17 +73,17 @@ def filter_fer_models(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_tables(
-    df,
-    start_date: str = None,
-    end_date: str = None,
-    start_vintage: str = None,
-    end_vintage: str = None,
+    df: pd.DataFrame,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_vintage: Optional[str] = None,
+    end_vintage: Optional[str] = None,
     variables: Optional[Union[str, list[str]]] = None,
     metrics: Optional[list[str]] = None,
     sources: Optional[Union[list[str], str]] = None,
     frequencies: Optional[Union[str, list[str]]] = None,
     custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-):
+) -> pd.DataFrame:
     """Filter the dataset based on date and vintage ranges.
 
     Parameters
@@ -108,8 +108,8 @@ def filter_tables(
         List of metric identifiers to filter. Default is None (no filtering).
     sources: Optional[Union[list[str], str]] = None
         List of source identifiers to filter, or a single source string. Default is None (no filtering).
-    frequencies: Optional[Union[list[str], str]] = None
-        List of frequency identifiers to filter, or a single frequency string. Default is None (no
+    frequencies: Optional[Union[str, list[str]]] = None
+        List of frequency identifiers to filter, or a single frequency string. Default is None (no filtering).
     custom_filter : Callable[[pd.DataFrame], pd.DataFrame], optional
         A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
         Default is None.
@@ -189,7 +189,7 @@ def filter_tables(
     return df
 
 
-def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame:
+def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.Series:
     """
     Construct the 'unique_id' column by concatenating specified identifier columns.
 
@@ -202,8 +202,8 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.DataFrame
 
     Returns
     -------
-    pd.DataFrame
-        DataFrame with constructed 'unique_id' column.
+    pd.Series
+        Series containing the constructed 'unique_id' values.
     """
 
     cols = [df[c].fillna("").astype(str) for c in id_columns]

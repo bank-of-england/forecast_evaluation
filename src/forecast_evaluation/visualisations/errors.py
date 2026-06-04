@@ -1,10 +1,11 @@
-from typing import Literal
+import warnings
+from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -13,17 +14,17 @@ def plot_errors_across_time(
     variable: str,
     metric: Literal["levels", "pop", "yoy"],
     error: Literal["raw", "absolute", "squared"] = "raw",
-    horizons: int | list[int] = None,
-    sources: str | list[str] = None,
-    frequency: Literal["Q", "M"] = None,
+    horizons: Optional[Union[int, list[int]]] = None,
+    sources: Optional[Union[str, list[str]]] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     k: int = 12,
     ma_window: int = 1,
     show_mean: bool = True,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
-    custom_labels: dict = None,
-    existing_plot: tuple = None,
-):
+    custom_labels: Optional[dict] = None,
+    existing_plot: Optional[tuple] = None,
+) -> tuple | None:
     """
     Plot average forecast errors by forecast horizon, averaged over all forecast vintages.
 
@@ -42,8 +43,6 @@ def plot_errors_across_time(
         If a list is provided, creates faceted subplots by horizon.
     sources : str or list[str], default=None
         The source(s) of the forecasts (e.g., 'compass conditional', 'mpr'). If None, all sources in the data are used.
-    frequency : str, default=None
-        The frequency to analyse (e.g., 'Q', 'M'). If None the most prevalent frequency in the data is used.
     k : int, default=12
         Number of revisions used to define the outturns.
     ma_window : int, default=1
@@ -65,26 +64,32 @@ def plot_errors_across_time(
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
 
-    forecast_errors = data._main_table.copy()
-
     if sources is None:
-        sources = forecast_errors["unique_id"].unique().tolist()
+        sources = data._main_table["unique_id"].unique().tolist()
     elif isinstance(sources, str):
         sources = [sources]
 
-    if frequency is None:
-        frequency = forecast_errors["frequency"].mode()[0]
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    # filter
+    data_filtered = data.copy()
+    data_filtered.filter(variables=variable, metrics=metric, sources=sources)
+    forecast_errors = data_filtered._main_table.copy()
+    forecast_errors = filter_k(forecast_errors, k=k)
+
+    # cleaning ids
+    forecast_errors = clean_unique_id(forecast_errors)  # for cleaner viz
+    sources = forecast_errors["unique_id"].unique().tolist()  # update sources after cleaning
 
     if horizons is None:
         horizons = [forecast_errors["forecast_horizon"].min()]
     elif isinstance(horizons, int):
         horizons = [horizons]
-
-    # filter
-    data_filtered = data.copy()
-    data_filtered.filter(variables=variable, metrics=metric, frequencies=frequency, sources=sources)
-    forecast_errors = data_filtered._main_table.copy()
-    forecast_errors = filter_k(forecast_errors, k=k)
 
     # Determine subplot layout
     n_horizons = len(horizons)

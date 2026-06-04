@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,7 @@ def build_ar_p_model(
     metric: Literal["levels", "diff", "pop", "yoy"],
     frequency: Optional[Literal["Q", "M"]] = None,
     forecast_periods: int = 13,
+    first_forecast_horizon: Union[int, dict[str, int]] = 0,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
     show_progress: bool = False,
@@ -37,6 +38,10 @@ def build_ar_p_model(
         inferred from the data. Default is None.
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
+    first_forecast_horizon : int, optional
+        The minimum forecast horizon to produce. Training data is restricted to periods
+        strictly before this horizon, so the benchmark never uses data it is supposed to
+        predict. Default is 0.
     estimation_start_date : pd.Timestamp, optional
         The date from which to start including data for model estimation. Default is '1997-07-01'.
         Set to None to include all data.
@@ -91,6 +96,9 @@ def build_ar_p_model(
     # Collect forecasts
     forecasts = []
 
+    if isinstance(first_forecast_horizon, dict):
+        first_forecast_horizon = first_forecast_horizon.get(variable, 0)
+
     date_freq = "QE" if frequency == "Q" else "ME"
     date_offset = pd.offsets.QuarterEnd() if frequency == "Q" else pd.offsets.MonthEnd()
 
@@ -119,8 +127,8 @@ def build_ar_p_model(
 
             for grp_vintage_date in vintage_dates:
                 try:
-                    # Only use data available before this vintage date
-                    available = group[group["date"] < grp_vintage_date]
+                    cutoff_date = grp_vintage_date + first_forecast_horizon * date_offset
+                    available = group[group["date"] < cutoff_date]
 
                     if available.empty:
                         continue
@@ -159,7 +167,7 @@ def build_ar_p_model(
                             "frequency": grp_frequency,
                             "optimal_lag": optimal_lag,
                             "source": "baseline ar(p) model",
-                            "forecast_horizon": -1,
+                            "forecast_horizon": first_forecast_horizon - 1,
                         }
                     )
 
@@ -179,7 +187,9 @@ def build_ar_p_model(
                         start=latest_date + date_offset, periods=forecast_periods, freq=date_freq
                     )
 
-                    for period, (date, value) in enumerate(zip(forecast_dates, forecast_values), start=0):
+                    for period, (date, value) in enumerate(
+                        zip(forecast_dates, forecast_values), start=first_forecast_horizon
+                    ):
                         forecasts.append(
                             {
                                 "date": date,
@@ -207,12 +217,16 @@ def build_ar_p_model(
             group = group.sort_values("date")
 
             try:
-                # Get the latest date and value
-                latest_date = group["date"].max()
-                latest_value = group[group["date"] == latest_date]["value"].iloc[0]
+                cutoff_date = grp_vintage_date + first_forecast_horizon * date_offset
+                training_data = group[group["date"] < cutoff_date]
+                if training_data.empty:
+                    continue
+
+                latest_date = training_data["date"].max()
+                latest_value = training_data[training_data["date"] == latest_date]["value"].iloc[0]
 
                 # Check if we have enough data points
-                if len(group) < 8:
+                if len(training_data) < 8:
                     print(
                         f"Not enough data points for variable {grp_variable}, "
                         f"vintage_date {grp_vintage_date}. Using AR(1)"
@@ -220,7 +234,7 @@ def build_ar_p_model(
                     optimal_lag = 1
                 else:
                     # Prepare data for AR model (no differencing)
-                    model_data = group.set_index("date")
+                    model_data = training_data.set_index("date")
                     model_data.index = pd.DatetimeIndex(model_data.index, freq=date_freq)
 
                     # Select optimal lag using BIC with MLE estimation (on original series)
@@ -239,7 +253,6 @@ def build_ar_p_model(
                             print(f"  AR({lag}): Failed to fit - {e}")
                             continue
 
-                # Include the latest value in the forecast
                 forecasts.append(
                     {
                         "date": latest_date,
@@ -250,12 +263,12 @@ def build_ar_p_model(
                         "frequency": grp_frequency,
                         "optimal_lag": optimal_lag,
                         "source": "baseline ar(p) model",
-                        "forecast_horizon": -1,
+                        "forecast_horizon": first_forecast_horizon - 1,
                     }
                 )
 
                 # Prepare data for final AR model fitting (no differencing)
-                model_data = group.set_index("date")
+                model_data = training_data.set_index("date")
                 model_data.index = pd.DatetimeIndex(model_data.index, freq=date_freq)
 
                 # Fit final AR model with t-distribution using MLE on original series
@@ -274,7 +287,9 @@ def build_ar_p_model(
                     start=latest_date + date_offset, periods=forecast_periods, freq=date_freq
                 )
 
-                for period, (date, value) in enumerate(zip(forecast_dates, forecast_values), start=0):
+                for period, (date, value) in enumerate(
+                    zip(forecast_dates, forecast_values), start=first_forecast_horizon
+                ):
                     forecasts.append(
                         {
                             "date": date,
@@ -705,6 +720,7 @@ def add_ar_p_forecasts(
             metric=metric,
             frequency=freq,
             forecast_periods=forecast_periods,
+            first_forecast_horizon=data.first_forecast_horizon,
             estimation_start_date=estimation_start_date,
             show_progress=show_progress,
         )
@@ -717,6 +733,7 @@ def add_ar_p_forecasts(
     ar_forecasts_in_levels = transform_forecast_to_levels(
         outturns=data._raw_outturns,
         forecasts=ar_forecasts,
+        first_forecast_horizon=data.first_forecast_horizon,
     )
 
     # Append AR(p) forecasts to existing forecasts

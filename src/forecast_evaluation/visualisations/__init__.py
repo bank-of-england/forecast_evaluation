@@ -2,6 +2,7 @@
 from .accuracy import plot_accuracy, plot_compare_to_benchmark, plot_rolling_relative_accuracy
 from .bias import plot_bias_by_horizon, plot_rolling_bias
 from .blanchard_leigh import plot_blanchard_leigh_ratios
+from .correlation import plot_correlation_heatmap, plot_rolling_correlation
 from .errors import plot_errors_across_time
 from .forecast import plot_nowcasts, plot_vintage
 from .forecast_errors import plot_forecast_error_density, plot_forecast_errors, plot_forecast_errors_by_horizon
@@ -21,6 +22,7 @@ __all__ = [
     "plot_average_revision_by_period",
     "plot_blanchard_leigh_ratios",
     "plot_compare_to_benchmark",
+    "plot_correlation_heatmap",
     "plot_forecast_error_density",
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
@@ -28,6 +30,7 @@ __all__ = [
     "plot_intra_period_accuracy",
     "plot_intra_period_bias",
     "plot_rolling_bias",
+    "plot_rolling_correlation",
     "plot_rolling_relative_accuracy",
     "plot_strong_efficiency",
     "plot_nowcasts",

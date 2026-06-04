@@ -6,6 +6,7 @@ from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
+import pandera.pandas as pa
 
 from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
@@ -21,6 +22,8 @@ from forecast_evaluation.data.utils import (
 )
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
+
+_UNSET = object()  # sentinel for "parameter not passed"
 
 
 class ForecastData(PlottingMixin):
@@ -45,7 +48,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        first_forecast_horizon: int = 0,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
         outturn_vintages: bool = True,
     ):
         """Initialise with user data, FER data or null.
@@ -87,6 +90,14 @@ class ForecastData(PlottingMixin):
             sentinel values and ``filter_k`` will be a no-op. Features that depend on outturn
             revisions (e.g., ``plot_outturn_revisions``, ``create_outturn_revisions``) will raise
             an error. Default is True.
+        first_forecast_horizon : int, dict[str, int], or None, optional
+            The minimum forecast horizon to retain in processed forecasts. Pass an int to apply
+            the same threshold to all variables, or a dict mapping variable names to per-variable
+            thresholds (variables not in the dict default to 0). Set to a negative value (e.g.,
+            -1, -2) to include backcasts, i.e., forecasts for periods that have already ended
+            but whose data has not yet been released. When None (default), the threshold for each
+            variable is max(0, min(forecast_horizon)) — i.e. the smallest non-negative horizon
+            present in that variable's forecasts.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -116,11 +127,11 @@ class ForecastData(PlottingMixin):
         """Return DataFrame representation when printing the class."""
         return self._raw_forecasts.__repr__()
 
-    def _repr_html_(self) -> str:
+    def _repr_html_(self) -> str | None:
         """Return HTML representation for Jupyter notebooks."""
         return self._raw_forecasts._repr_html_()
 
-    def copy(self):
+    def copy(self) -> "ForecastData":
         """Return a deep copy of the ForecastData object."""
         return copy.deepcopy(self)
 
@@ -135,6 +146,8 @@ class ForecastData(PlottingMixin):
             Metric to assign to the outturns if 'metric' column is not present or contains null values.
             Default is 'levels'. Options: 'levels', 'pop', 'yoy'.
         """
+        df = df.copy()
+
         # When outturn_vintages is False, auto-populate missing columns
         # before compute_forecast_horizon which requires vintage_date
         if not self._outturn_vintages:
@@ -149,6 +162,10 @@ class ForecastData(PlottingMixin):
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
+            warnings.warn(
+                f"Outturns input has no 'metric' column; assigning metric='{metric}' to all rows.",
+                stacklevel=2,
+            )
             df["metric"] = metric
         else:
             # Fill any null values in metric column with the parameter value
@@ -184,6 +201,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -206,10 +224,6 @@ class ForecastData(PlottingMixin):
             historical data), those groups will be skipped with a warning message.
             Default is True.
         data_check : bool, optional
-            Whether to run data checks on the forecasts against outturns. When True, two checks
-            are performed per (source, variable, metric, frequency) group:
-
-        data_check : bool, optional
             Whether to run data checks comparing forecast values to outturns
             per (source, variable, metric, frequency) group. When True:
 
@@ -224,6 +238,12 @@ class ForecastData(PlottingMixin):
 
             Warnings only; never raises errors. Set to ``False`` to disable.
             Default is True.
+        first_forecast_horizon : int, dict[str, int], or None, optional
+            The minimum forecast horizon to retain. Overrides the instance-level attribute
+            when provided. Pass an int to apply the same threshold to all variables, or a
+            dict mapping variable names to per-variable thresholds (variables not in the
+            dict default to 0). Set to None to auto-compute as max(0, min(forecast_horizon))
+            per variable. When not provided, uses the existing instance attribute.
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
@@ -238,11 +258,24 @@ class ForecastData(PlottingMixin):
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
             )
 
+        df = df.copy()
+
+        # Update instance attribute if caller provided an explicit value
+        if first_forecast_horizon is not _UNSET:
+            if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
+                self.first_forecast_horizon.update(first_forecast_horizon)
+            else:
+                self.first_forecast_horizon = first_forecast_horizon
+
         if "forecast_horizon" not in df.columns:
             df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
+            warnings.warn(
+                f"Forecasts input has no 'metric' column; assigning metric='{metric}' to all rows.",
+                stacklevel=2,
+            )
             df["metric"] = metric
         else:
             # Fill any null values in metric column with the parameter value
@@ -320,6 +353,24 @@ class ForecastData(PlottingMixin):
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
 
+        # Resolve first_forecast_horizon: auto-compute for new variables
+        if self.first_forecast_horizon is None:
+            self.first_forecast_horizon = (
+                df.groupby("variable")["forecast_horizon"].min().clip(lower=0).astype(int).to_dict()
+            )
+        elif isinstance(self.first_forecast_horizon, dict):
+            new_vars = set(df["variable"].unique()) - set(self.first_forecast_horizon.keys())
+            if new_vars:
+                new_thresholds = (
+                    df[df["variable"].isin(new_vars)]
+                    .groupby("variable")["forecast_horizon"]
+                    .min()
+                    .clip(lower=0)
+                    .astype(int)
+                    .to_dict()
+                )
+                self.first_forecast_horizon.update(new_thresholds)
+
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
         forecasts = prepare_forecasts(
             df,
@@ -356,6 +407,7 @@ class ForecastData(PlottingMixin):
         self,
         fill_to: str,
         vintage_frequency: Literal["M", "Q"] = "Q",
+        publication_lags: dict[str, int] | None = None,
     ) -> None:
         """Create pseudo vintages for outturns.
 
@@ -373,6 +425,9 @@ class ForecastData(PlottingMixin):
         vintage_frequency : str, optional
             Frequency at which to create vintages. Default is 'Q' (quarterly).
             Options: 'M' (monthly), 'Q' (quarterly).
+        publication_lags : dict[str, int] or None, optional
+            A dictionary mapping variable names to their publication lag (in units of
+            ``vintage_frequency``). If None (default), the lag is computed from existing data.
 
         Notes
         -----
@@ -393,6 +448,20 @@ class ForecastData(PlottingMixin):
 
         df = self._raw_outturns.copy()
 
+        # if vintage_date is NaT (when outturn_vintages=False),
+        # set vintage to latest date in the data
+        if df["vintage_date"].isna().all():
+            latest_date = df["date"].max()
+            df["vintage_date"] = latest_date
+
+            # recompute forecast horizon
+            df["forecast_horizon"] = df.apply(
+                lambda row: (
+                    (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n
+                ),
+                axis=1,
+            )
+
         # Create the dataframe that will be propagated to the new vintages
         # For each variable, select only the rows from the earliest available vintage
         df_propagate = df[df["vintage_date"] == df.groupby("variable")["vintage_date"].transform("min")]
@@ -403,6 +472,12 @@ class ForecastData(PlottingMixin):
             - df_propagate["date"].dt.to_period(vintage_frequency)
         ).apply(lambda x: x.n)
         df_propagate["publication_lag"] = lag_diff.groupby(df_propagate["variable"]).transform("min")
+
+        # Override with user-provided lags where available
+        if publication_lags is not None:
+            provided = df_propagate["variable"].map(publication_lags)
+            mask = provided.notna()
+            df_propagate.loc[mask, "publication_lag"] = provided[mask].astype(int)
 
         # Precompute publication_date: earliest vintage at which each data point becomes available
         offset = pd.tseries.frequencies.to_offset(f"{vintage_frequency}E")
@@ -486,10 +561,10 @@ class ForecastData(PlottingMixin):
         self,
         df: pd.DataFrame,
         rename_cols: bool,
-        start_date: str = None,
-        end_date: str = None,
-        start_vintage: str = None,
-        end_vintage: str = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        start_vintage: Optional[str] = None,
+        end_vintage: Optional[str] = None,
         variables: Optional[Union[str, list[str]]] = None,
         metrics: Optional[list[str]] = None,
         sources: Optional[Union[str, list[str]]] = None,
@@ -532,7 +607,7 @@ class ForecastData(PlottingMixin):
         sources: Optional[Union[str, list[str]]] = None,
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
-    ):
+    ) -> None:
         """Filter the forecasts and main tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
 
@@ -550,13 +625,13 @@ class ForecastData(PlottingMixin):
         end_vintage : str, optional
             End vintage date to filter forecasts (inclusive). Format 'YYYY-MM-DD'.
             Default is None in which case the analysis ends with the latest vintage.
-        variables: Optional[Union[str, list[str]]] = None
+        variables : str or list of str, optional
             List of variable identifiers to filter. Default is None (no filtering).
-        metrics: Optional[list[str]] = None
+        metrics : list of str, optional
             List of metric identifiers to filter. Default is None (no filtering).
-        sources: Optional[Union[str, list[str]]] = None
+        sources : str or list of str, optional
             List of source identifiers to filter. Default is None (no filtering).
-        frequencies: Optional[Union[str, list[str]]] = None
+        frequencies : str or list of str, optional
             List of frequency identifiers to filter. Default is None (no filtering).
         custom_filter : Callable[[pd.DataFrame], pd.DataFrame], optional
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
@@ -648,7 +723,7 @@ class ForecastData(PlottingMixin):
         return OUTTURN_REQUIRED_COLUMNS
 
     @property
-    def id_columns(self) -> list[str]:
+    def id_columns(self) -> Optional[list[str]]:
         """Get identification / labelling columns."""
         return self._id_columns
 
@@ -657,7 +732,7 @@ class ForecastData(PlottingMixin):
         """Whether the outturn data contains vintage information."""
         return self._outturn_vintages
 
-    def run_dashboard(self, from_jupyter: bool = False, host="127.0.0.1", port=8000):
+    def run_dashboard(self, from_jupyter: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
         """Run the Shiny dashboard with the current data.
 
         Parameters
@@ -693,7 +768,7 @@ class ForecastData(PlottingMixin):
         else:
             app.run(host=host, port=port)
 
-    def merge(self, other: "ForecastData", compute_levels: bool = True) -> "ForecastData":
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData instance into this one.
 
         Parameters
@@ -712,8 +787,8 @@ class ForecastData(PlottingMixin):
 
         Returns
         -------
-        ForecastData
-           Updated ForecastData instance containing merged data from both instances.
+        None
+           The method modifies this instance in place.
         """
 
         if self._outturn_vintages != other._outturn_vintages:
@@ -738,9 +813,9 @@ class ForecastData(PlottingMixin):
         frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
         forecast_periods: int = 13,
         *,
-        estimation_start_date: pd.Timestamp = None,
+        estimation_start_date: Optional[pd.Timestamp] = None,
         show_progress: bool = False,
-    ):
+    ) -> None:
         """Add benchmark models to the ForecastData instance."""
 
         # validate models arg
@@ -754,6 +829,10 @@ class ForecastData(PlottingMixin):
                 f"Invalid model(s) specified in models argument."
                 f"Valid options are {BENCHMARK_MODELS}. Got: {invalid_models}"
             )
+
+        # Resolve first_forecast_horizon if no user forecasts were added yet
+        if self.first_forecast_horizon is None:
+            self.first_forecast_horizon = 0
 
         if "AR" in models:
             from forecast_evaluation.core.ar_p_model import add_ar_p_forecasts
@@ -780,7 +859,7 @@ class ForecastData(PlottingMixin):
                 show_progress=show_progress,
             )
 
-    def summary(self):
+    def summary(self) -> None:
         """Print a summary of the forecast and outturns datasets.
 
         For each dataset, displays:
@@ -897,6 +976,98 @@ class ForecastData(PlottingMixin):
             self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
 
 
+def _format_schema_errors(exc: "pa.errors.SchemaErrors", max_examples: int = 5) -> str:
+    """Render a pandera SchemaErrors as a short, user-readable message.
+
+    Groups failures by (column, check) so the user sees one bullet per problem
+    rather than the raw pandera dump.
+    """
+    lines = ["Validation failed for the input data:"]
+
+    # Collect (column, check) failures from each underlying SchemaError so we can
+    # render a custom message per reason_code. The top-level exc.failure_cases
+    # frame loses the reason_code distinction we need here.
+    rendered_columns: set[tuple[str, str]] = set()
+    coercion_failures: set[str] = set()
+
+    for err in exc.schema_errors:
+        reason = getattr(err.reason_code, "name", str(err.reason_code))
+        column = err.column_name or getattr(err.schema, "name", None) or "?"
+        check_name = str(err.check) if err.check is not None else ""
+        key = (column, f"{reason}:{check_name}")
+        if key in rendered_columns:
+            continue
+        rendered_columns.add(key)
+
+        failure_cases = err.failure_cases
+        n_failures = len(failure_cases)
+
+        if reason == "DATATYPE_COERCION":
+            coercion_failures.add(column)
+            dtype = check_name.replace("coerce_dtype(", "").rstrip(")").strip("'")
+            examples = _format_examples(failure_cases, max_examples)
+            lines.append(f"  - column '{column}': {n_failures} value(s) could not be converted to {dtype}")
+            if examples:
+                lines.append(f"      examples: {examples}")
+
+        elif reason == "WRONG_DATATYPE":
+            # If we already reported a coercion failure for this column, the dtype
+            # mismatch is just a consequence — skip it to keep the message short.
+            if column in coercion_failures:
+                continue
+            lines.append(f"  - column '{column}': has wrong dtype ({check_name})")
+
+        elif reason == "SERIES_CONTAINS_NULLS":
+            lines.append(f"  - column '{column}': {n_failures} row(s) are null but the column is required")
+            example_rows = _format_row_indices(failure_cases, max_examples)
+            if example_rows:
+                lines.append(f"      example row(s): {example_rows}")
+
+        elif reason == "DATAFRAME_CHECK":
+            label = check_name.replace("<Check ", "").rstrip(">")
+            examples = _format_examples(failure_cases, max_examples)
+            lines.append(f"  - column '{column}': {n_failures} row(s) failed check \"{label}\"")
+            if examples:
+                lines.append(f"      examples: {examples}")
+
+        else:
+            # Unknown reason code — fall back to a compact one-liner.
+            lines.append(f"  - column '{column}': {reason} ({check_name})")
+
+    lines.append("")
+    lines.append("Please fix the rows above and try again.")
+    return "\n".join(lines)
+
+
+def _format_examples(failure_cases: pd.DataFrame, max_examples: int) -> str:
+    """Format up to max_examples failing values with their row indices."""
+    if "failure_case" not in failure_cases.columns:
+        return ""
+    head = failure_cases.head(max_examples)
+    parts = []
+    for _, row in head.iterrows():
+        value = row["failure_case"]
+        idx = row.get("index") if "index" in head.columns else None
+        value_repr = repr(value) if isinstance(value, str) else str(value)
+        if idx is not None and pd.notna(idx):
+            parts.append(f"{value_repr} (row {idx})")
+        else:
+            parts.append(value_repr)
+    suffix = f", ... and {len(failure_cases) - max_examples} more" if len(failure_cases) > max_examples else ""
+    return ", ".join(parts) + suffix
+
+
+def _format_row_indices(failure_cases: pd.DataFrame, max_examples: int) -> str:
+    """Format up to max_examples failing row indices."""
+    if "index" not in failure_cases.columns:
+        return ""
+    indices = failure_cases["index"].dropna().head(max_examples).tolist()
+    if not indices:
+        return ""
+    suffix = f", ... and {len(failure_cases) - max_examples} more" if len(failure_cases) > max_examples else ""
+    return ", ".join(str(int(i)) for i in indices) + suffix
+
+
 def _validate_records(
     df: pd.DataFrame,
     forecast=False,
@@ -912,7 +1083,7 @@ def _validate_records(
     forecast : bool, optional
         Whether the data is forecast data (True) or outturn data (False). Default is False.
     optional_columns : list of str, optional
-        List of optional labelling columns to include in the schema validation. Default is empty.
+        List of optional labelling columns to include in the schema validation. Default is None.
     nullable_vintage : bool, optional
         Whether to allow nullable vintage_date values. Default is False.
 
@@ -931,7 +1102,10 @@ def _validate_records(
         raise ValueError(error_col)
 
     schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
-    validated_df = schema.validate(df, lazy=False)
+    try:
+        validated_df = schema.validate(df, lazy=True)
+    except pa.errors.SchemaErrors as exc:
+        raise ValueError(_format_schema_errors(exc)) from None
 
     # make sure that the dates are end-of-period dates according to frequency
     if not validated_df.empty:
@@ -993,8 +1167,8 @@ def _exclude_existing_rows(new_df: pd.DataFrame, existing_df: pd.DataFrame, id_c
     return new_df.loc[mask].reset_index(drop=True)
 
 
-def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
-    """Check if there are duplicate records (same metadata) in the new data compared to existing data.
+def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame) -> pd.DataFrame:
+    """Check for duplicate records and return de-duplicated new data.
 
     Parameters
     ----------
@@ -1003,10 +1177,15 @@ def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
     old_df : pd.DataFrame
         Existing forecast data to compare against.
 
+    Returns
+    -------
+    pd.DataFrame
+        Subset of ``new_df`` with duplicates (rows already present in ``old_df``) removed.
+
     Raises
     ------
     ValueError
-        If duplicate forecast records are found.
+        If duplicate records are found with different values.
     """
 
     # Define metadata columns (all except value)
@@ -1046,7 +1225,7 @@ def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame):
     return filtered_new_df_unique
 
 
-def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> pd.DataFrame:
+def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> tuple[pd.DataFrame, list[str]]:
     # Shiny requires id columns to have only letters, numbers, and underscores
     # we construct the id using the column names so we need to sanitise them here
 
@@ -1147,7 +1326,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
                 )
 
 
-def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame):
+def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) -> None:
     """Check if all unique combinations of variable and frequency from forecasts
     have corresponding outturns.
 
@@ -1157,6 +1336,11 @@ def _check_missing_outturns(forecasts_df: pd.DataFrame, outturns_df: pd.DataFram
         Forecast data to check.
     outturns_df : pd.DataFrame
         Outturn data to compare against.
+
+    Raises
+    ------
+    ValueError
+        If no outturns data is available at all.
 
     Warnings
     --------
