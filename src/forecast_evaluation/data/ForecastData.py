@@ -77,11 +77,6 @@ class ForecastData(PlottingMixin):
         data_check : bool, optional
             Whether to run data checks when adding forecasts. See :meth:`add_forecasts` for details.
             Default is True.
-        first_forecast_horizon : int, optional
-            The minimum forecast horizon to retain in processed forecasts.
-            Set to a negative value (e.g., -1, -2) to include backcasts, i.e., forecasts
-            for periods that have already ended but whose data has not yet been released.
-            Default is 0 (only current-period and future forecasts).
         outturn_vintages : bool, optional
             Whether the outturn data contains vintage information (multiple releases of the same data
             point over time). When False, the data is assumed to contain a single final outturn per
@@ -260,15 +255,15 @@ class ForecastData(PlottingMixin):
 
         df = df.copy()
 
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
+
         # Update instance attribute if caller provided an explicit value
         if first_forecast_horizon is not _UNSET:
             if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
                 self.first_forecast_horizon.update(first_forecast_horizon)
             else:
                 self.first_forecast_horizon = first_forecast_horizon
-
-        if "forecast_horizon" not in df.columns:
-            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
