@@ -6,6 +6,7 @@ from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
+import pandera.pandas as pa
 
 from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
@@ -145,6 +146,10 @@ class ForecastData(PlottingMixin):
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
+            warnings.warn(
+                f"Outturns input has no 'metric' column; assigning metric='{metric}' to all rows.",
+                stacklevel=2,
+            )
             df["metric"] = metric
         else:
             # Fill any null values in metric column with the parameter value
@@ -248,6 +253,10 @@ class ForecastData(PlottingMixin):
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
+            warnings.warn(
+                f"Forecasts input has no 'metric' column; assigning metric='{metric}' to all rows.",
+                stacklevel=2,
+            )
             df["metric"] = metric
         else:
             # Fill any null values in metric column with the parameter value
@@ -951,6 +960,98 @@ class ForecastData(PlottingMixin):
             self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
 
 
+def _format_schema_errors(exc: "pa.errors.SchemaErrors", max_examples: int = 5) -> str:
+    """Render a pandera SchemaErrors as a short, user-readable message.
+
+    Groups failures by (column, check) so the user sees one bullet per problem
+    rather than the raw pandera dump.
+    """
+    lines = ["Validation failed for the input data:"]
+
+    # Collect (column, check) failures from each underlying SchemaError so we can
+    # render a custom message per reason_code. The top-level exc.failure_cases
+    # frame loses the reason_code distinction we need here.
+    rendered_columns: set[tuple[str, str]] = set()
+    coercion_failures: set[str] = set()
+
+    for err in exc.schema_errors:
+        reason = getattr(err.reason_code, "name", str(err.reason_code))
+        column = err.column_name or getattr(err.schema, "name", None) or "?"
+        check_name = str(err.check) if err.check is not None else ""
+        key = (column, f"{reason}:{check_name}")
+        if key in rendered_columns:
+            continue
+        rendered_columns.add(key)
+
+        failure_cases = err.failure_cases
+        n_failures = len(failure_cases)
+
+        if reason == "DATATYPE_COERCION":
+            coercion_failures.add(column)
+            dtype = check_name.replace("coerce_dtype(", "").rstrip(")").strip("'")
+            examples = _format_examples(failure_cases, max_examples)
+            lines.append(f"  - column '{column}': {n_failures} value(s) could not be converted to {dtype}")
+            if examples:
+                lines.append(f"      examples: {examples}")
+
+        elif reason == "WRONG_DATATYPE":
+            # If we already reported a coercion failure for this column, the dtype
+            # mismatch is just a consequence — skip it to keep the message short.
+            if column in coercion_failures:
+                continue
+            lines.append(f"  - column '{column}': has wrong dtype ({check_name})")
+
+        elif reason == "SERIES_CONTAINS_NULLS":
+            lines.append(f"  - column '{column}': {n_failures} row(s) are null but the column is required")
+            example_rows = _format_row_indices(failure_cases, max_examples)
+            if example_rows:
+                lines.append(f"      example row(s): {example_rows}")
+
+        elif reason == "DATAFRAME_CHECK":
+            label = check_name.replace("<Check ", "").rstrip(">")
+            examples = _format_examples(failure_cases, max_examples)
+            lines.append(f"  - column '{column}': {n_failures} row(s) failed check \"{label}\"")
+            if examples:
+                lines.append(f"      examples: {examples}")
+
+        else:
+            # Unknown reason code — fall back to a compact one-liner.
+            lines.append(f"  - column '{column}': {reason} ({check_name})")
+
+    lines.append("")
+    lines.append("Please fix the rows above and try again.")
+    return "\n".join(lines)
+
+
+def _format_examples(failure_cases: pd.DataFrame, max_examples: int) -> str:
+    """Format up to max_examples failing values with their row indices."""
+    if "failure_case" not in failure_cases.columns:
+        return ""
+    head = failure_cases.head(max_examples)
+    parts = []
+    for _, row in head.iterrows():
+        value = row["failure_case"]
+        idx = row.get("index") if "index" in head.columns else None
+        value_repr = repr(value) if isinstance(value, str) else str(value)
+        if idx is not None and pd.notna(idx):
+            parts.append(f"{value_repr} (row {idx})")
+        else:
+            parts.append(value_repr)
+    suffix = f", ... and {len(failure_cases) - max_examples} more" if len(failure_cases) > max_examples else ""
+    return ", ".join(parts) + suffix
+
+
+def _format_row_indices(failure_cases: pd.DataFrame, max_examples: int) -> str:
+    """Format up to max_examples failing row indices."""
+    if "index" not in failure_cases.columns:
+        return ""
+    indices = failure_cases["index"].dropna().head(max_examples).tolist()
+    if not indices:
+        return ""
+    suffix = f", ... and {len(failure_cases) - max_examples} more" if len(failure_cases) > max_examples else ""
+    return ", ".join(str(int(i)) for i in indices) + suffix
+
+
 def _validate_records(
     df: pd.DataFrame,
     forecast=False,
@@ -985,7 +1086,10 @@ def _validate_records(
         raise ValueError(error_col)
 
     schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
-    validated_df = schema.validate(df, lazy=False)
+    try:
+        validated_df = schema.validate(df, lazy=True)
+    except pa.errors.SchemaErrors as exc:
+        raise ValueError(_format_schema_errors(exc)) from None
 
     # make sure that the dates are end-of-period dates according to frequency
     if not validated_df.empty:

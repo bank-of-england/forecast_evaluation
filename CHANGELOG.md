@@ -51,10 +51,17 @@
 
 ## [0.1.8.dev] - 
 ### Added
-- first_forecast_horizons arg; a dict to provide an horizon for each var; computed from the data if not given. Allow for backtesting and forecasting in additioning to "nowcasting".
+- `first_forecast_horizon` argument on `ForecastData` and `add_forecasts`; accepts an int or a dict mapping variable names to per-variable thresholds (variables not in the dict default to 0). Computed from the data if not given. Allows backtesting and forecasting in addition to "nowcasting".
+- `publication_lag` argument on `create_pseudo_vintages`; the method now also works on outturns without vintages.
+- Individual scale per edge in the radar plot.
 
 ### Adjustments
-- Made "frequency" argument optional with a deprecation warning.
+- Validation errors raised by `add_forecasts` / `add_outturns` are now reported as a single human-readable message that lists every offending column with example values and row indices, instead of a raw pandera traceback.
+- `add_forecasts` / `add_outturns` now emit a `UserWarning` when the `metric` column is missing and is auto-filled with the default (`"levels"` unless overridden via the `metric=` argument).
+- `add_forecasts` / `add_outturns` now copy the input DataFrame upfront and never modify it in place.
+- The `frequency=` keyword argument of plot and analysis methods (e.g. `plot_accuracy`, `plot_hedgehog`, `weak_efficiency`, `blanchard_leigh_horizon_analysis`, ...) is now optional and inferred from the `ForecastData` instance. Passing it explicitly is deprecated and emits a `DeprecationWarning`. (This refers to the function argument, not the `frequency` column of the input data, which is still required.)
+- `consistent_date_range` now enforces consistency across vintages **and** target dates (previously only across one axis).
 
 ### Fixed
 - Removed hardcoded quarterly frequency in some of the dashboard tabs.
+- Fixed type hints and docstrings across the codebase.
