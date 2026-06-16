@@ -753,5 +753,6 @@ if __name__ == "__main__":
     add_ar_p_forecasts(
         data=forecast_data,
         variable="gdpkp",
-        metric="levels"
+        metric="pop",
+        estimation_start_date=pd.Timestamp("1997-07-01")
     )
