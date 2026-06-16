@@ -527,7 +527,7 @@ def generate_ar_t_forecasts(y, model_result, steps):
 
     for step in range(steps):
         # Point forecast (conditional mean)
-        forecast = const + np.dot(ar_coeffs, history[-p:])
+        forecast = const + np.dot(ar_coeffs, history[-p:][::-1])
 
         # Add small random component based on t-distribution
         # For point forecasts, we use the mean (which is 0 for t-distribution with df > 1)
@@ -740,3 +740,18 @@ def add_ar_p_forecasts(
     data.add_forecasts(ar_forecasts_in_levels)
 
     return None
+
+
+# Example usage:
+if __name__ == "__main__":
+    from forecast_evaluation.data.ForecastData import ForecastData
+
+    # Initialise with fer ---------
+    forecast_data = ForecastData(load_fer=True)
+
+    # Add AR(p) forecasts for gdpkp, levels metric
+    add_ar_p_forecasts(
+        data=forecast_data,
+        variable="gdpkp",
+        metric="levels"
+    )
