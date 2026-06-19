@@ -1,6 +1,6 @@
 [project]
 name = "forecast_evaluation"
-version = "0.1.9" 
+version = "0.2.0" 
 
 description = "A package for Forecast Evaluation"
 authors = [
@@ -26,7 +26,6 @@ classifiers = [
 ]
 
 dependencies = [
-    "pyarrow>=14.0.0",
     "pandas>=1.5.3",
     "tqdm>=4.65.0",
     "matplotlib>=3.7.0",
@@ -36,17 +35,18 @@ dependencies = [
     "statsmodels>=0.14.0",
     "scipy>=1.10.0",
     "linearmodels>=6.0",
-    "IPython>=9.4.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "pyarrow>=14.0.0",
     "pre_commit>=4.3.0",
     "pytest>=8.4.1",
     "syrupy",
     "ruff>=0.13.1",
     "Sphinx>=8.2.3",
     "sphinx-book-theme>=1.1.4",
+    "IPython>=9.4.0",
 ]
 
 [project.urls]

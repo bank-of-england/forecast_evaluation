@@ -65,3 +65,13 @@
 ### Fixed
 - Removed hardcoded quarterly frequency in some of the dashboard tabs.
 - Fixed type hints and docstrings across the codebase.
+
+## 0.1.10
+### Adjustments
+- **Bugfix** in `add_ar_p_forecasts` where the AR(2) forecasts were forecasting with the coefficients the wrong way around.
+- fer_forecasts.parquet updated with the bugfix with the AR(2) forecasts.
+
+## 0.2.0 [unreleased]
+### Adjustments
+- Moved pyarray and Ipython to dev deps.
+
