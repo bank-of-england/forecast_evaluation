@@ -144,7 +144,7 @@ def build_ar_p_model(
                     latest_value = available[available["date"] == latest_date]["value"].iloc[0]
 
                     # Check if we have enough data points
-                    if len(available) < 8:
+                    if len(available) < 8 or max_lag == 1:
                         optimal_lag = 1
                     else:
                         model_data = available.set_index("date")
@@ -238,6 +238,8 @@ def build_ar_p_model(
                         f"Not enough data points for variable {grp_variable}, "
                         f"vintage_date {grp_vintage_date}. Using AR(1)"
                     )
+                    optimal_lag = 1
+                elif max_lag == 1:
                     optimal_lag = 1
                 else:
                     # Prepare data for AR model (no differencing)
