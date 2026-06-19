@@ -797,10 +797,51 @@ class ForecastData(PlottingMixin):
         frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
         forecast_periods: int = 13,
         *,
+        max_lag: Literal[1, 2] = 2,
         estimation_start_date: Optional[pd.Timestamp] = None,
         show_progress: bool = False,
     ) -> None:
-        """Add benchmark models to the ForecastData instance."""
+        """Add benchmark model forecasts to the ForecastData instance.
+
+        Builds the requested benchmark models from the available outturn data and appends
+        their forecasts to the instance via :meth:`add_forecasts`. The instance is modified
+        in place.
+
+        Parameters
+        ----------
+        models : list of str or str, optional
+            Benchmark model(s) to add. Valid options are ``"AR"`` (autoregressive AR(p) model)
+            and ``"random_walk"``. Default is both (``["AR", "random_walk"]``).
+        variables : str, iterable of str, or None, optional
+            Variable(s) to build benchmarks for. If None (default), benchmarks are built for
+            all variables present in the outturns.
+        metric : str, optional
+            Metric to build the benchmarks for. Options: ``"levels"``, ``"diff"``, ``"pop"``,
+            ``"yoy"``. Default is ``"levels"``.
+        frequency : str, iterable of str, or None, optional
+            Frequency (or frequencies) to build benchmarks for (``"Q"`` for quarterly, ``"M"``
+            for monthly). If None (default), frequencies are inferred from the outturns.
+        forecast_periods : int, optional
+            Number of periods to forecast ahead. Default is 13.
+        max_lag : int, optional
+            Maximum number of lags (AR order) to consider when selecting the AR(p) model via
+            BIC. Must be 1 or 2. Only applies to the ``"AR"`` model. Default is 2.
+        estimation_start_date : pd.Timestamp, optional
+            The date from which to start including data for AR(p) model estimation. If None
+            (default), all available data is used. Only applies to the ``"AR"`` model.
+        show_progress : bool, optional
+            Whether to show progress bars while building the benchmarks. Default is False.
+
+        Returns
+        -------
+        None
+            The method modifies the ForecastData instance in place.
+
+        Raises
+        ------
+        ValueError
+            If any model in ``models`` is not a recognised benchmark model.
+        """
 
         # validate models arg
         if isinstance(models, str):
@@ -827,6 +868,7 @@ class ForecastData(PlottingMixin):
                 metric=metric,
                 frequency=frequency,
                 forecast_periods=forecast_periods,
+                max_lag=max_lag,
                 estimation_start_date=estimation_start_date,
                 show_progress=show_progress,
             )

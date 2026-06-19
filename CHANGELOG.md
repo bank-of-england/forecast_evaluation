@@ -71,7 +71,10 @@
 - **Bugfix** in `add_ar_p_forecasts` where the AR(2) forecasts were forecasting with the coefficients the wrong way around.
 - fer_forecasts.parquet updated with the bugfix with the AR(2) forecasts.
 
-## 0.2.0 [unreleased]
+## 0.1.11
+### Added
+- `max_lag` argument (1 or 2, default 2) on `add_benchmarks`, `add_ar_p_forecasts`, and `build_ar_p_model` to control the maximum AR order considered during BIC lag selection.
+
 ### Adjustments
 - Moved pyarray and Ipython to dev deps.
 
