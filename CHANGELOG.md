@@ -76,9 +76,7 @@
 - `max_lag` argument (1 or 2, default 2) on `add_benchmarks`, `add_ar_p_forecasts`, and `build_ar_p_model` to control the maximum AR order considered during BIC lag selection.
 
 ### Adjustments
+- For the AR model, when `max_lag=1`, the BIC lag-selection loop is skipped and `optimal_lag` is set directly to 1, avoiding a redundant model fit per vintage.
 - Moved pyarray and Ipython to dev deps.
 
 ## 0.2.0 (unreleased)
-
-### Adjustments
-- For the AR model, when `max_lag=1`, the BIC lag-selection loop is skipped and `optimal_lag` is set directly to 1, avoiding a redundant model fit per vintage.
