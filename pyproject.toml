@@ -1,6 +1,6 @@
 [project]
 name = "forecast_evaluation"
-version = "0.1.11" 
+version = "0.1.12" 
 
 description = "A package for Forecast Evaluation"
 authors = [
@@ -26,6 +26,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "pyarrow>=14.0.0",
     "pandas>=1.5.3",
     "tqdm>=4.65.0",
     "matplotlib>=3.7.0",
@@ -39,7 +40,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pyarrow>=14.0.0",
     "pre_commit>=4.3.0",
     "pytest>=8.4.1",
     "syrupy",

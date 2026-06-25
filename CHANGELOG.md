@@ -79,4 +79,8 @@
 - For the AR model, when `max_lag=1`, the BIC lag-selection loop is skipped and `optimal_lag` is set directly to 1, avoiding a redundant model fit per vintage.
 - Moved pyarray and Ipython to dev deps.
 
+## 0.1.12
+### Adjustments
+- Moved `pyarrow` back to required dependencies as it's required when initiating the `ForecastData` class with `load_fer=True`.
+
 ## 0.2.0 (unreleased)
