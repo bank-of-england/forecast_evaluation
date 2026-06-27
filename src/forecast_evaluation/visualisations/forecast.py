@@ -184,3 +184,119 @@ def plot_vintage(
     else:
         plt.show()
         return None
+
+
+def plot_nowcasts(
+    data: ForecastData,
+    variable: str,
+    target_date: str | pd.Timestamp,
+    forecast_source: list[str] = None,
+    frequency: Literal["Q", "M"] = "Q",
+    metric: Literal["levels", "pop", "yoy"] = "levels",
+    k: int = 12,
+    convert_to_percentage: bool = False,
+    return_plot: bool = False,
+) -> None:
+    """Plot the evolution of nowcasts for a target quarter.
+
+    Shows how forecasts for a single target quarter evolved over time, from
+    the first nearcast to the last nowcast before the outturn was published.
+    The x-axis is the forecast vintage date, with one line per source.
+
+    Parameters
+    ----------
+    data : ForecastData
+        ForecastData object containing forecast and outturn data.
+    variable : str
+        Name of the variable to plot.
+    target_date : str or pd.Timestamp
+        The target date (end of the quarter/month) to show nowcasts for.
+    forecast_source : list of str, optional
+        List of forecast sources to include in the plot.
+    frequency : {"Q", "M"}, default "Q"
+        Frequency of the data.
+    metric : {"levels", "pop", "yoy"}, default "levels"
+        Type of transformation to apply to the data.
+    k : int, default 12
+        Number of revisions used to define the outturn value.
+    convert_to_percentage : bool, default False
+        If True, multiplies values on the y-axis by 100.
+    return_plot : bool, default False
+        If True, returns the matplotlib figure and axis objects.
+
+    Returns
+    -------
+    fig, ax : tuple or None
+        If return_plot is True, returns (fig, ax). Otherwise None.
+    """
+    if data._forecasts is None or data._forecasts.empty:
+        raise ValueError("ForecastData forecasts are not available.")
+
+    target_date = pd.to_datetime(target_date)
+
+    # Get all forecasts for the target date
+    filtered_data = data.copy()
+    filtered_data.filter(
+        variables=variable,
+        metrics=metric,
+        frequencies=frequency,
+        sources=forecast_source,
+    )
+    forecasts = filtered_data.forecasts
+    forecasts = forecasts[forecasts["date"] == target_date].copy()
+
+    if forecasts.empty:
+        raise ValueError(f"No forecasts found for {variable} targeting {target_date.date()} ")
+
+    # Get the outturn value from the main table
+    from forecast_evaluation.utils import filter_k
+
+    main_table = data._main_table
+    outturn_row = filter_k(
+        main_table[
+            (main_table["variable"] == variable)
+            & (main_table["metric"] == metric)
+            & (main_table["date"] == target_date)
+        ],
+        k=k,
+    )
+    outturn_value = outturn_row["value_outturn"].iloc[0] if not outturn_row.empty else None
+
+    multiplier = 100 if convert_to_percentage else 1
+
+    fig, ax = create_themed_figure()
+
+    # Plot one line per source (not unique_id, since unique_id includes days_in_period)
+    for source in sorted(forecasts["source"].unique()):
+        source_df = forecasts[forecasts["source"] == source].sort_values("vintage_date")
+        ax.plot(
+            source_df["vintage_date"],
+            multiplier * source_df["value"],
+            marker="o",
+            markersize=3,
+            label=source,
+            alpha=0.7,
+        )
+
+    # Show outturn as horizontal line
+    if outturn_value is not None:
+        ax.axhline(
+            y=multiplier * outturn_value,
+            color="darkblue",
+            linestyle="--",
+            linewidth=2,
+            alpha=0.8,
+            label=f"Outturn (k={k})",
+        )
+
+    ax.set_title(f"{variable} [{frequency}] - {metric} - Target: {target_date.to_period(frequency)}")
+    y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
+    ax.set_ylabel(y_label)
+    ax.set_xlabel("Forecast vintage date")
+    ax.legend()
+
+    if return_plot:
+        return fig, ax
+    else:
+        plt.show()
+        return None

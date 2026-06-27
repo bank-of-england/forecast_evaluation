@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from forecast_evaluation.core.outturns_revisions_table import create_outturn_revisions
 from forecast_evaluation.data.ForecastData import (
     ForecastData,
     _check_duplicates,
@@ -994,3 +995,16 @@ def test_benchmark_addition_AR_RW(fer_outturns_minimal):
     # Check that benchmark forecasts have been added
     assert not fd._raw_forecasts.empty
     assert set(fd._raw_forecasts["source"].unique()) == {"baseline random walk model", "baseline ar(p) model"}
+
+
+def test_outturn_revisions_snapshot(fer_minimal_fd, snapshot):
+    """Check that outturn revisions are computed correctly by comparing to a snapshot."""
+    revisions = create_outturn_revisions(fer_minimal_fd)
+
+    # Sort deterministically so the snapshot is stable regardless of
+    # internal row ordering in create_outturn_revisions.
+    revisions = revisions.sort_values(["date", "variable", "frequency", "metric", "k"]).reset_index(drop=True)
+
+    sample = revisions.sample(n=min(10, len(revisions)), random_state=42)
+
+    assert sample.to_dict() == snapshot

@@ -8,6 +8,7 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import filter_k
 
@@ -197,6 +198,9 @@ def strong_efficiency_analysis(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if isinstance(data, NowcastData):
+        raise ValueError("Strong efficiency analysis is not supported for nowcasting data. ")
 
     if frequency is not None:
         warnings.warn(

@@ -8,6 +8,7 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range
 
@@ -164,6 +165,9 @@ def revision_predictability_analysis(
         raise ValueError(
             "ForecastData forecasts data is not available." + " Please ensure data has been added and processed."
         )
+
+    if isinstance(data, NowcastData):
+        raise ValueError("Revision predictability analysis is not supported for nowcasting data. ")
 
     df = data._forecasts.copy()
 

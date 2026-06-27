@@ -260,6 +260,11 @@ def prepare_forecasts(
     # they are already present
     df_forecasts = df_forecasts.drop_duplicates(subset=[col for col in df_forecasts.columns if col != "value"])
 
+    # Ensure forecast_horizon stays integer (concat with _helper_outturn NaN column
+    # can upcast int to float)
+    if "forecast_horizon" in df_forecasts.columns:
+        df_forecasts["forecast_horizon"] = df_forecasts["forecast_horizon"].astype(int)
+
     return df_forecasts
 
 
