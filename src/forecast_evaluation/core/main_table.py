@@ -104,6 +104,11 @@ def build_main_table(
     forecasts_filtered = forecasts[forecasts["variable"].isin(variables) & forecasts["unique_id"].isin(forecast_ids)]
     outturns_filtered = outturns[outturns["variable"].isin(variables)]
 
+    # Exclude aligned (forward-filled) outturn rows added by NowcastData —
+    # they exist for transformation support but should not enter the main table.
+    if "_aligned" in outturns_filtered.columns:
+        outturns_filtered = outturns_filtered[~outturns_filtered["_aligned"]]
+
     # Pre-select only needed columns to reduce memory footprint
     merge_cols = ["date", "variable", "frequency", "metric"]
     forecast_cols = merge_cols + ["vintage_date", "value", "unique_id", "forecast_horizon"]
