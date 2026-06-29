@@ -18,6 +18,7 @@ def build_ar_p_model(
     frequency: Optional[Literal["Q", "M"]] = None,
     forecast_periods: int = 13,
     first_forecast_horizon: Union[int, dict[str, int]] = 0,
+    max_lag: Literal[1, 2] = 2,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
     show_progress: bool = False,
@@ -42,6 +43,9 @@ def build_ar_p_model(
         The minimum forecast horizon to produce. Training data is restricted to periods
         strictly before this horizon, so the benchmark never uses data it is supposed to
         predict. Default is 0.
+    max_lag : int, optional
+        The maximum number of lags (AR order) to consider when selecting the model via BIC.
+        Must be 1 or 2. Default is 2.
     estimation_start_date : pd.Timestamp, optional
         The date from which to start including data for model estimation. Default is '1997-07-01'.
         Set to None to include all data.
@@ -66,6 +70,9 @@ def build_ar_p_model(
                 "Please specify the 'frequency' argument explicitly."
             )
         frequency = inferred[0]
+
+    if max_lag not in (1, 2):
+        raise ValueError(f"max_lag must be 1 or 2, got: {max_lag}")
 
     # Filter data for the specified variable and frequency
     df = data._raw_outturns[
@@ -137,13 +144,13 @@ def build_ar_p_model(
                     latest_value = available[available["date"] == latest_date]["value"].iloc[0]
 
                     # Check if we have enough data points
-                    if len(available) < 8:
+                    if len(available) < 8 or max_lag == 1:
                         optimal_lag = 1
                     else:
                         model_data = available.set_index("date")
                         model_data.index = pd.DatetimeIndex(model_data.index, freq=date_freq)
 
-                        max_possible_lag = 2
+                        max_possible_lag = max_lag
                         best_bic = np.inf
                         optimal_lag = 1
 
@@ -232,13 +239,15 @@ def build_ar_p_model(
                         f"vintage_date {grp_vintage_date}. Using AR(1)"
                     )
                     optimal_lag = 1
+                elif max_lag == 1:
+                    optimal_lag = 1
                 else:
                     # Prepare data for AR model (no differencing)
                     model_data = training_data.set_index("date")
                     model_data.index = pd.DatetimeIndex(model_data.index, freq=date_freq)
 
                     # Select optimal lag using BIC with MLE estimation (on original series)
-                    max_possible_lag = 2
+                    max_possible_lag = max_lag
                     best_bic = np.inf
                     optimal_lag = 1
 
@@ -652,6 +661,7 @@ def add_ar_p_forecasts(
     metric: Literal["levels", "diff", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] | Iterable[Literal["Q", "M"]] | None = None,
     forecast_periods: int = 13,
+    max_lag: Literal[1, 2] = 2,
     *,
     estimation_start_date: pd.Timestamp = pd.Timestamp("1997-07-01"),
     show_progress: bool = False,
@@ -673,6 +683,9 @@ def add_ar_p_forecasts(
         If None, frequencies are inferred from the outturns' `frequency` column for the requested variable(s).
     forecast_periods : int, optional
         Number of periods to forecast ahead. Default is 13.
+    max_lag : int, optional
+        The maximum number of lags (AR order) to consider when selecting the model via BIC.
+        Must be 1 or 2. Default is 2.
     estimation_start_date : pd.Timestamp, optional
         The date from which to start including data for model estimation. Default is '1997-07-01'.
         Set to None to include all data.
@@ -721,6 +734,7 @@ def add_ar_p_forecasts(
             frequency=freq,
             forecast_periods=forecast_periods,
             first_forecast_horizon=data.first_forecast_horizon,
+            max_lag=max_lag,
             estimation_start_date=estimation_start_date,
             show_progress=show_progress,
         )
