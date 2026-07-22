@@ -83,4 +83,6 @@
 ### Adjustments
 - Moved `pyarrow` back to required dependencies as it's required when initiating the `ForecastData` class with `load_fer=True`.
 
-## 0.2.0 (unreleased)
+## 0.1.13 (unreleased)
+### Adjustments
+- Specify metric in `add_fer_outturns` to be 'levels'.
