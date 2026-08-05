@@ -203,6 +203,92 @@ class TestNowcastingFlow:
 
 
 # -----------------------
+# `_aligned` column regression tests
+# -----------------------
+class TestAlignedColumnStaysNonNull:
+    """Regression tests: outturns -> forecasts -> more outturns -> more forecasts.
+
+    Additional outturns added after alignment must not introduce NaNs into the
+    internal ``_aligned`` marker column, otherwise ``~outturns["_aligned"]``
+    expressions used for filtering (main table, outturn revisions) break.
+    """
+
+    def test_aligned_column_has_no_nulls_after_more_outturns_and_forecasts(self):
+        outturns_1 = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-03-31", "2020-06-30"]),
+                "variable": ["gdp", "gdp"],
+                "vintage_date": pd.to_datetime(["2020-04-30", "2020-04-30"]),
+                "frequency": ["Q", "Q"],
+                "value": [100.0, 101.0],
+            }
+        )
+
+        forecasts_1 = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-06-30", "2020-09-30"]),
+                "variable": ["gdp", "gdp"],
+                "vintage_date": pd.to_datetime(["2020-07-15", "2020-07-15"]),
+                "source": ["modelA", "modelA"],
+                "frequency": ["Q", "Q"],
+                "value": [101.5, 102.0],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns_1)
+        # First round of forecasts triggers outturn-vintage alignment (`_aligned` rows added).
+        fd.add_forecasts(forecasts_1, data_check=False)
+
+        assert "_aligned" in fd._raw_outturns.columns
+        assert fd._raw_outturns["_aligned"].isna().sum() == 0
+
+        # A genuine new outturn release, added via the plain (non-aligning) code path.
+        outturns_2 = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-06-30"]),
+                "variable": ["gdp"],
+                "vintage_date": pd.to_datetime(["2020-07-31"]),
+                "frequency": ["Q"],
+                "value": [101.2],
+            }
+        )
+        fd.add_outturns(outturns_2)
+
+        # No NaNs should be introduced by concatenating rows without `_aligned`.
+        assert fd._raw_outturns["_aligned"].isna().sum() == 0
+        assert fd._raw_outturns["_aligned"].dtype == bool
+        assert fd._outturns["_aligned"].isna().sum() == 0
+        assert fd._outturns["_aligned"].dtype == bool
+
+        # `~outturns["_aligned"]` style expressions must not raise or misbehave.
+        not_aligned = ~fd._raw_outturns["_aligned"]
+        assert not_aligned.notna().all()
+
+        # More forecasts at a new vintage triggers alignment again; should stay well-formed.
+        forecasts_2 = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-09-30"]),
+                "variable": ["gdp"],
+                "vintage_date": pd.to_datetime(["2020-10-15"]),
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [102.3],
+            }
+        )
+        fd.add_forecasts(forecasts_2, data_check=False)
+
+        assert fd._raw_outturns["_aligned"].isna().sum() == 0
+        assert fd._raw_outturns["_aligned"].dtype == bool
+        assert fd._outturns["_aligned"].isna().sum() == 0
+
+        # Downstream filtering (main table / outturn revisions) should not crash.
+        from forecast_evaluation.core.outturns_revisions_table import create_outturn_revisions
+
+        revisions = create_outturn_revisions(fd)
+        assert "_aligned" not in revisions.columns
+
+
+# -----------------------
 # Intra-Period Visualisation Tests
 # -----------------------
 class TestIntraPeriodPlot:

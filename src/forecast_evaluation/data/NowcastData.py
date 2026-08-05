@@ -68,6 +68,22 @@ class NowcastData(ForecastData):
             default_k=default_k,
         )
 
+    def add_outturns(self, df, **kwargs):
+        """Add outturns, then normalise the internal ``_aligned`` marker column.
+
+        Genuine new outturn releases never carry the ``_aligned`` marker (it
+        is only set by ``_align_outturn_vintages`` for forward-filled
+        snapshots). Concatenating them with existing aligned rows can
+        introduce NaNs in this Boolean column, which would break
+        ``~outturns["_aligned"]`` expressions elsewhere. Treat missing values
+        as False (i.e. not aligned).
+        """
+        super().add_outturns(df, **kwargs)
+        if "_aligned" in self._raw_outturns.columns:
+            self._raw_outturns["_aligned"] = self._raw_outturns["_aligned"].fillna(False).astype(bool)
+        if "_aligned" in self._outturns.columns:
+            self._outturns["_aligned"] = self._outturns["_aligned"].fillna(False).astype(bool)
+
     def add_forecasts(self, df, **kwargs):
         """Add forecasts, aligning outturn vintages to forecast vintages first."""
         self._align_outturn_vintages(df)
