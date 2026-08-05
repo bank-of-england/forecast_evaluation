@@ -150,12 +150,12 @@ class NowcastData(ForecastData):
     def _align_outturn_vintages(self, forecasts_df: pd.DataFrame):
         """Build outturn snapshots so every forecast vintage has a full history.
 
-        For each variable and forecast vintage *V* that doesn't already exist
-        in the outturns, this method builds a **point-in-time snapshot** of the
-        outturn data that was available at *V*.  For every target date *D*
-        whose outturn had been released by *V*, the row with the **latest**
-        outturn ``vintage_date <= V`` is selected.  The resulting snapshot is
-        stamped with ``vintage_date = V``.
+        For each ``(variable, metric)`` series and forecast vintage *V* that
+        doesn't already exist in the outturns, this method builds a
+        **point-in-time snapshot** of the outturn data that was available at
+        *V*.  For every target date *D* whose outturn had been released by
+        *V*, the row with the **latest** outturn ``vintage_date <= V`` is
+        selected.  The resulting snapshot is stamped with ``vintage_date = V``.
         # TODO: Maybe this could be generated on the fly to save memory
 
 
@@ -175,50 +175,56 @@ class NowcastData(ForecastData):
         quarter).  Building a proper snapshot ensures the full historical time
         series is available.
 
-        The lookup is per-variable because different variables may have
+        Snapshots are *built* per ``(variable, metric)`` because different
+        variables (and different metrics of the same variable) may have
         different publication lags (e.g. GDP 42 days, CPI 14 days) and
-        therefore different outturn vintage calendars.
+        therefore different outturn vintage calendars. Grouping by ``variable``
+        alone would let a vintage that only exists for one metric look as
+        though it exists for every metric, and could cause the latest-release
+        lookup (one row per ``date``) to mix or drop rows across metrics.
+
+        Which series are *eligible* for alignment is decided by ``variable``
+        alone, however. With ``compute_levels=True`` a 'pop' or 'yoy' forecast
+        is converted to levels using the levels outturn history, so the levels
+        series needs aligning even when no forecast carries ``metric='levels'``.
         """
         if self._raw_outturns.empty:
             return
 
         forecast_vintages = pd.to_datetime(forecasts_df["vintage_date"]).unique()
-        forecast_variables = set(forecasts_df["variable"].unique())
+        forecast_variables = set(forecasts_df["variable"])
 
-        # Pre-compute which (variable, vintage_date) -> set of target dates
-        # the forecasts cover, so we can exclude them from each snapshot.
+        # (variable, vintage_date) -> set of target dates the forecasts cover,
+        # so we can exclude them from each snapshot. Keyed by variable rather
+        # than (variable, metric) because a forecast in any metric can become a
+        # levels forecast via ``compute_levels`` and collide with a levels
+        # snapshot row for the same date.
         fc_targets = forecasts_df.groupby(["variable", "vintage_date"])["date"].apply(set).to_dict()
 
         new_rows = []
-        for variable, var_outturns in self._raw_outturns.groupby("variable"):
-            # Only align outturn variables that have corresponding forecasts.
+        for (variable, _metric), var_outturns in self._raw_outturns.groupby(["variable", "metric"]):
+            # Only align outturn series for variables that have forecasts.
             if variable not in forecast_variables:
                 continue
-            existing_vintages = set(pd.to_datetime(var_outturns["vintage_date"]).unique())
-            missing = set(forecast_vintages) - existing_vintages
-            if not missing:
-                continue
+            missing = set(forecast_vintages) - set(pd.to_datetime(var_outturns["vintage_date"]).unique())
 
             for vintage in sorted(missing):
-                # All outturn rows for this variable released on or before *vintage*
+                # All outturn rows for this series released on or before *vintage*
                 available = var_outturns[var_outturns["vintage_date"] <= vintage]
                 if available.empty:
                     continue
 
                 # For each target date, keep the row from the latest outturn
                 # vintage — this is the best estimate available at time *vintage*.
-                idx = available.groupby("date")["vintage_date"].idxmax()
-                snapshot = available.loc[idx].copy()
+                snapshot = available.loc[available.groupby("date")["vintage_date"].idxmax()].copy()
 
                 # Exclude dates that the forecasts already cover at this
-                # vintage.  This avoids duplicate (variable, vintage_date,
-                # date) rows when the outturn + forecast DataFrames are
-                # concatenated inside prepare_forecasts.
-                forecast_dates = fc_targets.get((variable, vintage), set())
-                if forecast_dates:
-                    snapshot = snapshot[~snapshot["date"].isin(forecast_dates)]
-                    if snapshot.empty:
-                        continue
+                # vintage.  This avoids duplicate (variable, metric,
+                # vintage_date, date) rows when the outturn + forecast
+                # DataFrames are concatenated inside prepare_forecasts.
+                snapshot = snapshot[~snapshot["date"].isin(fc_targets.get((variable, vintage), set()))]
+                if snapshot.empty:
+                    continue
 
                 snapshot["vintage_date"] = vintage
                 new_rows.append(snapshot)

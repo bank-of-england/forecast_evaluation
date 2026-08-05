@@ -289,6 +289,170 @@ class TestAlignedColumnStaysNonNull:
 
 
 # -----------------------
+# Multi-metric alignment regression tests
+# -----------------------
+def _multi_metric_outturns() -> pd.DataFrame:
+    """One variable ('gdp') with two metrics on *different* vintage calendars.
+
+    - levels: released 2020-04-30 (Q1) and 2020-07-15 (Q1+Q2)
+    - pop:    released 2020-04-30 (Q1) only -- no 2020-07-15 vintage
+    """
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2020-03-31", "2020-03-31", "2020-06-30", "2020-03-31"],
+            ),
+            "variable": ["gdp"] * 4,
+            "metric": ["levels", "levels", "levels", "pop"],
+            "vintage_date": pd.to_datetime(
+                ["2020-04-30", "2020-07-15", "2020-07-15", "2020-04-30"],
+            ),
+            "frequency": ["Q"] * 4,
+            "value": [100.0, 100.2, 101.0, 1.0],
+        }
+    )
+
+
+class TestAlignmentIsMetricAware:
+    """``_align_outturn_vintages`` must key series by ``(variable, metric)``.
+
+    Grouping by ``variable`` alone lets a vintage that only exists for one
+    metric be treated as existing for every metric, and lets the
+    latest-release lookup (one row per ``date``) drop or swap rows across
+    metrics.
+    """
+
+    def test_vintage_of_one_metric_does_not_mask_another(self):
+        """2020-07-15 exists for levels but not pop; pop must still be aligned."""
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-09-30", "2020-09-30"]),
+                "variable": ["gdp", "gdp"],
+                "metric": ["levels", "pop"],
+                "vintage_date": pd.to_datetime(["2020-07-15", "2020-07-15"]),
+                "source": ["modelA", "modelA"],
+                "frequency": ["Q", "Q"],
+                "value": [102.0, 1.2],
+            }
+        )
+
+        fd = NowcastData(outturns_data=_multi_metric_outturns())
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned_pop = raw[
+            (raw["variable"] == "gdp") & (raw["metric"] == "pop") & (raw["vintage_date"] == pd.Timestamp("2020-07-15"))
+        ]
+        # Without metric-aware grouping the 'levels' 2020-07-15 vintage makes
+        # this vintage look like it already exists for 'pop', so no snapshot
+        # is built and this is empty.
+        assert not aligned_pop.empty
+        assert aligned_pop["_aligned"].all()
+
+    def test_snapshot_keeps_every_metric_for_a_date(self):
+        """The latest-release lookup must not collapse metrics sharing a date."""
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-09-30", "2020-09-30"]),
+                "variable": ["gdp", "gdp"],
+                "metric": ["levels", "pop"],
+                "vintage_date": pd.to_datetime(["2020-07-20", "2020-07-20"]),
+                "source": ["modelA", "modelA"],
+                "frequency": ["Q", "Q"],
+                "value": [102.0, 1.2],
+            }
+        )
+
+        fd = NowcastData(outturns_data=_multi_metric_outturns())
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        snapshot = raw[raw["vintage_date"] == pd.Timestamp("2020-07-20")]
+
+        # Both metrics must appear in the snapshot. Grouping by 'date' alone
+        # keeps only one row per date, so the 'pop' observation for 2020-03-31
+        # is silently replaced by the 'levels' one.
+        assert set(snapshot["metric"].unique()) == {"levels", "pop"}
+
+        # And the values must come from the correct series, not be swapped.
+        pop_q1 = snapshot[(snapshot["metric"] == "pop") & (snapshot["date"] == pd.Timestamp("2020-03-31"))]
+        assert pop_q1["value"].tolist() == [1.0]
+
+    def test_every_metric_of_a_forecast_variable_is_aligned(self):
+        """Eligibility is decided by ``variable``, not ``(variable, metric)``.
+
+        With ``compute_levels=True`` a 'pop' forecast is converted to levels
+        using the *levels* outturn history, so the levels series must be
+        aligned even though no forecast row carries ``metric='levels'``.
+        Gating on ``(variable, metric)`` skips it and the transformation
+        silently degrades to "no outturn data available for this vintage".
+        """
+        outturns = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-03-31", "2020-06-30"] * 2),
+                "variable": ["gdp"] * 4,
+                "metric": ["levels", "levels", "pop", "pop"],
+                "vintage_date": pd.to_datetime(["2020-04-30", "2020-07-15"] * 2),
+                "frequency": ["Q"] * 4,
+                "value": [100.0, 101.0, 1.0, 1.1],
+            }
+        )
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-09-30"]),
+                "variable": ["gdp"],
+                "metric": ["pop"],
+                "vintage_date": pd.to_datetime(["2020-07-20"]),
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [1.2],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        snapshot = raw[raw["vintage_date"] == pd.Timestamp("2020-07-20")]
+        assert set(snapshot["metric"].unique()) == {"levels", "pop"}
+
+    def test_levels_history_available_for_pop_forecasts(self):
+        """End-to-end: a pop-only forecast set must still reach the main table.
+
+        Exercises the ``compute_levels=True`` path that the gate broke.
+        """
+        dates = pd.date_range("2018-03-31", "2020-09-30", freq="QE")
+        outturns = pd.DataFrame(
+            {
+                "date": dates,
+                "variable": "gdp",
+                "metric": "levels",
+                "vintage_date": dates + pd.Timedelta(days=30),
+                "frequency": "Q",
+                "value": [100.0 + i for i in range(len(dates))],
+            }
+        )
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-09-30"] * 3),
+                "variable": "gdp",
+                "metric": "pop",
+                "vintage_date": pd.to_datetime(["2020-07-06", "2020-07-13", "2020-07-20"]),
+                "source": "modelA",
+                "frequency": "Q",
+                "value": [0.012, 0.013, 0.014],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False)
+
+        assert fd._raw_outturns["_aligned"].any()
+        assert not fd.df.empty
+        assert set(fd.df["vintage_date_forecast"]) == set(forecasts["vintage_date"])
+
+
+# -----------------------
 # Intra-Period Visualisation Tests
 # -----------------------
 class TestIntraPeriodPlot:

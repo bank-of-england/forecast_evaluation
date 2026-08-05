@@ -188,7 +188,7 @@ def create_sidebar(data):
                 + _or
                 + correlation_heatmap_tab
                 + _or
-                + rolling_correlation_tab,
+                + rolling_correlation_tab
             )
             if show_in_time_machine:
                 multi_condition = multi_condition + _or + time_machine_tab + _or + quantile_time_machine_tab
