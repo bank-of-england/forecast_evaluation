@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,7 @@ def forecast_errors_correlation_analysis(
     data: ForecastData,
     source: Union[None, str, list[str]] = None,
     variable: Union[None, str, list[str]] = None,
-    k: int = 12,
+    k: Optional[int] = None,
     same_date_range: bool = True,
     min_observations: int = 5,
 ) -> TestResult:
@@ -58,6 +58,9 @@ def forecast_errors_correlation_analysis(
     """
     if data._main_table is None or data._main_table.empty:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if k is None:
+        k = data.default_k
 
     df = data._main_table.copy()
 

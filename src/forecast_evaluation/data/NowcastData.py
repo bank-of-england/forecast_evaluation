@@ -24,6 +24,8 @@ class NowcastData(ForecastData):
       predictability, revisions-errors correlation) are not available.
     """
 
+    default_k = 0
+
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
@@ -34,6 +36,7 @@ class NowcastData(ForecastData):
         compute_levels: bool = True,
         data_check: bool = True,
         first_forecast_horizon: int = -1,
+        default_k: Optional[int] = None,
     ):
         """Initialise NowcastData.
 
@@ -62,6 +65,7 @@ class NowcastData(ForecastData):
             compute_levels=compute_levels,
             data_check=data_check,
             first_forecast_horizon=first_forecast_horizon,
+            default_k=default_k,
         )
 
     def add_forecasts(self, df, **kwargs):

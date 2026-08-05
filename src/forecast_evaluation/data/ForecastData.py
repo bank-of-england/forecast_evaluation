@@ -38,6 +38,8 @@ class ForecastData(PlottingMixin):
     or all monthly). To work with multiple frequencies, create separate ForecastData instances for each frequency.
     """
 
+    default_k = 12
+
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
@@ -50,6 +52,7 @@ class ForecastData(PlottingMixin):
         data_check: bool = True,
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
         outturn_vintages: bool = True,
+        default_k: Optional[int] = None,
     ):
         """Initialise with user data, FER data or null.
 
@@ -93,6 +96,9 @@ class ForecastData(PlottingMixin):
             but whose data has not yet been released. When None (default), the threshold for each
             variable is max(0, min(forecast_horizon)) — i.e. the smallest non-negative horizon
             present in that variable's forecasts.
+        default_k : int or None, optional
+            Default outturn revision index used by evaluation functions when ``k`` is omitted.
+            If None, uses the class default.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -100,6 +106,7 @@ class ForecastData(PlottingMixin):
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
+        self.default_k = type(self).default_k if default_k is None else default_k
         self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
