@@ -75,6 +75,17 @@ class NowcastData(ForecastData):
         self._set_revision_index_k()
         self._add_days_to_publication()
 
+    def clear_filter(self) -> None:
+        """Reset the forecasts, main and revisions tables to include all original data.
+
+        Overrides the parent implementation to reapply the nowcast-specific
+        ``k`` revision index and ``days_to_publication`` column, which the
+        parent's calendar-based rebuild does not preserve.
+        """
+        super().clear_filter()
+        self._set_revision_index_k()
+        self._add_days_to_publication()
+
     def _set_revision_index_k(self):
         """Set ``k`` as a dense revision index over outturn vintages.
 

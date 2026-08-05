@@ -182,6 +182,25 @@ class TestNowcastingFlow:
         fd.filter(variables="gdp")
         assert set(fd.forecasts["variable"].unique()) == {"gdp"}
 
+    def test_clear_filter_preserves_nowcast_k_and_days_to_publication(self, nowcast_outturns, nowcast_forecasts):
+        """clear_filter() should restore the nowcast-specific k index and days_to_publication column."""
+        fd = NowcastData(outturns_data=nowcast_outturns)
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
+
+        assert "days_to_publication" in fd.df.columns
+        original = fd.df.sort_values(list(fd.df.columns)).reset_index(drop=True)
+
+        # Apply a filter, then clear it
+        fd.filter(variables="gdp")
+        fd.clear_filter()
+
+        assert "days_to_publication" in fd.df.columns
+        # k should remain a dense revision index (0, 1, 2, ...), not calendar-quarter distance
+        assert fd.df["k"].min() >= -1
+
+        restored = fd.df.sort_values(list(fd.df.columns)).reset_index(drop=True)
+        pd.testing.assert_frame_equal(original, restored)
+
 
 # -----------------------
 # Intra-Period Visualisation Tests
