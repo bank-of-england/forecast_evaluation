@@ -535,7 +535,7 @@ class ForecastData(PlottingMixin):
     def add_fer_outturns(self) -> None:
         """Load and add FER outturn data to existing records."""
         fer_outturns = load_fer_outturns()
-        self.add_outturns(fer_outturns)
+        self.add_outturns(fer_outturns, metric="levels")
 
     def add_fer_forecasts(self) -> None:
         """Load and add FER forecast data to existing records."""
