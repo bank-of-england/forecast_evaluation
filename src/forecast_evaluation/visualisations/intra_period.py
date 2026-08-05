@@ -36,6 +36,7 @@ def plot_intra_period_accuracy(
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
+    k: Optional[int] = None,
     convert_to_percentage: bool = False,
     confidence_level: Optional[int] = None,
     return_plot: bool = False,
@@ -61,6 +62,9 @@ def plot_intra_period_accuracy(
         Forecast horizon to plot. ``None`` (default) includes all horizons.
     statistic : str
         Accuracy statistic to compute ('rmse' or 'mae').
+    k : int or None
+        Outturn revision index used to select the outturn. If ``None``
+        (default), uses ``data.default_k`` for a ``ForecastData`` instance.
     convert_to_percentage : bool
         If True, multiplies values on the y-axis by 100.
     confidence_level : int or None
@@ -75,7 +79,7 @@ def plot_intra_period_accuracy(
         If return_plot is True, returns the figure and axes objects.
         Otherwise, displays the plot and returns None.
     """
-    result = compute_intra_period_accuracy(data, variable, metric, frequency, forecast_horizon, statistic)
+    result = compute_intra_period_accuracy(data, variable, metric, frequency, forecast_horizon, statistic, k)
 
     multiplier = 100 if convert_to_percentage else 1
     stat_labels = {"rmse": "RMSE", "mae": "MAE"}
@@ -132,6 +136,7 @@ def plot_intra_period_bias(
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
+    k: Optional[int] = None,
     convert_to_percentage: bool = False,
     confidence_level: Optional[int] = None,
     return_plot: bool = False,
@@ -151,6 +156,9 @@ def plot_intra_period_bias(
         Data frequency ('Q' or 'M').
     forecast_horizon : int or None
         Forecast horizon to plot. ``None`` (default) includes all horizons.
+    k : int or None
+        Outturn revision index used to select the outturn. If ``None``
+        (default), uses ``data.default_k`` for a ``ForecastData`` instance.
     convert_to_percentage : bool
         If True, multiplies values on the y-axis by 100.
     confidence_level : int or None
@@ -163,7 +171,7 @@ def plot_intra_period_bias(
     -------
     tuple of (matplotlib.figure.Figure, matplotlib.axes.Axes) or None
     """
-    result = compute_intra_period_bias(data, variable, metric, frequency, forecast_horizon)
+    result = compute_intra_period_bias(data, variable, metric, frequency, forecast_horizon, k)
 
     multiplier = 100 if convert_to_percentage else 1
 

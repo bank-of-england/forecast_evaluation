@@ -7,6 +7,7 @@ import pandas as pd
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
+from forecast_evaluation.utils import filter_k
 
 
 def _prepare_intra_period_data(
@@ -15,6 +16,7 @@ def _prepare_intra_period_data(
     metric: str = "levels",
     frequency: str = "Q",
     forecast_horizon: Optional[int] = None,
+    k: Optional[int] = None,
 ) -> pd.DataFrame:
     """Filter and prepare data for intra-period analysis.
 
@@ -26,10 +28,16 @@ def _prepare_intra_period_data(
     forecast_horizon : int or None
         If given, restrict to a single horizon. If ``None`` (default),
         include all horizons so the full days-to-target range is visible.
+    k : int or None
+        Outturn revision index used to select the outturn. If ``None``
+        (default), uses ``data.default_k`` for a ``ForecastData`` instance,
+        or 0 for a DataFrame.
     """
     if isinstance(data, ForecastData):
         if not isinstance(data, NowcastData):
             raise ValueError("Intra-period analysis requires a NowcastData instance.")
+        if k is None:
+            k = data.default_k
         df = data.df.copy()
     elif hasattr(data, "df"):
         df = data.df.copy()
@@ -42,6 +50,8 @@ def _prepare_intra_period_data(
                 f"Column '{col}' not found. Pass a ForecastData instance "
                 "or a DataFrame with vintage_date_forecast and vintage_date_outturn columns."
             )
+
+    df = filter_k(df, k if k is not None else 0)
 
     mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
     if forecast_horizon is not None:
@@ -72,6 +82,7 @@ def compute_intra_period_accuracy(
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
+    k: Optional[int] = None,
 ) -> pd.DataFrame:
     """Compute forecast accuracy grouped by days to target.
 
@@ -89,6 +100,9 @@ def compute_intra_period_accuracy(
         Forecast horizon to evaluate. ``None`` includes all horizons.
     statistic : str
         'rmse' or 'mae'.
+    k : int or None
+        Outturn revision index used to select the outturn. If ``None``
+        (default), uses ``data.default_k`` for a ``ForecastData`` instance.
 
     Returns
     -------
@@ -96,7 +110,7 @@ def compute_intra_period_accuracy(
         DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
         ``se`` is the standard error of the statistic.
     """
-    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon)
+    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
 
     grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
 
@@ -128,6 +142,7 @@ def compute_intra_period_bias(
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
+    k: Optional[int] = None,
 ) -> pd.DataFrame:
     """Compute forecast bias (mean error) grouped by days to target.
 
@@ -143,6 +158,9 @@ def compute_intra_period_bias(
         Data frequency ('Q' or 'M').
     forecast_horizon : int or None
         Forecast horizon to evaluate. ``None`` includes all horizons.
+    k : int or None
+        Outturn revision index used to select the outturn. If ``None``
+        (default), uses ``data.default_k`` for a ``ForecastData`` instance.
 
     Returns
     -------
@@ -150,7 +168,7 @@ def compute_intra_period_bias(
         DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
         ``se`` is the standard error of the mean error.
     """
-    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon)
+    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
 
     grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
     mean_err = grouped.mean()
