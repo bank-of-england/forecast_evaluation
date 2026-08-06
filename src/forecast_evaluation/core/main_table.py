@@ -23,7 +23,7 @@ def compute_k(df: pd.DataFrame, frequency: str) -> pd.DataFrame:
         # -- Optimal K (diagonal method): we take -1 so it can be 0, 4 and 12 (which is 1,5 and 13)
         df["k"] = (
             (df["vintage_date_outturn"].dt.year - df["date"].dt.year) * 4
-            + (df["vintage_date_outturn"].dt.month // 3 - df["date"].dt.month // 3)
+            + ((df["vintage_date_outturn"].dt.month - 1) // 3 - (df["date"].dt.month - 1) // 3)
             - 1
         )
     elif frequency == "M":
@@ -144,8 +144,9 @@ def build_main_table(
     ].copy()
 
     if outturn_vintages:
-        # Keep only outturns from the forecasted date
-        merged = merged[merged["vintage_date_outturn"] >= merged["date"]]
+        # No pre-filter on vintage_date_outturn here: `date` is end-of-period, so
+        # outturns released before it (flash estimates, early surveys) are legitimate
+        # and are retained by compute_k's own `k >= -1` rule.
         merged = compute_k(merged, frequency)
 
         merged["latest_vintage"] = merged.groupby(["variable", "metric", "frequency", "unique_id", "date"])[

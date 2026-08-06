@@ -382,9 +382,13 @@ class ForecastData(PlottingMixin):
             first_forecast_horizon=self.first_forecast_horizon,
         )
 
-        # Compute main table
+        # Compute main table.
         main_table = build_main_table(
-            forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+            forecasts,
+            self._outturns,
+            self._id_columns,
+            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
+            outturn_vintages=self._outturn_vintages,
         )
 
         # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
@@ -535,7 +539,11 @@ class ForecastData(PlottingMixin):
         # Recompute main table if forecasts exist
         if not self._forecasts.empty:
             main_table = build_main_table(
-                self._forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+                self._forecasts,
+                self._outturns,
+                self._id_columns,
+                frequency=self._forecasts["frequency"].iloc[0],
+                outturn_vintages=self._outturn_vintages,
             )
             self._main_table = main_table
 
@@ -696,7 +704,11 @@ class ForecastData(PlottingMixin):
         self._forecasts = forecasts
         self._outturns = outturns
         self._main_table = build_main_table(
-            forecasts, outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+            forecasts,
+            outturns,
+            self._id_columns,
+            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
+            outturn_vintages=self._outturn_vintages,
         )
 
     @property
