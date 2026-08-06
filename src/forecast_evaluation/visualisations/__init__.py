@@ -1,12 +1,21 @@
 # visualisations/__init__.py
-from .accuracy import plot_accuracy, plot_compare_to_benchmark, plot_rolling_relative_accuracy
+from .accuracy import (
+    plot_accuracy,
+    plot_compare_to_benchmark,
+    plot_rolling_relative_accuracy,
+)
 from .bias import plot_bias_by_horizon, plot_rolling_bias
 from .blanchard_leigh import plot_blanchard_leigh_ratios
 from .correlation import plot_correlation_heatmap, plot_rolling_correlation
 from .errors import plot_errors_across_time
 from .forecast import plot_vintage
-from .forecast_errors import plot_forecast_error_density, plot_forecast_errors, plot_forecast_errors_by_horizon
+from .forecast_errors import (
+    plot_forecast_error_density,
+    plot_forecast_errors,
+    plot_forecast_errors_by_horizon,
+)
 from .hedgehog import plot_hedgehog
+from .lead_time_path import get_lead_time_forecast_path, plot_lead_time_forecast_path
 from .outturn_revisions import plot_outturn_revisions, plot_outturns
 from .radar import plot_radar
 from .revisions_predictability import plot_average_revision_by_period
@@ -25,7 +34,9 @@ __all__ = [
     "plot_forecast_error_density",
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
+    "get_lead_time_forecast_path",
     "plot_hedgehog",
+    "plot_lead_time_forecast_path",
     "plot_rolling_bias",
     "plot_rolling_correlation",
     "plot_rolling_relative_accuracy",

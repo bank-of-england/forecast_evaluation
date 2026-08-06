@@ -6,8 +6,17 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
-from .core import add_ar_p_forecasts, add_random_walk_forecasts, create_outturn_revisions
-from .data import DensityForecastData, ForecastData, create_sample_forecasts, create_sample_outturns
+from .core import (
+    add_ar_p_forecasts,
+    add_random_walk_forecasts,
+    create_outturn_revisions,
+)
+from .data import (
+    DensityForecastData,
+    ForecastData,
+    create_sample_forecasts,
+    create_sample_outturns,
+)
 from .data.utils import filter_fer_variables
 from .tests import (
     bias_analysis,
@@ -37,6 +46,7 @@ from .visualisations import (
     plot_forecast_errors,
     plot_forecast_errors_by_horizon,
     plot_hedgehog,
+    plot_lead_time_forecast_path,
     plot_outturn_revisions,
     plot_outturns,
     plot_radar,
@@ -83,6 +93,7 @@ __all__ = [
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
     "plot_hedgehog",
+    "plot_lead_time_forecast_path",
     "plot_outturn_revisions",
     "plot_outturns",
     "plot_radar",
