@@ -289,6 +289,82 @@ class TestAlignedColumnStaysNonNull:
 
 
 # -----------------------
+# merge() regression tests
+# -----------------------
+class TestMergeExcludesSyntheticOutturns:
+    """`merge()` must not turn another instance's synthetic snapshots into genuine releases.
+
+    The parent implementation passes ``other._raw_outturns`` straight through
+    ``add_outturns``; strict schema filtering drops the ``_aligned`` marker, so
+    forward-filled snapshots become indistinguishable from official releases.
+    """
+
+    @staticmethod
+    def _build(source: str, outturn_vintage: str, forecast_vintage: str) -> NowcastData:
+        outturns = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-03-31", "2020-06-30"]),
+                "variable": ["gdp", "gdp"],
+                "vintage_date": pd.to_datetime([outturn_vintage, outturn_vintage]),
+                "frequency": ["Q", "Q"],
+                "value": [100.0, 101.0],
+            }
+        )
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2020-06-30"]),
+                "variable": ["gdp"],
+                "vintage_date": pd.to_datetime([forecast_vintage]),
+                "source": [source],
+                "frequency": ["Q"],
+                "value": [101.5],
+            }
+        )
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False)
+        return fd
+
+    def test_merge_keeps_other_snapshots_marked_as_aligned(self):
+        fd_a = self._build("modelA", outturn_vintage="2020-07-31", forecast_vintage="2020-08-15")
+        fd_b = self._build("modelB", outturn_vintage="2020-08-31", forecast_vintage="2020-09-15")
+
+        # `fd_b` holds a synthetic snapshot at its own forecast vintage.
+        b_snapshots = fd_b._raw_outturns.loc[fd_b._raw_outturns["_aligned"], "vintage_date"].unique()
+        assert pd.Timestamp("2020-09-15") in set(b_snapshots)
+
+        fd_a.merge(fd_b)
+
+        outturns = fd_a._raw_outturns
+        genuine_vintages = set(outturns.loc[~outturns["_aligned"], "vintage_date"].unique())
+
+        # Only real releases from both instances may count as genuine.
+        assert genuine_vintages == {pd.Timestamp("2020-07-31"), pd.Timestamp("2020-08-31")}
+
+        # `fd_b`'s snapshot vintage is rebuilt locally and must stay flagged synthetic.
+        snapshot_rows = outturns[outturns["vintage_date"] == pd.Timestamp("2020-09-15")]
+        assert not snapshot_rows.empty
+        assert snapshot_rows["_aligned"].all()
+
+        # Merged forecasts from both sources are present.
+        assert set(fd_a.df["source"].unique()) == {"modelA", "modelB"}
+
+    def test_merge_does_not_inflate_outturn_revisions(self):
+        fd_a = self._build("modelA", outturn_vintage="2020-07-31", forecast_vintage="2020-08-15")
+        fd_b = self._build("modelB", outturn_vintage="2020-08-31", forecast_vintage="2020-09-15")
+
+        fd_a.merge(fd_b)
+
+        from forecast_evaluation.core.outturns_revisions_table import create_outturn_revisions
+
+        revisions = create_outturn_revisions(fd_a)
+        if not revisions.empty:
+            assert set(revisions["vintage_date_outturn"].unique()) <= {
+                pd.Timestamp("2020-07-31"),
+                pd.Timestamp("2020-08-31"),
+            }
+
+
+# -----------------------
 # Multi-metric alignment regression tests
 # -----------------------
 def _multi_metric_outturns() -> pd.DataFrame:

@@ -91,6 +91,39 @@ class NowcastData(ForecastData):
         self._set_revision_index_k()
         self._add_days_to_publication()
 
+    def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
+        """Merge another instance into this one, excluding synthetic outturn snapshots.
+
+        The parent implementation passes ``other._raw_outturns`` straight
+        through ``add_outturns``, which strips the ``_aligned`` marker
+        (it isn't part of the outturn schema). Forward-filled snapshots
+        built by ``_align_outturn_vintages`` would then be indistinguishable
+        from genuine releases and could corrupt revision indices and
+        outturn-revision analyses.
+
+        This override merges only ``other``'s genuine outturn releases
+        (``_aligned`` is False or absent). Forecasts are merged as usual;
+        ``add_forecasts`` (overridden above) regenerates aligned snapshots
+        and recomputes ``k`` / ``days_to_publication`` for the merged data.
+        """
+        if self._outturn_vintages != other._outturn_vintages:
+            raise ValueError("Cannot merge ForecastData instances with different outturn_vintages settings.")
+
+        if not other._raw_outturns.empty:
+            genuine_outturns = other._raw_outturns
+            if "_aligned" in genuine_outturns.columns:
+                genuine_outturns = genuine_outturns[~genuine_outturns["_aligned"]]
+            if not genuine_outturns.empty:
+                self.add_outturns(genuine_outturns.drop(columns=["_aligned"], errors="ignore"))
+
+        if not other._raw_forecasts.empty:
+            # Filter out 'source' from id_columns to get only the extra_ids
+            extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
+            extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
+            self.add_forecasts(
+                other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels, data_check=False
+            )
+
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data.
 
