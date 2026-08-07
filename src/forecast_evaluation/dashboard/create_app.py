@@ -63,14 +63,12 @@ def dashboard_app(data) -> App:
         if not is_nowcast:
             tabs.append(create_efficiency_tab())
 
-        tabs.extend(
-            [
-                create_time_machine_tab(),
-                create_hedgehog_tab(),
-                create_correlation_tab(),
-                create_radar_tab(),
-            ]
-        )
+        tabs.extend([create_time_machine_tab(), create_hedgehog_tab()])
+
+        # Correlation and radar analyses are not supported for nowcasting
+        # data, so do not expose tabs whose handlers cannot be used.
+        if not is_nowcast:
+            tabs.extend([create_correlation_tab(), create_radar_tab()])
 
         if getattr(data, "outturn_vintages", True):
             tabs.append(create_outturn_revisions_tab())
@@ -123,7 +121,8 @@ def dashboard_app(data) -> App:
         if getattr(data, "outturn_vintages", True):
             outturn_revisions(input, output, session, data)
             outturns(input, output, session, data)
-        radar(input, output, session, data)
+        if not isinstance(data, NowcastData):
+            radar(input, output, session, data)
         time_machine(input, output, session, data)
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
