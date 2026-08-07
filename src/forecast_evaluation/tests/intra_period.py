@@ -7,7 +7,8 @@ import pandas as pd
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.data.utils import construct_unique_id
+from forecast_evaluation.utils import filter_k, reconstruct_id_cols_from_unique_id
 
 
 def _prepare_intra_period_data(
@@ -17,7 +18,7 @@ def _prepare_intra_period_data(
     frequency: str = "Q",
     forecast_horizon: Optional[int] = None,
     k: Optional[int] = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, list[str]]:
     """Filter and prepare data for intra-period analysis.
 
     Computes ``days_to_target`` as the number of days between the
@@ -32,12 +33,20 @@ def _prepare_intra_period_data(
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance,
         or 0 for a DataFrame.
+
+    Returns
+    -------
+    tuple of (pd.DataFrame, list of str)
+        The prepared data (with ``unique_id`` and ``days_to_target``) and the
+        id columns encoded in ``unique_id`` (``source`` plus any ``extra_ids``).
     """
+    id_columns = ["source"]
     if isinstance(data, ForecastData):
         if not isinstance(data, NowcastData):
             raise ValueError("Intra-period analysis requires a NowcastData instance.")
         if k is None:
             k = data.default_k
+        id_columns = list(data.id_columns) if data.id_columns else id_columns
         df = data.df.copy()
     elif hasattr(data, "df"):
         df = data.df.copy()
@@ -50,6 +59,14 @@ def _prepare_intra_period_data(
                 f"Column '{col}' not found. Pass a ForecastData instance "
                 "or a DataFrame with vintage_date_forecast and vintage_date_outturn columns."
             )
+
+    # ForecastData already builds unique_id from source plus any extra_ids;
+    # only raw DataFrames need it constructing.
+    if "unique_id" not in df.columns:
+        missing = [col for col in id_columns if col not in df.columns]
+        if missing:
+            raise ValueError(f"Columns {missing} not found; cannot identify distinct forecasts.")
+        df["unique_id"] = construct_unique_id(df, id_columns)
 
     df = filter_k(df, k if k is not None else 0)
 
@@ -72,7 +89,7 @@ def _prepare_intra_period_data(
     raw_days = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
     df["days_to_target"] = (raw_days / 7).round().astype(int) * 7
 
-    return df
+    return df, id_columns
 
 
 def compute_intra_period_accuracy(
@@ -107,12 +124,13 @@ def compute_intra_period_accuracy(
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
-        ``se`` is the standard error of the statistic.
+        DataFrame with the identifier columns (``source`` plus any
+        ``extra_ids``), ``unique_id``, ``days_to_target``, ``value`` and
+        ``se``. ``se`` is the standard error of the statistic.
     """
-    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
+    df, id_columns = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
 
-    grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
+    grouped = df.groupby(["unique_id", "days_to_target"])["forecast_error"]
 
     if statistic == "rmse":
         mse = grouped.apply(lambda x: np.mean(x**2))
@@ -133,7 +151,8 @@ def compute_intra_period_accuracy(
     else:
         raise ValueError(f"Unknown statistic: {statistic}. Use 'rmse' or 'mae'.")
 
-    return result.sort_values(["source", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
+    result = reconstruct_id_cols_from_unique_id(result, id_columns)
+    return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
 
 
 def compute_intra_period_bias(
@@ -165,13 +184,15 @@ def compute_intra_period_bias(
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns: ``source``, ``days_to_target``, ``value``, ``se``.
-        ``se`` is the standard error of the mean error.
+        DataFrame with the identifier columns (``source`` plus any
+        ``extra_ids``), ``unique_id``, ``days_to_target``, ``value`` and
+        ``se``. ``se`` is the standard error of the mean error.
     """
-    df = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
+    df, id_columns = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
 
-    grouped = df.groupby(["source", "days_to_target"])["forecast_error"]
+    grouped = df.groupby(["unique_id", "days_to_target"])["forecast_error"]
     mean_err = grouped.mean()
     se_mean = grouped.apply(lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan)
     result = pd.DataFrame({"value": mean_err, "se": se_mean}).reset_index()
-    return result.sort_values(["source", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
+    result = reconstruct_id_cols_from_unique_id(result, id_columns)
+    return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)

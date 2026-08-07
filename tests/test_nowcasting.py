@@ -11,7 +11,15 @@ from forecast_evaluation.data.sample_data import (
     create_sample_outturns,
 )
 from forecast_evaluation.data.utils import compute_days_in_period
-from forecast_evaluation.visualisations.intra_period import plot_intra_period_accuracy
+from forecast_evaluation.tests.intra_period import (
+    compute_intra_period_accuracy,
+    compute_intra_period_bias,
+)
+from forecast_evaluation.visualisations.forecast import plot_nowcasts
+from forecast_evaluation.visualisations.intra_period import (
+    plot_intra_period_accuracy,
+    plot_intra_period_bias,
+)
 
 
 # -----------------------
@@ -582,6 +590,96 @@ class TestIntraPeriodPlot:
 
         with pytest.raises(ValueError, match="No data"):
             plot_intra_period_accuracy(fd, variable="nonexistent", metric="levels", frequency="Q", return_plot=True)
+
+
+# -----------------------
+# Extra IDs Preserve Forecast Identity
+# -----------------------
+class TestExtraIdsPreserveForecastIdentity:
+    """Forecasts distinguished by ``extra_ids`` must not be pooled by ``source`` alone."""
+
+    @pytest.fixture
+    def nowcast_fd_extra_ids(self, nowcast_outturns, nowcast_forecasts):
+        """NowcastData with two variants per source, distinguished by an extra id."""
+        variant_a = nowcast_forecasts.copy()
+        variant_a["model"] = "A"
+        variant_b = nowcast_forecasts.copy()
+        variant_b["model"] = "B"
+        # Make variant B clearly less accurate so pooled and split stats differ.
+        variant_b["value"] = variant_b["value"] * 1.5
+
+        fd = NowcastData(outturns_data=nowcast_outturns)
+        fd.add_forecasts(
+            pd.concat([variant_a, variant_b], ignore_index=True),
+            extra_ids=["model"],
+            data_check=False,
+        )
+        return fd
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_statistics_split_by_extra_ids(self, nowcast_fd_extra_ids, compute):
+        """Statistics must be reported per (source, model), not pooled by source."""
+        result = compute(nowcast_fd_extra_ids, variable="gdp", metric="levels", frequency="Q")
+
+        assert "model" in result.columns
+        assert "unique_id" in result.columns
+        assert set(result["unique_id"].unique()) == {
+            f"{source} + {model}" for source in nowcast_fd_extra_ids.df["source"].unique() for model in ("A", "B")
+        }
+
+        # One row per (source, model, days_to_target) - no pooling across models.
+        assert not result.duplicated(subset=["source", "model", "days_to_target"]).any()
+
+        # The two variants must produce different statistics.
+        pivot = result.pivot_table(index=["source", "days_to_target"], columns="model", values="value")
+        assert not pivot["A"].equals(pivot["B"])
+
+    @pytest.mark.parametrize("plot", [plot_intra_period_accuracy, plot_intra_period_bias])
+    def test_intra_period_plots_draw_one_line_per_unique_id(self, nowcast_fd_extra_ids, plot):
+        """Each distinct forecast identity gets its own line and legend entry."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+
+        _, ax = plot(nowcast_fd_extra_ids, variable="gdp", metric="levels", frequency="Q", return_plot=True)
+        labels = {text.get_text() for text in ax.get_legend().get_texts()}
+        expected = {
+            f"{source} + {model}" for source in nowcast_fd_extra_ids.df["source"].unique() for model in ("A", "B")
+        }
+        assert expected <= labels
+
+    def test_plot_nowcasts_draws_one_line_per_unique_id(self, nowcast_fd_extra_ids):
+        """``plot_nowcasts`` must not merge forecasts that share a source."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+
+        forecasts = nowcast_fd_extra_ids.forecasts
+        target_date = forecasts[forecasts["variable"] == "gdp"]["date"].max()
+
+        _, ax = plot_nowcasts(
+            nowcast_fd_extra_ids,
+            variable="gdp",
+            target_date=target_date,
+            metric="levels",
+            frequency="Q",
+            return_plot=True,
+        )
+        labels = {text.get_text() for text in ax.get_legend().get_texts()}
+        expected = {
+            f"{source} + {model}" for source in nowcast_fd_extra_ids.df["source"].unique() for model in ("A", "B")
+        }
+        assert expected <= labels
+
+    def test_source_only_data_is_unchanged(self, nowcast_outturns, nowcast_forecasts):
+        """Without extra_ids the grouping stays keyed on source (backwards compatible)."""
+        fd = NowcastData(outturns_data=nowcast_outturns)
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
+
+        result = compute_intra_period_accuracy(fd, variable="gdp", metric="levels", frequency="Q")
+
+        assert "source" in result.columns
+        assert (result["unique_id"] == result["source"]).all()
 
 
 # -----------------------

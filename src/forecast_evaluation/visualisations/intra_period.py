@@ -89,15 +89,16 @@ def plot_intra_period_accuracy(
 
     z = _z_multiplier(confidence_level) if confidence_level is not None else None
 
-    for source in sorted(result["source"].unique()):
-        source_data = result[result["source"] == source]
+    label_col = "unique_id"
+    for label in sorted(result[label_col].unique()):
+        source_data = result[result[label_col] == label]
         line = ax.plot(
             source_data["days_to_target"],
             multiplier * source_data["value"],
             marker="o",
             linewidth=2,
             markersize=4,
-            label=source,
+            label=label,
         )
         if z is not None and "se" in source_data.columns:
             colour = line[0].get_color()
@@ -121,7 +122,7 @@ def plot_intra_period_accuracy(
     ax.set_ylabel(stat_label, fontsize=12)
     ax.invert_xaxis()
     ax.grid(True, alpha=0.3)
-    ax.legend(title="Source", loc="best")
+    ax.legend(title="Forecast", loc="best")
 
     if return_plot:
         return fig, ax
@@ -179,15 +180,16 @@ def plot_intra_period_bias(
 
     z = _z_multiplier(confidence_level) if confidence_level is not None else None
 
-    for source in sorted(result["source"].unique()):
-        source_data = result[result["source"] == source]
+    label_col = "unique_id"
+    for label in sorted(result[label_col].unique()):
+        source_data = result[result[label_col] == label]
         line = ax.plot(
             source_data["days_to_target"],
             multiplier * source_data["value"],
             marker="o",
             linewidth=2,
             markersize=4,
-            label=source,
+            label=label,
         )
         if z is not None and "se" in source_data.columns:
             colour = line[0].get_color()
@@ -213,7 +215,7 @@ def plot_intra_period_bias(
     ax.set_ylabel("Mean Error", fontsize=12)
     ax.invert_xaxis()
     ax.grid(True, alpha=0.3)
-    ax.legend(title="Source", loc="best")
+    ax.legend(title="Forecast", loc="best")
 
     if return_plot:
         return fig, ax

@@ -266,15 +266,16 @@ def plot_nowcasts(
 
     fig, ax = create_themed_figure()
 
-    # Plot one line per source (not unique_id, since unique_id includes days_in_period)
-    for source in sorted(forecasts["source"].unique()):
-        source_df = forecasts[forecasts["source"] == source].sort_values("vintage_date")
+    # Plot one line per distinct forecast, identified by ForecastData's unique_id
+    # (source plus any extra_ids), so forecasts sharing a source stay separate.
+    for label in sorted(forecasts["unique_id"].unique()):
+        source_df = forecasts[forecasts["unique_id"] == label].sort_values("vintage_date")
         ax.plot(
             source_df["vintage_date"],
             multiplier * source_df["value"],
             marker="o",
             markersize=3,
-            label=source,
+            label=label,
             alpha=0.7,
         )
 
