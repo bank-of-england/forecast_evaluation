@@ -15,8 +15,11 @@ from .forecast_errors import (
     plot_forecast_errors_by_horizon,
 )
 from .hedgehog import plot_hedgehog
-from .lead_time_path import get_lead_time_forecast_path, plot_lead_time_forecast_path
 from .outturn_revisions import plot_outturn_revisions, plot_outturns
+from .plot_across_vintages import (
+    get_across_vintages_forecast_path,
+    plot_across_vintages,
+)
 from .radar import plot_radar
 from .revisions_predictability import plot_average_revision_by_period
 from .strong_efficiency import plot_strong_efficiency
@@ -34,9 +37,9 @@ __all__ = [
     "plot_forecast_error_density",
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
-    "get_lead_time_forecast_path",
+    "get_across_vintages_forecast_path",
     "plot_hedgehog",
-    "plot_lead_time_forecast_path",
+    "plot_across_vintages",
     "plot_rolling_bias",
     "plot_rolling_correlation",
     "plot_rolling_relative_accuracy",

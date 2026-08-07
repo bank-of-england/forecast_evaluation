@@ -1,16 +1,9 @@
-"""Helpers for fixed-lead-time forecast paths.
-
-These functions select and optionally plot a comparable out-of-sample forecast
-path: for each target period, use the forecast made a fixed number of days
-before that period's first release.
-"""
-
 from __future__ import annotations
 
 import pandas as pd
 
 
-def get_lead_time_forecast_path(
+def get_across_vintages_forecast_path(
     data,
     variable: str,
     days_before_release: int,
@@ -121,7 +114,7 @@ def get_lead_time_forecast_path(
     return selected.sort_values(_sort_columns(selected)).reset_index(drop=True)
 
 
-def plot_lead_time_forecast_path(
+def plot_across_vintages(
     data,
     variable: str,
     days_before_release: int,
@@ -137,7 +130,7 @@ def plot_lead_time_forecast_path(
     Returns the matplotlib ``Axes`` object. ``matplotlib`` is imported lazily so
     the package can still be used without plotting dependencies installed.
     """
-    path = get_lead_time_forecast_path(
+    path = get_across_vintages_forecast_path(
         data=data,
         variable=variable,
         days_before_release=days_before_release,
@@ -151,7 +144,7 @@ def plot_lead_time_forecast_path(
             import matplotlib.pyplot as plt
         except ImportError as exc:
             raise ImportError(
-                "plot_lead_time_forecast_path requires matplotlib. "
+                "plot_across_vintages requires matplotlib. "
                 "Install matplotlib to use plotting helpers."
             ) from exc
         _, ax = plt.subplots()
