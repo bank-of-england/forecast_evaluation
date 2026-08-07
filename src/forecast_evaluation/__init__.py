@@ -36,7 +36,6 @@ from .tests import (
 from .utils import covid_filter, filter_k, reconstruct_id_cols_from_unique_id
 from .visualisations import (
     plot_accuracy,
-    plot_across_vintages,
     plot_average_revision_by_period,
     plot_bias_by_horizon,
     plot_blanchard_leigh_ratios,
@@ -47,6 +46,7 @@ from .visualisations import (
     plot_forecast_errors,
     plot_forecast_errors_by_horizon,
     plot_hedgehog,
+    plot_across_vintages,
     plot_outturn_revisions,
     plot_outturns,
     plot_radar,

@@ -87,11 +87,13 @@ def get_across_vintages_forecast_path(
     if forecasts.empty:
         return _empty_fixed_offset_result(forecasts)
 
+    # find earliest vintage date for each variable and date, rename to release_date
+    # i.e. the earliest vintage that March data was avail would be May
     release_dates = (
         outturns.groupby(["variable", "date"], as_index=False)["vintage_date"]
         .min()
         .rename(columns={"vintage_date": "release_date"})
-    )  # find earliest vintage date for each variable and date, rename to release_date - i.e. the earliest vintage that March data was avail would be May
+    )
 
     selected = forecasts.merge(release_dates, on=["variable", "date"], how="inner")
     if selected.empty:
