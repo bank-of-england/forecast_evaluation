@@ -17,6 +17,7 @@ from forecast_evaluation.tests.intra_period import (
 )
 from forecast_evaluation.visualisations.forecast import plot_nowcasts
 from forecast_evaluation.visualisations.intra_period import (
+    _z_multiplier,
     plot_intra_period_accuracy,
     plot_intra_period_bias,
 )
@@ -541,6 +542,11 @@ class TestAlignmentIsMetricAware:
 # -----------------------
 class TestIntraPeriodPlot:
     """Tests for the intra-period accuracy visualisation."""
+
+    @pytest.mark.parametrize("confidence_level", [0, 100, -1, 101])
+    def test_invalid_confidence_level_raises(self, confidence_level):
+        with pytest.raises(ValueError, match="confidence_level must be greater than 0 and less than 100"):
+            _z_multiplier(confidence_level)
 
     def test_plot_rmse_and_mae(self, nowcast_outturns, nowcast_forecasts):
         """plot_intra_period_accuracy should return (fig, ax) for both RMSE and MAE."""

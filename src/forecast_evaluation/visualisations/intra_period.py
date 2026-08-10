@@ -26,6 +26,9 @@ def _add_quarter_boundaries(ax, days_min, days_max):
 
 def _z_multiplier(confidence_level: int) -> float:
     """Return the z-multiplier for a given confidence level."""
+    if not 0 < confidence_level < 100:
+        raise ValueError("confidence_level must be greater than 0 and less than 100")
+
     return stats.norm.ppf((1 + confidence_level / 100) / 2)
 
 
