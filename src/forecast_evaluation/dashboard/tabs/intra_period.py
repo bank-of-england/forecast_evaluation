@@ -82,7 +82,13 @@ def intra_period_accuracy(input, output, session, data):
     @render.download(filename="intra_period_accuracy.csv")
     def download_intra_accuracy():
         data_filtered = get_data()
-        csv_bytes = data_filtered._main_table.to_csv()
+        accuracy_results = fe.compute_intra_period_accuracy(
+            data=data_filtered,
+            variable=input.variable(),
+            metric=input.transform(),
+            statistic=input.intra_statistic(),
+        )
+        csv_bytes = accuracy_results.to_csv()
         return io.BytesIO(csv_bytes.encode())
 
 
@@ -152,5 +158,10 @@ def intra_period_bias(input, output, session, data):
     @render.download(filename="intra_period_bias.csv")
     def download_intra_bias():
         data_filtered = get_data()
-        csv_bytes = data_filtered._main_table.to_csv()
+        bias_results = fe.compute_intra_period_bias(
+            data=data_filtered,
+            variable=input.variable(),
+            metric=input.transform(),
+        )
+        csv_bytes = bias_results.to_csv()
         return io.BytesIO(csv_bytes.encode())
