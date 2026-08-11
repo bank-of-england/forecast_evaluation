@@ -1,9 +1,5 @@
 """Main dashboard application."""
 
-import base64
-from pathlib import Path
-from importlib.resources import files
-
 from shiny import App, ui
 
 from .tabs.accuracy import (
@@ -36,10 +32,8 @@ from .ui import (
     create_time_machine_tab,
     create_quantile_time_machine_tab,
 )
-
 from .theme.brand import brand as _brand
 from .utils import patch_render_plot
-from forecast_evaluation.data.NowcastData import NowcastData
 
 # Apply global error handling
 patch_render_plot()
@@ -51,7 +45,7 @@ def dashboard_app(data) -> App:
     def app_ui(request):
         """Main UI function"""
 
-        is_nowcast = isinstance(data, NowcastData)
+        is_nowcast = data.uses_intra_period_vintages
 
         tabs = [
             about(),
@@ -70,7 +64,7 @@ def dashboard_app(data) -> App:
         if not is_nowcast:
             tabs.extend([create_correlation_tab(), create_radar_tab()])
 
-        if getattr(data, "outturn_vintages", True):
+        if data.supports_outturn_revision_analysis:
             tabs.append(create_outturn_revisions_tab())
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
@@ -104,8 +98,8 @@ def dashboard_app(data) -> App:
         bias(input, output, session, data)
         rolling_bias(input, output, session, data)
 
-        # Efficiency handlers are not needed for nowcasting data
-        if not isinstance(data, NowcastData):
+        # Efficiency, correlation and radar handlers are not needed for nowcasting data
+        if not data.uses_intra_period_vintages:
             blanchard_leigh(input, output, session, data)
             revisions_predictability(input, output, session, data)
             weak_efficiency(input, output, session, data)
@@ -118,10 +112,10 @@ def dashboard_app(data) -> App:
             intra_period_bias(input, output, session, data)
 
         hedgehog(input, output, session, data)
-        if getattr(data, "outturn_vintages", True):
+        if data.supports_outturn_revision_analysis:
             outturn_revisions(input, output, session, data)
             outturns(input, output, session, data)
-        if not isinstance(data, NowcastData):
+        if not data.uses_intra_period_vintages:
             radar(input, output, session, data)
         time_machine(input, output, session, data)
 

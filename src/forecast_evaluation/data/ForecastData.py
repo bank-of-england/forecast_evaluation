@@ -746,6 +746,22 @@ class ForecastData(PlottingMixin):
         """Whether the outturn data contains vintage information."""
         return self._outturn_vintages
 
+    @property
+    def uses_intra_period_vintages(self) -> bool:
+        """Whether forecast vintages are intra-period releases for the same target period.
+
+        When True, a target period has many forecast vintages and outturn releases within
+        it, so analyses that assume one forecast per (source, horizon, period) - efficiency,
+        forecast revision, correlation and radar analyses - do not apply, while intra-period
+        analyses do.
+        """
+        return False
+
+    @property
+    def supports_outturn_revision_analysis(self) -> bool:
+        """Whether analyses and plots requiring outturn revisions are supported."""
+        return self.outturn_vintages
+
     def run_dashboard(self, from_jupyter: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
         """Run the Shiny dashboard with the current data.
 

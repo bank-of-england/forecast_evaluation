@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.data.utils import construct_unique_id
 from forecast_evaluation.utils import filter_k, reconstruct_id_cols_from_unique_id
 
@@ -42,7 +41,7 @@ def _prepare_intra_period_data(
     """
     id_columns = ["source"]
     if isinstance(data, ForecastData):
-        if not isinstance(data, NowcastData):
+        if not data.uses_intra_period_vintages:
             raise ValueError("Intra-period analysis requires a NowcastData instance.")
         if k is None:
             k = data.default_k

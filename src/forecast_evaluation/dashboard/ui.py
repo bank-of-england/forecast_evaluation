@@ -1,8 +1,8 @@
 """UI components for the dashboard."""
 
 from shiny import ui
+
 from forecast_evaluation import DensityForecastData
-from forecast_evaluation.data.NowcastData import NowcastData
 
 
 def get_selector_info(col, data):
@@ -74,14 +74,14 @@ def create_sidebar(data):
     else:
         k_values = [0]
 
-    is_nowcast = isinstance(data, NowcastData)
-    if is_nowcast:
+    uses_intra_period_vintages = data.uses_intra_period_vintages
+    if uses_intra_period_vintages:
         k_label = "Vintage maturity"
         k_default = min(k_values, key=lambda x: abs(x - 4)) if k_values else 0
     else:
         k_label = f"Data vintage ({period_label} after first release)"
         k_default = min(k_values, key=lambda x: abs(x - 12)) if k_values else 0
-    has_outturn_vintages = getattr(data, "outturn_vintages", True)
+    supports_outturn_revision_analysis = data.supports_outturn_revision_analysis
 
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         quantiles = data._density_forecasts["quantile"].unique()
@@ -152,7 +152,7 @@ def create_sidebar(data):
 
     if len(id_columns) > 0:
         additional_selectors = []
-        is_nowcasting = is_nowcast
+        is_nowcasting = uses_intra_period_vintages
 
         for col in id_columns:
             col_choices, id_single, id_multi = get_selector_info(col, data)
@@ -476,7 +476,7 @@ def create_sidebar(data):
                     ),
                 ),
             ]
-            if has_outturn_vintages
+            if supports_outturn_revision_analysis
             else [
                 # Hidden default k inputs so server-side handlers can still read input.k()
                 ui.div(
@@ -494,9 +494,9 @@ def create_sidebar(data):
             time_machine_tab + _or + quantile_time_machine_tab,
             ui.input_select(
                 "vintage",
-                f"Target {period_label.rstrip('s').capitalize()}:" if is_nowcast else "Vintage:",
-                choices=outturn_dates if is_nowcast else outturn_vintages,
-                selected=outturn_dates[-1] if is_nowcast else outturn_vintages[-1],
+                f"Target {period_label.rstrip('s').capitalize()}:" if uses_intra_period_vintages else "Vintage:",
+                choices=outturn_dates if uses_intra_period_vintages else outturn_vintages,
+                selected=outturn_dates[-1] if uses_intra_period_vintages else outturn_vintages[-1],
             ),
         ),
         # Transformation

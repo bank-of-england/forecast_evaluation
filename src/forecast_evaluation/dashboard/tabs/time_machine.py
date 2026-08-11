@@ -6,8 +6,7 @@ from shiny import reactive, render, ui
 
 import forecast_evaluation as fe
 from forecast_evaluation.dashboard.ui import get_selector_info
-from forecast_evaluation.dashboard.utils import render_legend, remove_legend
-from forecast_evaluation.data.NowcastData import NowcastData
+from forecast_evaluation.dashboard.utils import remove_legend, render_legend
 
 
 def time_machine(input, output, session, data):
@@ -38,7 +37,7 @@ def time_machine(input, output, session, data):
         """Calculate and cache the plot."""
         data_filtered = get_data()
 
-        if isinstance(data, NowcastData):
+        if data.uses_intra_period_vintages:
             fig, ax = fe.plot_nowcasts(
                 data=data_filtered,
                 variable=input.variable(),

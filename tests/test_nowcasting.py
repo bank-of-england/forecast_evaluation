@@ -98,6 +98,17 @@ class TestDaysInPeriod:
 class TestNowcastingFlow:
     """Test the core add/filter/evaluate flow with nowcasting data."""
 
+    def test_uses_intra_period_vintages(self, nowcast_outturns):
+        """Only nowcast data reports intra-period forecast vintages."""
+        assert not ForecastData().uses_intra_period_vintages
+        assert NowcastData(outturns_data=nowcast_outturns).uses_intra_period_vintages
+
+    def test_supports_outturn_revision_analysis_tracks_outturn_vintages(self, nowcast_outturns):
+        """Outturn revision support depends on outturn vintages, not on the class."""
+        assert ForecastData().supports_outturn_revision_analysis
+        assert not ForecastData(outturn_vintages=False).supports_outturn_revision_analysis
+        assert NowcastData(outturns_data=nowcast_outturns).supports_outturn_revision_analysis
+
     def test_nowcast_data_properties(self, nowcast_outturns, nowcast_forecasts):
         """Nowcast data should preserve row count, vintages, sources, variables, and horizons."""
         fd = NowcastData(outturns_data=nowcast_outturns)

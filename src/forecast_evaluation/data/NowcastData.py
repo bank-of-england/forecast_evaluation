@@ -290,6 +290,11 @@ class NowcastData(ForecastData):
                 - pd.to_datetime(self._main_table["vintage_date_forecast"])
             ).dt.days
 
+    @property
+    def uses_intra_period_vintages(self) -> bool:
+        """Whether forecast vintages are intra-period releases for the same target period."""
+        return True
+
     # --- Methods not supported for nowcasting data ---
 
     def add_fer_data(self):

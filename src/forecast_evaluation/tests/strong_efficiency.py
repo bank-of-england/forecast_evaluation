@@ -8,7 +8,6 @@ from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import filter_k
 
@@ -202,7 +201,7 @@ def strong_efficiency_analysis(
     if k is None:
         k = data.default_k
 
-    if isinstance(data, NowcastData):
+    if data.uses_intra_period_vintages:
         raise ValueError("Strong efficiency analysis is not supported for nowcasting data. ")
 
     if frequency is not None:

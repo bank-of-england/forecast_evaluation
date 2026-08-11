@@ -7,7 +7,6 @@ from matplotlib.cm import ScalarMappable
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 from forecast_evaluation.data import ForecastData
-from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.utils import clean_unique_id, filter_k
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
@@ -105,12 +104,12 @@ def plot_hedgehog(
     # Get unique forecast vintages
     vintage_dates = sorted(df_forecasts_filtered["vintage_date"].unique())
 
-    # For NowcastData there are multiple vintages per target date; within each
+    # With intra-period vintages there are multiple releases per target date; within each
     # target date we colour the dots with a gradient from the earliest to the
     # latest vintage so the evolution of the nowcast across the nowcasting
     # window is visible.
-    is_nowcast = isinstance(data, NowcastData)
-    if is_nowcast:
+    uses_intra_period_vintages = data.uses_intra_period_vintages
+    if uses_intra_period_vintages:
         cmap_base = plt.get_cmap("YlOrRd")
         cmap = LinearSegmentedColormap.from_list(
             "nowcast_vintage_gradient",
@@ -120,7 +119,7 @@ def plot_hedgehog(
     # Plot a line for each forecast vintage
     for i, vintage_date in enumerate(vintage_dates):
         # if there is only one available horizon dot_size = 3 otherwise 0
-        if is_nowcast:
+        if uses_intra_period_vintages:
             dot_size = 0
         elif (
             df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date]["forecast_horizon"].nunique()
@@ -146,7 +145,7 @@ def plot_hedgehog(
 
     # For nowcasts, overlay scatter dots coloured by vintage rank within each
     # target date so the gradient reflects nowcast evolution per outturn.
-    if is_nowcast:
+    if uses_intra_period_vintages:
         df_nc = df_forecasts_filtered.sort_values(["date", "vintage_date"]).copy()
         # Rank vintages within each target date and normalise to [0, 1].
         ranks = df_nc.groupby("date")["vintage_date"].rank(method="dense") - 1
@@ -203,7 +202,7 @@ def plot_hedgehog(
     ax.legend()
 
     # Colourbar showing the vintage gradient for nowcasts
-    if is_nowcast:
+    if uses_intra_period_vintages:
         sm = ScalarMappable(norm=Normalize(vmin=0, vmax=1), cmap=cmap)
         sm.set_array([])
         # Use an inset axes so we don't reshape the parent axes and clash with
