@@ -543,6 +543,42 @@ class TestAlignmentIsMetricAware:
 class TestIntraPeriodPlot:
     """Tests for the intra-period accuracy visualisation."""
 
+    @pytest.mark.parametrize(
+        ("frequency", "expected_boundaries"),
+        [
+            ("M", [91, 60, 31, 0]),
+            ("Q", [91, 0]),
+        ],
+    )
+    def test_period_boundaries_follow_calendar(self, frequency, expected_boundaries):
+        """The public plotting API uses actual calendar period ends as markers."""
+        import matplotlib
+
+        matplotlib.use("Agg")
+        target_date = pd.Timestamp("2024-03-31")
+        data = pd.DataFrame(
+            {
+                "date": [target_date] * 4,
+                "vintage_date_forecast": target_date - pd.to_timedelta([0, 31, 60, 91], unit="D"),
+                "vintage_date_outturn": [target_date] * 4,
+                "variable": ["gdp"] * 4,
+                "metric": ["levels"] * 4,
+                "frequency": [frequency] * 4,
+                "forecast_horizon": [0] * 4,
+                "forecast_error": [0.1, 0.2, 0.3, 0.4],
+                "source": ["model"] * 4,
+                "k": [0] * 4,
+                "latest_vintage": [target_date] * 4,
+            }
+        )
+
+        fig, ax = fe.plot_intra_period_accuracy(data, variable="gdp", frequency=frequency, return_plot=True)
+
+        boundary_lines = ax.lines[1:]
+        assert sorted(line.get_xdata()[0] for line in boundary_lines) == sorted(expected_boundaries)
+        assert boundary_lines[0].get_label() == f"{'Month' if frequency == 'M' else 'Quarter'} boundary"
+        matplotlib.pyplot.close(fig)
+
     @pytest.mark.parametrize("confidence_level", [0, 100, -1, 101])
     def test_invalid_confidence_level_raises(self, confidence_level):
         with pytest.raises(ValueError, match="confidence_level must be greater than 0 and less than 100"):

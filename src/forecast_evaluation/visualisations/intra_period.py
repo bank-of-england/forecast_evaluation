@@ -11,17 +11,30 @@ if TYPE_CHECKING:
     from forecast_evaluation.data.ForecastData import ForecastData
 
 
-def _add_quarter_boundaries(ax, days_min, days_max):
-    """Add dashed vertical lines at quarter boundaries (~91-day intervals)."""
-    quarter_days = 91
-    boundary = quarter_days * (int(days_min) // quarter_days)
+def _add_period_boundaries(ax, days_min, days_max, frequency, target_dates):
+    """Add calendar month or quarter boundaries on a days-to-target axis."""
+    if not target_dates:
+        return
+
+    anchor_date = pd.Timestamp(max(target_dates)).to_period(frequency).end_time.normalize()
+    start_date = anchor_date - pd.Timedelta(days=float(days_max))
+    end_date = anchor_date - pd.Timedelta(days=float(days_min))
+    periods = pd.period_range(start=start_date.to_period(frequency), end=end_date.to_period(frequency), freq=frequency)
+
+    label = f"{'Quarter' if frequency == 'Q' else 'Month'} boundary"
     first = True
-    while boundary <= days_max:
+    for period in periods:
+        boundary = (anchor_date - period.end_time.normalize()).days
         if days_min <= boundary <= days_max:
-            label = "Quarter boundary" if first else None
-            ax.axvline(x=boundary, color="grey", linestyle="--", linewidth=1.5, alpha=0.6, label=label)
+            ax.axvline(
+                x=boundary,
+                color="grey",
+                linestyle="--",
+                linewidth=1.5,
+                alpha=0.6,
+                label=label if first else None,
+            )
             first = False
-        boundary += quarter_days
 
 
 def _z_multiplier(confidence_level: int) -> float:
@@ -48,7 +61,7 @@ def plot_intra_period_accuracy(
 
     Shows how forecast accuracy evolves as the target period approaches.
     When ``forecast_horizon`` is ``None``, all horizons are shown on a
-    single axis with dashed vertical lines at quarter boundaries.
+    single axis with dashed vertical lines at calendar period boundaries.
 
     Parameters
     ----------
@@ -114,7 +127,13 @@ def plot_intra_period_accuracy(
             )
 
     if not result.empty:
-        _add_quarter_boundaries(ax, result["days_to_target"].min(), result["days_to_target"].max())
+        _add_period_boundaries(
+            ax,
+            result["days_to_target"].min(),
+            result["days_to_target"].max(),
+            frequency,
+            result.attrs.get("target_dates", []),
+        )
 
     horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
     ax.set_title(
@@ -207,7 +226,13 @@ def plot_intra_period_bias(
     ax.axhline(y=0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
 
     if not result.empty:
-        _add_quarter_boundaries(ax, result["days_to_target"].min(), result["days_to_target"].max())
+        _add_period_boundaries(
+            ax,
+            result["days_to_target"].min(),
+            result["days_to_target"].max(),
+            frequency,
+            result.attrs.get("target_dates", []),
+        )
 
     horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
     ax.set_title(

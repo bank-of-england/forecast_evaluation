@@ -152,6 +152,7 @@ def compute_intra_period_accuracy(
         raise ValueError(f"Unknown statistic: {statistic}. Use 'rmse' or 'mae'.")
 
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
+    result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
     return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
 
 
@@ -195,4 +196,5 @@ def compute_intra_period_bias(
     se_mean = grouped.apply(lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan)
     result = pd.DataFrame({"value": mean_err, "se": se_mean}).reset_index()
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
+    result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
     return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
