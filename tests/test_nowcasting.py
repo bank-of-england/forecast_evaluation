@@ -549,6 +549,175 @@ class TestAlignmentIsMetricAware:
 
 
 # -----------------------
+# _align_outturn_vintages history-bounding tests
+# -----------------------
+def _long_history_outturns(n_quarters: int = 21) -> pd.DataFrame:
+    """Quarterly 'gdp' outturns from 2015Q1, all released on a single vintage.
+
+    Values are ``100 + i`` so YoY/level expectations can be computed by hand.
+    """
+    dates = pd.date_range("2015-03-31", periods=n_quarters, freq="QE")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "variable": "gdp",
+            "vintage_date": pd.Timestamp("2020-02-01"),
+            "frequency": "Q",
+            "value": [100.0 + i for i in range(n_quarters)],
+        }
+    )
+
+
+class TestAlignOutturnVintagesHistoryBound:
+    """``_align_outturn_vintages`` should bound synthetic snapshots to the window
+    actually consumed downstream (``first_forecast_horizon - (n_periods + 1)``),
+    instead of keeping the entire historical series.
+    """
+
+    def test_align_outturn_vintages_trims_old_history(self):
+        """Dates older than the computed cutoff must be dropped from the snapshot."""
+        outturns = _long_history_outturns()
+        forecast_vintage = pd.Timestamp("2020-04-15")
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31")],
+                "variable": ["gdp"],
+                "vintage_date": [forecast_vintage],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [121.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
+        assert not aligned.empty
+
+        # first_forecast_horizon=-1 (default), n_periods=4 for 'Q' -> cutoff horizon = -6,
+        # which is the 2018Q4 outturn (2018-12-31).
+        assert aligned["date"].min() == pd.Timestamp("2018-12-31")
+        assert (aligned["date"] < pd.Timestamp("2018-12-31")).sum() == 0
+
+    def test_align_outturn_vintages_trim_preserves_yoy_computation(self):
+        """Trimming must still retain enough history for a valid YoY value at the forecast."""
+        outturns = _long_history_outturns()
+        forecast_vintage = pd.Timestamp("2020-04-15")
+        forecast_value = 121.5
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31")],
+                "variable": ["gdp"],
+                "vintage_date": [forecast_vintage],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [forecast_value],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=True)
+
+        mt = fd.df
+        yoy_rows = mt[
+            (mt["metric"] == "yoy")
+            & (mt["vintage_date_forecast"] == forecast_vintage)
+            & (mt["date"] == pd.Timestamp("2020-03-31"))
+        ]
+        assert not yoy_rows.empty
+        assert yoy_rows["value_forecast"].notna().all()
+
+        # 2019-03-31 outturn ('gdp', 100 + 16 = 116.0) is the YoY base.
+        expected_yoy = (forecast_value - 116.0) / 116.0
+        assert yoy_rows["value_forecast"].iloc[0] == pytest.approx(expected_yoy)
+
+    def test_align_outturn_vintages_widens_window_for_deeper_horizons(self):
+        """A deeper forecast horizon must widen the retained window.
+
+        A forecast targeting 2018Q4 from a 2020Q2 vintage sits at horizon -6, so
+        the year-on-year base needs history down to horizon -11 (2017Q3).
+        """
+        outturns = _long_history_outturns()
+        forecast_vintage = pd.Timestamp("2020-04-15")
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2018-12-31")],
+                "variable": ["gdp"],
+                "vintage_date": [forecast_vintage],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [115.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
+        assert not aligned.empty
+        assert aligned["date"].min() == pd.Timestamp("2017-09-30")
+
+    def test_align_outturn_vintages_bounds_each_variable_separately(self):
+        """Variables with different deepest horizons get different retained windows."""
+        gdp = _long_history_outturns()
+        cpi = _long_history_outturns().assign(variable="cpi")
+        outturns = pd.concat([gdp, cpi], ignore_index=True)
+
+        forecast_vintage = pd.Timestamp("2020-04-15")
+        forecasts = pd.DataFrame(
+            {
+                # gdp is a backcast at horizon -1; cpi reaches back to horizon -6.
+                "date": [pd.Timestamp("2020-03-31"), pd.Timestamp("2018-12-31")],
+                "variable": ["gdp", "cpi"],
+                "vintage_date": [forecast_vintage] * 2,
+                "source": ["modelA"] * 2,
+                "frequency": ["Q"] * 2,
+                "value": [121.5, 115.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
+
+        # gdp: horizon -1 -> cutoff -6 (2018Q4); cpi: horizon -6 -> cutoff -11 (2017Q3).
+        assert aligned[aligned["variable"] == "gdp"]["date"].min() == pd.Timestamp("2018-12-31")
+        assert aligned[aligned["variable"] == "cpi"]["date"].min() == pd.Timestamp("2017-09-30")
+
+    def test_align_outturn_vintages_bound_is_per_vintage(self):
+        """Each vintage's window is anchored to that vintage, not to the earliest one."""
+        outturns = _long_history_outturns()
+        first_vintage = pd.Timestamp("2020-04-15")
+        second_vintage = pd.Timestamp("2020-07-15")
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31"), pd.Timestamp("2020-06-30")],
+                "variable": ["gdp"] * 2,
+                "vintage_date": [first_vintage, second_vintage],
+                "source": ["modelA"] * 2,
+                "frequency": ["Q"] * 2,
+                "value": [121.5, 122.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[raw["_aligned"]]
+
+        # Both forecasts sit at horizon -1, so each window starts 6 quarters back
+        # from its own vintage.
+        assert aligned[aligned["vintage_date"] == first_vintage]["date"].min() == pd.Timestamp("2018-12-31")
+        assert aligned[aligned["vintage_date"] == second_vintage]["date"].min() == pd.Timestamp("2019-03-31")
+
+
+# -----------------------
 # Intra-Period Visualisation Tests
 # -----------------------
 class TestIntraPeriodPlot:

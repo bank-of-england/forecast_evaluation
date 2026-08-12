@@ -3,6 +3,7 @@ from typing import Literal, Optional
 import pandas as pd
 
 from forecast_evaluation.data.ForecastData import ForecastData
+from forecast_evaluation.data.utils import compute_forecast_horizon
 
 
 class NowcastData(ForecastData):
@@ -206,8 +207,15 @@ class NowcastData(ForecastData):
         *V*.  For every target date *D* whose outturn had been released by
         *V*, the row with the **latest** outturn ``vintage_date <= V`` is
         selected.  The resulting snapshot is stamped with ``vintage_date = V``.
-        # TODO: Maybe this could be generated on the fly to save memory
 
+        These synthetic snapshot rows exist solely to feed the pop/yoy
+        transformation pipeline (``transform_forecast_to_levels`` /
+        ``transform_series``, which need a vintage-matched, gap-free outturn
+        history); they are **not** used for evaluation, since
+        ``build_main_table`` strips ``_aligned`` rows before comparing
+        forecasts against outturns. History is therefore bounded to the
+        window ``prepare_forecasts`` actually consumes rather than kept in
+        full.
 
         ===
         The following is important when backcasting outturns that have already
@@ -237,6 +245,11 @@ class NowcastData(ForecastData):
         alone, however. With ``compute_levels=True`` a 'pop' or 'yoy' forecast
         is converted to levels using the levels outturn history, so the levels
         series needs aligning even when no forecast carries ``metric='levels'``.
+
+        How much history each snapshot needs is derived from the forecasts
+        themselves: the deepest horizon being added for that variable, less
+        the ``n_periods + 1`` base rows that ``pct_change`` needs for the
+        year-on-year transform.
         """
         if self._raw_outturns.empty:
             return
@@ -251,6 +264,15 @@ class NowcastData(ForecastData):
         # snapshot row for the same date.
         fc_targets = forecasts_df.groupby(["variable", "vintage_date"])["date"].apply(set).to_dict()
 
+        # Deepest (most negative) forecast horizon being added per variable.
+        # ``prepare_forecasts`` only keeps forecasts at or above its threshold,
+        # so no retained forecast can sit below this, and the outturn history
+        # each snapshot needs is bounded relative to it.
+        fc_horizons = compute_forecast_horizon(forecasts_df[["variable", "date", "vintage_date", "frequency"]].copy())
+        min_fc_horizon = fc_horizons.groupby("variable")["forecast_horizon"].min().to_dict()
+
+        n_periods_by_frequency = {"Q": 4, "M": 12}
+
         new_rows = []
         for (variable, _metric), var_outturns in self._raw_outturns.groupby(["variable", "metric"]):
             # Only align outturn series for variables that have forecasts.
@@ -258,11 +280,28 @@ class NowcastData(ForecastData):
                 continue
             missing = set(forecast_vintages) - set(pd.to_datetime(var_outturns["vintage_date"]).unique())
 
+            # ``pct_change`` needs n_periods+1 rows of base history below the
+            # deepest forecast horizon; anything older is discarded by
+            # ``prepare_forecasts`` anyway, so don't build it in the first place.
+            frequencies = var_outturns["frequency"].unique()
+            if len(frequencies) > 1:
+                raise ValueError(f"Expected a single frequency for variable {variable!r}, got {sorted(frequencies)}.")
+            freq = frequencies[0]
+            n_periods = n_periods_by_frequency.get(freq)
+            min_horizon = None if n_periods is None else min_fc_horizon[variable] - (n_periods + 1)
+
             for vintage in sorted(missing):
                 # All outturn rows for this series released on or before *vintage*
                 available = var_outturns[var_outturns["vintage_date"] <= vintage]
                 if available.empty:
                     continue
+
+                if min_horizon is not None:
+                    date_periods = pd.to_datetime(available["date"]).dt.to_period(freq).astype("int64")
+                    vintage_period = pd.Period(vintage, freq=freq).ordinal
+                    available = available[date_periods - vintage_period >= min_horizon]
+                    if available.empty:
+                        continue
 
                 # For each target date, keep the row from the latest outturn
                 # vintage — this is the best estimate available at time *vintage*.
@@ -281,7 +320,6 @@ class NowcastData(ForecastData):
 
         if new_rows:
             from forecast_evaluation.core.transformations import prepare_outturns
-            from forecast_evaluation.data.utils import compute_forecast_horizon
 
             expanded = pd.concat(new_rows, ignore_index=True)
             expanded = compute_forecast_horizon(expanded)
