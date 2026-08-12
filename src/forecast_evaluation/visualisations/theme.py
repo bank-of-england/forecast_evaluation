@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 THEME = {
     "figure": {
@@ -47,6 +48,12 @@ def apply_theme(fig, ax):
     ax.title.set_size(THEME["axes"]["titlesize"])
     ax.xaxis.label.set_size(THEME["axes"]["labelsize"])
     ax.yaxis.label.set_size(THEME["axes"]["labelsize"])
+
+
+def set_integer_xaxis(ax):
+    """Restrict x-axis ticks to whole numbers, for discrete axes such as forecast horizons."""
+    # min_n_ticks=1 keeps integer ticks when only a single horizon is in view.
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True, min_n_ticks=1))
 
 
 def create_themed_figure(nrows=1, ncols=1, **kwargs):

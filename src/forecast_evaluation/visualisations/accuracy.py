@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from forecast_evaluation.utils import clean_unique_id
-from forecast_evaluation.visualisations.theme import create_themed_figure
+from forecast_evaluation.visualisations.theme import create_themed_figure, set_integer_xaxis
 
 if TYPE_CHECKING:
     from forecast_evaluation.tests.results import TestResult
@@ -121,6 +121,7 @@ def plot_accuracy(
         fontsize=14,
     )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
+    set_integer_xaxis(ax)
     ax.set_ylabel(f"{stat_label}", fontsize=12)
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
@@ -227,6 +228,7 @@ def plot_compare_to_benchmark(
         fontsize=14,
     )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
+    set_integer_xaxis(ax)
     ax.set_ylabel(f"{stat_label} Relative to Benchmark", fontsize=12)
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
