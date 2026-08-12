@@ -716,6 +716,74 @@ class TestAlignOutturnVintagesHistoryBound:
         assert aligned[aligned["vintage_date"] == first_vintage]["date"].min() == pd.Timestamp("2018-12-31")
         assert aligned[aligned["vintage_date"] == second_vintage]["date"].min() == pd.Timestamp("2019-03-31")
 
+    def test_align_outturn_vintages_deepens_existing_snapshot(self):
+        """A later, deeper forecast at an existing vintage must deepen its snapshot."""
+        outturns = _long_history_outturns()
+        forecast_vintage = pd.Timestamp("2020-04-15")
+        shallow = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31")],
+                "variable": ["gdp"],
+                "vintage_date": [forecast_vintage],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [121.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(shallow, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
+        assert aligned["date"].min() == pd.Timestamp("2018-12-31")
+
+        # Same vintage, but reaching back to horizon -6 -> window must widen to 2017Q3.
+        deep = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2018-12-31")],
+                "variable": ["gdp"],
+                "vintage_date": [forecast_vintage],
+                "source": ["modelB"],
+                "frequency": ["Q"],
+                "value": [115.5],
+            }
+        )
+        fd.add_forecasts(deep, data_check=False, compute_levels=False)
+
+        raw = fd._raw_outturns
+        aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
+        assert aligned["date"].min() == pd.Timestamp("2017-09-30")
+
+    def test_align_outturn_vintages_rebuild_does_not_duplicate(self):
+        """Rebuilding on each call must not accumulate duplicate snapshot rows."""
+        outturns = _long_history_outturns()
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31")],
+                "variable": ["gdp"],
+                "vintage_date": [pd.Timestamp("2020-04-15")],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [121.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        after_first = len(fd._raw_outturns)
+
+        fd.add_forecasts(
+            forecasts.assign(source="modelB", value=121.0),
+            data_check=False,
+            compute_levels=False,
+        )
+
+        aligned = fd._raw_outturns[fd._raw_outturns["_aligned"]]
+        assert not aligned.duplicated(subset=["variable", "metric", "vintage_date", "date"]).any()
+        # Same vintage and depth as the first call, so the row count is unchanged.
+        assert len(fd._raw_outturns) == after_first
+
 
 # -----------------------
 # Intra-Period Visualisation Tests

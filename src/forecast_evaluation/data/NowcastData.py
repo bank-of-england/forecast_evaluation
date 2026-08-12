@@ -202,7 +202,7 @@ class NowcastData(ForecastData):
         """Build outturn snapshots so every forecast vintage has a full history.
 
         For each ``(variable, metric)`` series and forecast vintage *V* that
-        doesn't already exist in the outturns, this method builds a
+        has no genuine outturn release, this method builds a
         **point-in-time snapshot** of the outturn data that was available at
         *V*.  For every target date *D* whose outturn had been released by
         *V*, the row with the **latest** outturn ``vintage_date <= V`` is
@@ -246,15 +246,29 @@ class NowcastData(ForecastData):
         is converted to levels using the levels outturn history, so the levels
         series needs aligning even when no forecast carries ``metric='levels'``.
 
+        Existing snapshots are discarded and rebuilt from every known forecast
+        on each call. A snapshot depends on the forecasts at its vintage and on
+        which outturns had been released by then, so both a later
+        ``add_forecasts`` reaching a deeper horizon and a later ``add_outturns``
+        revising history would otherwise leave it stale.
+
         How much history each snapshot needs is derived from the forecasts
-        themselves: the deepest horizon being added for that variable, less
-        the ``n_periods + 1`` base rows that ``pct_change`` needs for the
+        themselves: the deepest horizon for that variable, less the
+        ``n_periods + 1`` base rows that ``pct_change`` needs for the
         year-on-year transform.
         """
         if self._raw_outturns.empty:
             return
 
-        forecast_vintages = pd.to_datetime(forecasts_df["vintage_date"]).unique()
+        # Snapshots depend on every known forecast and on which outturns had been
+        # released by each vintage, so rebuild them all rather than patching.
+        if "_aligned" in self._raw_outturns.columns:
+            self._raw_outturns = self._raw_outturns[~self._raw_outturns["_aligned"]].copy()
+        if not self._raw_forecasts.empty:
+            forecasts_df = pd.concat([self._raw_forecasts, forecasts_df], ignore_index=True)
+        forecasts_df = forecasts_df.assign(vintage_date=pd.to_datetime(forecasts_df["vintage_date"]))
+
+        forecast_vintages = forecasts_df["vintage_date"].unique()
         forecast_variables = set(forecasts_df["variable"])
 
         # (variable, vintage_date) -> set of target dates the forecasts cover,
@@ -318,16 +332,16 @@ class NowcastData(ForecastData):
                 snapshot["vintage_date"] = vintage
                 new_rows.append(snapshot)
 
-        if new_rows:
-            from forecast_evaluation.core.transformations import prepare_outturns
+        from forecast_evaluation.core.transformations import prepare_outturns
 
+        if "_aligned" not in self._raw_outturns.columns:
+            self._raw_outturns["_aligned"] = False
+        if new_rows:
             expanded = pd.concat(new_rows, ignore_index=True)
             expanded = compute_forecast_horizon(expanded)
             expanded["_aligned"] = True
-            if "_aligned" not in self._raw_outturns.columns:
-                self._raw_outturns["_aligned"] = False
             self._raw_outturns = pd.concat([self._raw_outturns, expanded], ignore_index=True)
-            self._outturns = prepare_outturns(self._raw_outturns)
+        self._outturns = prepare_outturns(self._raw_outturns)
 
     def _add_days_to_publication(self):
         """Add days_to_publication column to the main table.
