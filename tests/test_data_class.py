@@ -1,3 +1,4 @@
+import copy
 from unittest.mock import patch
 
 import pandas as pd
@@ -241,6 +242,26 @@ def test_add_forecasts_invalid_metric_kwarg_raises_when_column_missing(sample_ou
 
     with pytest.raises(ValueError, match=r"Invalid metric values found"):
         fd.add_forecasts(df, metric="not_a_metric")
+
+
+def test_add_forecasts_rejected_input_does_not_mutate_state(sample_outturns, sample_forecasts):
+    """A rejected add_forecasts() must not leave the instance partially updated."""
+    fd = ForecastData(outturns_data=sample_outturns)
+    fd.add_forecasts(sample_forecasts, data_check=False)
+
+    before_horizon = copy.deepcopy(fd.first_forecast_horizon)
+    before_id_columns = copy.deepcopy(fd._id_columns)
+    before_raw_forecasts = fd._raw_forecasts.copy(deep=True)
+    before_main_table = fd._main_table.copy(deep=True)
+
+    invalid = sample_forecasts.assign(metric="not_a_metric")
+    with pytest.raises(ValueError, match=r"Invalid metric values found"):
+        fd.add_forecasts(invalid, data_check=False, first_forecast_horizon=7)
+
+    assert fd.first_forecast_horizon == before_horizon
+    assert fd._id_columns == before_id_columns
+    pd.testing.assert_frame_equal(fd._raw_forecasts, before_raw_forecasts)
+    pd.testing.assert_frame_equal(fd._main_table, before_main_table)
 
 
 def test_add_forecasts_mixed_frequencies_raises(sample_outturns):

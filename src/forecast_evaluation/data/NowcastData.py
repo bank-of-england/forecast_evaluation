@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 import pandas as pd
 
-from forecast_evaluation.data.ForecastData import ForecastData
+from forecast_evaluation.data.ForecastData import _FORECAST_STATE, ForecastData, _atomic_state
 from forecast_evaluation.data.utils import compute_forecast_horizon
 
 
@@ -103,11 +103,16 @@ class NowcastData(ForecastData):
             self._outturns["_aligned"] = self._outturns["_aligned"].fillna(False).astype(bool)
 
     def add_forecasts(self, df, **kwargs):
-        """Add forecasts, aligning outturn vintages to forecast vintages first."""
-        self._align_outturn_vintages(df)
-        super().add_forecasts(df, **kwargs)
-        self._set_revision_index_k()
-        self._add_days_to_publication()
+        """Add forecasts, aligning outturn vintages to forecast vintages first.
+
+        Alignment mutates the outturns before the parent validates the input, so the
+        rollback discards those snapshots if the forecasts are rejected.
+        """
+        with _atomic_state(self, *_FORECAST_STATE, "_raw_outturns", "_outturns"):
+            self._align_outturn_vintages(df)
+            super().add_forecasts(df, **kwargs)
+            self._set_revision_index_k()
+            self._add_days_to_publication()
 
     def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another instance into this one, excluding synthetic outturn snapshots.
@@ -335,7 +340,7 @@ class NowcastData(ForecastData):
         from forecast_evaluation.core.transformations import prepare_outturns
 
         if "_aligned" not in self._raw_outturns.columns:
-            self._raw_outturns["_aligned"] = False
+            self._raw_outturns = self._raw_outturns.assign(_aligned=False)
         if new_rows:
             expanded = pd.concat(new_rows, ignore_index=True)
             expanded = compute_forecast_horizon(expanded)

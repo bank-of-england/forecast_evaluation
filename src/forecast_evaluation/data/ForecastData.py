@@ -2,6 +2,7 @@ import copy
 import re
 import warnings
 from collections.abc import Iterable
+from contextlib import contextmanager
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
@@ -24,6 +25,25 @@ from forecast_evaluation.data.utils import (
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
 _UNSET = object()  # sentinel for "parameter not passed"
+
+# Instance attributes mutated while adding forecasts, restored on failure.
+_FORECAST_STATE = ("first_forecast_horizon", "_id_columns", "_raw_forecasts", "_forecasts", "_main_table")
+
+
+@contextmanager
+def _atomic_state(obj: object, *attributes: str):
+    """Restore the named attributes of ``obj`` if the block raises.
+
+    Keeps a reference to each attribute rather than a copy, so code inside the
+    block must rebind attributes rather than mutate them in place.
+    """
+    saved = [(name, getattr(obj, name)) for name in attributes]
+    try:
+        yield
+    except Exception:
+        for name, value in saved:
+            setattr(obj, name, value)
+        raise
 
 
 class ForecastData(PlottingMixin):
@@ -207,6 +227,8 @@ class ForecastData(PlottingMixin):
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
+        If any validation or transformation step fails, the instance is left unchanged.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -254,7 +276,27 @@ class ForecastData(PlottingMixin):
         When compute_levels is True, sufficient historical outturn data is required for transformation,
         especially for 'yoy' metrics which need data from one year prior.
         """
+        with _atomic_state(self, *_FORECAST_STATE):
+            self._add_forecasts(
+                df,
+                extra_ids=extra_ids,
+                metric=metric,
+                compute_levels=compute_levels,
+                data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
+            )
 
+    def _add_forecasts(
+        self,
+        df: pd.DataFrame,
+        *,
+        extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
+        compute_levels: bool = True,
+        data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+    ) -> None:
+        """Add forecasts without rolling back on failure; see :meth:`add_forecasts`."""
         if self._raw_outturns is None or self._raw_outturns.empty:
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
@@ -268,7 +310,7 @@ class ForecastData(PlottingMixin):
         # Update instance attribute if caller provided an explicit value
         if first_forecast_horizon is not _UNSET:
             if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
-                self.first_forecast_horizon.update(first_forecast_horizon)
+                self.first_forecast_horizon = {**self.first_forecast_horizon, **first_forecast_horizon}
             else:
                 self.first_forecast_horizon = first_forecast_horizon
 
@@ -330,9 +372,9 @@ class ForecastData(PlottingMixin):
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
-                        self._raw_forecasts[col] = pd.NA
-                        self._forecasts[col] = pd.NA
-                        self._id_columns += [col]
+                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
+                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
+                        self._id_columns = self._id_columns + [col]
                     if col not in id_cols:
                         # add missing columns to new data
                         df[col] = pd.NA
@@ -371,7 +413,7 @@ class ForecastData(PlottingMixin):
                     .astype(int)
                     .to_dict()
                 )
-                self.first_forecast_horizon.update(new_thresholds)
+                self.first_forecast_horizon = {**self.first_forecast_horizon, **new_thresholds}
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
         forecasts = prepare_forecasts(

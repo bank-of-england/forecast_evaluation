@@ -785,6 +785,37 @@ class TestAlignOutturnVintagesHistoryBound:
         assert len(fd._raw_outturns) == after_first
 
 
+class TestAddForecastsTransactional:
+    def test_invalid_forecasts_do_not_mutate_outturns(self):
+        """Rejected forecasts must leave raw and prepared outturns unchanged."""
+        outturns = _long_history_outturns()
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2020-03-31")],
+                "variable": ["gdp"],
+                "vintage_date": [pd.Timestamp("2020-04-15")],
+                "source": ["modelA"],
+                "frequency": ["Q"],
+                "value": [121.5],
+            }
+        )
+
+        fd = NowcastData(outturns_data=outturns)
+        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        raw_outturns_before = fd._raw_outturns.copy(deep=True)
+        outturns_before = fd._outturns.copy(deep=True)
+
+        invalid_forecasts = forecasts.assign(
+            vintage_date=pd.Timestamp("2020-07-15"),
+            metric="invalid",
+        )
+        with pytest.raises(ValueError, match="Invalid metric values found"):
+            fd.add_forecasts(invalid_forecasts, data_check=False, compute_levels=False)
+
+        pd.testing.assert_frame_equal(fd._raw_outturns, raw_outturns_before)
+        pd.testing.assert_frame_equal(fd._outturns, outturns_before)
+
+
 # -----------------------
 # Intra-Period Visualisation Tests
 # -----------------------
