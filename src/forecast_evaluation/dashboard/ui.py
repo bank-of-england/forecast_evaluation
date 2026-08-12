@@ -638,6 +638,16 @@ def create_sidebar(data):
             intra_accuracy_tab,
             ui.input_select("intra_statistic", "Statistic:", choices=["rmse", "mae"], selected="rmse"),
         ),
+        # Intra-period time axis
+        ui.panel_conditional(
+            intra_accuracy_tab + _or + intra_bias_tab,
+            ui.input_select(
+                "intra_axis",
+                "Time axis:",
+                choices={"period_end": "Days to period end", "publication": "Days to publication"},
+                selected="period_end",
+            ),
+        ),
         # Intra-period confidence bands
         ui.panel_conditional(
             intra_accuracy_tab + _or + intra_bias_tab,

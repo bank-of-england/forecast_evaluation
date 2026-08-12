@@ -9,6 +9,8 @@ from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.utils import construct_unique_id
 from forecast_evaluation.utils import filter_k, reconstruct_id_cols_from_unique_id
 
+AXIS_COLUMNS = {"period_end": "days_to_period_end", "publication": "days_to_publication"}
+
 
 def _prepare_intra_period_data(
     data: Union[pd.DataFrame, ForecastData],
@@ -17,28 +19,49 @@ def _prepare_intra_period_data(
     frequency: str = "Q",
     forecast_horizon: Optional[int] = None,
     k: Optional[int] = None,
-) -> tuple[pd.DataFrame, list[str]]:
+    axis: Literal["period_end", "publication"] = "period_end",
+) -> tuple[pd.DataFrame, list[str], str]:
     """Filter and prepare data for intra-period analysis.
 
-    Computes ``days_to_target`` as the number of days between the
-    forecast vintage and the end of the target period.
+    Adds the requested time axis column, measured in days from the forecast
+    vintage and rounded to the nearest 7 days so that weekly vintages whose
+    day-of-week alignment drifts across years are binned together.
 
     Parameters
     ----------
     forecast_horizon : int or None
         If given, restrict to a single horizon. If ``None`` (default),
-        include all horizons so the full days-to-target range is visible.
+        include all horizons so the full axis range is visible.
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance,
         or 0 for a DataFrame.
+    axis : {'period_end', 'publication'}
+        Time axis to compute.
+
+        - ``'period_end'`` (default) gives ``days_to_period_end`` =
+          ``date - vintage_date_forecast``: the distance from the forecast
+          vintage to the end of the target period. Independent of when the
+          outturn is published, so it lines up with calendar period
+          boundaries across target periods.
+        - ``'publication'`` gives ``days_to_publication`` =
+          ``vintage_date_outturn - vintage_date_forecast``: the distance from
+          the forecast vintage to the release of the selected outturn. This
+          depends on ``k`` and on the publication lag of the series.
+
+        The two axes differ by the publication lag, which is constant within
+        a single target period but varies across periods and series.
 
     Returns
     -------
-    tuple of (pd.DataFrame, list of str)
-        The prepared data (with ``unique_id`` and ``days_to_target``) and the
-        id columns encoded in ``unique_id`` (``source`` plus any ``extra_ids``).
+    tuple of (pd.DataFrame, list of str, str)
+        The prepared data (with ``unique_id`` and the axis column), the id
+        columns encoded in ``unique_id`` (``source`` plus any ``extra_ids``),
+        and the name of the axis column.
     """
+    if axis not in AXIS_COLUMNS:
+        raise ValueError(f"Unknown axis: {axis}. Use 'period_end' or 'publication'.")
+
     id_columns = ["source"]
     if isinstance(data, ForecastData):
         if not data.uses_intra_period_vintages:
@@ -82,13 +105,14 @@ def _prepare_intra_period_data(
             + (f", forecast_horizon={forecast_horizon}" if forecast_horizon is not None else "")
         )
 
-    # Days from forecast vintage to the end of the target period,
-    # rounded to the nearest 7 days so that weekly vintages whose
+    # Rounded to the nearest 7 days so that weekly vintages whose
     # day-of-week alignment drifts across years are binned together.
-    raw_days = (pd.to_datetime(df["date"]) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
-    df["days_to_target"] = (raw_days / 7).round().astype(int) * 7
+    axis_column = AXIS_COLUMNS[axis]
+    end_point = df["date"] if axis == "period_end" else df["vintage_date_outturn"]
+    raw_days = (pd.to_datetime(end_point) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
+    df[axis_column] = (raw_days / 7).round().astype(int) * 7
 
-    return df, id_columns
+    return df, id_columns, axis_column
 
 
 def compute_intra_period_accuracy(
@@ -99,8 +123,9 @@ def compute_intra_period_accuracy(
     forecast_horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
     k: Optional[int] = None,
+    axis: Literal["period_end", "publication"] = "period_end",
 ) -> pd.DataFrame:
-    """Compute forecast accuracy grouped by days to target.
+    """Compute forecast accuracy grouped by a within-period time axis.
 
     Parameters
     ----------
@@ -119,17 +144,25 @@ def compute_intra_period_accuracy(
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance.
+    axis : {'period_end', 'publication'}
+        Time axis to group by. ``'period_end'`` (default) measures days from
+        the forecast vintage to the end of the target period;
+        ``'publication'`` measures days to the release of the selected
+        outturn. The two differ by the publication lag.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with the identifier columns (``source`` plus any
-        ``extra_ids``), ``unique_id``, ``days_to_target``, ``value`` and
+        ``extra_ids``), ``unique_id``, the axis column
+        (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the statistic.
     """
-    df, id_columns = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
+    df, id_columns, axis_column = _prepare_intra_period_data(
+        data, variable, metric, frequency, forecast_horizon, k, axis
+    )
 
-    grouped = df.groupby(["unique_id", "days_to_target"])["forecast_error"]
+    grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
 
     if statistic == "rmse":
         mse = grouped.apply(lambda x: np.mean(x**2))
@@ -152,7 +185,7 @@ def compute_intra_period_accuracy(
 
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
     result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
-    return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
+    return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)
 
 
 def compute_intra_period_bias(
@@ -162,8 +195,9 @@ def compute_intra_period_bias(
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
     k: Optional[int] = None,
+    axis: Literal["period_end", "publication"] = "period_end",
 ) -> pd.DataFrame:
-    """Compute forecast bias (mean error) grouped by days to target.
+    """Compute forecast bias (mean error) grouped by a within-period time axis.
 
     Parameters
     ----------
@@ -180,20 +214,28 @@ def compute_intra_period_bias(
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance.
+    axis : {'period_end', 'publication'}
+        Time axis to group by. ``'period_end'`` (default) measures days from
+        the forecast vintage to the end of the target period;
+        ``'publication'`` measures days to the release of the selected
+        outturn. The two differ by the publication lag.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with the identifier columns (``source`` plus any
-        ``extra_ids``), ``unique_id``, ``days_to_target``, ``value`` and
+        ``extra_ids``), ``unique_id``, the axis column
+        (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the mean error.
     """
-    df, id_columns = _prepare_intra_period_data(data, variable, metric, frequency, forecast_horizon, k)
+    df, id_columns, axis_column = _prepare_intra_period_data(
+        data, variable, metric, frequency, forecast_horizon, k, axis
+    )
 
-    grouped = df.groupby(["unique_id", "days_to_target"])["forecast_error"]
+    grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
     mean_err = grouped.mean()
     se_mean = grouped.apply(lambda x: np.std(x, ddof=1) / np.sqrt(len(x)) if len(x) > 1 else np.nan)
     result = pd.DataFrame({"value": mean_err, "se": se_mean}).reset_index()
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
     result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
-    return result.sort_values(["unique_id", "days_to_target"], ascending=[True, False]).reset_index(drop=True)
+    return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)

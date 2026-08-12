@@ -22,6 +22,23 @@ class NowcastData(ForecastData):
       used for intra-period accuracy analysis.
     - Efficiency analyses (weak/strong efficiency, Blanchard-Leigh, revision
       predictability, revisions-errors correlation) are not available.
+
+    Notes
+    -----
+    Two different time axes appear in nowcast analysis and should not be
+    confused:
+
+    - ``days_to_publication`` (this class) is the distance from the forecast
+      vintage to the *release date* of the selected outturn vintage. It
+      therefore depends on ``k`` and on the publication lag of the series.
+    - ``days_to_period_end`` is the distance from the forecast vintage to the
+      *end of the target period*, independent of when the outturn is
+      published.
+
+    The two differ by the publication lag. Intra-period accuracy and bias
+    functions take an ``axis`` argument (``'period_end'``, the default, or
+    ``'publication'``) to choose between them, and bin the result to the
+    nearest 7 days.
     """
 
     default_k = 0
@@ -281,6 +298,10 @@ class NowcastData(ForecastData):
         forecast vintage. A larger value means the forecast was made further
         from publication; the value decreases (and can become negative for
         backcasts) as the vintage approaches the outturn release.
+
+        Not to be confused with ``days_to_period_end`` used by intra-period
+        analysis, which measures the distance to the end of the target period
+        rather than to the outturn release.
         """
         if self._main_table.empty:
             return

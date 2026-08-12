@@ -4,15 +4,21 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
 
-from forecast_evaluation.tests.intra_period import compute_intra_period_accuracy, compute_intra_period_bias
+from forecast_evaluation.tests.intra_period import (
+    AXIS_COLUMNS,
+    compute_intra_period_accuracy,
+    compute_intra_period_bias,
+)
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 if TYPE_CHECKING:
     from forecast_evaluation.data.ForecastData import ForecastData
 
+AXIS_LABELS = {"period_end": "Days to Period End", "publication": "Days to Publication"}
+
 
 def _add_period_boundaries(ax, days_min, days_max, frequency, target_dates):
-    """Add calendar month or quarter boundaries on a days-to-target axis."""
+    """Add calendar month or quarter boundaries on a days-to-period-end axis."""
     if not target_dates:
         return
 
@@ -53,15 +59,18 @@ def plot_intra_period_accuracy(
     forecast_horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
     k: Optional[int] = None,
+    axis: Literal["period_end", "publication"] = "period_end",
     convert_to_percentage: bool = False,
     confidence_level: Optional[int] = None,
     return_plot: bool = False,
 ):
-    """Plot forecast accuracy as a function of days to target.
+    """Plot forecast accuracy as a function of a within-period time axis.
 
-    Shows how forecast accuracy evolves as the target period approaches.
+    Shows how forecast accuracy evolves as the forecast vintage approaches
+    either the end of the target period or the outturn release (see ``axis``).
     When ``forecast_horizon`` is ``None``, all horizons are shown on a
-    single axis with dashed vertical lines at calendar period boundaries.
+    single axis; with ``axis='period_end'`` dashed vertical lines mark
+    calendar period boundaries.
 
     Parameters
     ----------
@@ -81,6 +90,12 @@ def plot_intra_period_accuracy(
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance.
+    axis : {'period_end', 'publication'}
+        X-axis to plot against. ``'period_end'`` (default) is days from the
+        forecast vintage to the end of the target period; ``'publication'``
+        is days to the release of the selected outturn. The two differ by
+        the publication lag, which is constant within a target period but
+        varies across periods and series.
     convert_to_percentage : bool
         If True, multiplies values on the y-axis by 100.
     confidence_level : int or None
@@ -95,7 +110,9 @@ def plot_intra_period_accuracy(
         If return_plot is True, returns the figure and axes objects.
         Otherwise, displays the plot and returns None.
     """
-    result = compute_intra_period_accuracy(data, variable, metric, frequency, forecast_horizon, statistic, k)
+    result = compute_intra_period_accuracy(data, variable, metric, frequency, forecast_horizon, statistic, k, axis)
+    x_col = AXIS_COLUMNS[axis]
+    axis_label = AXIS_LABELS[axis]
 
     multiplier = 100 if convert_to_percentage else 1
     stat_labels = {"rmse": "RMSE", "mae": "MAE"}
@@ -109,7 +126,7 @@ def plot_intra_period_accuracy(
     for label in sorted(result[label_col].unique()):
         source_data = result[result[label_col] == label]
         line = ax.plot(
-            source_data["days_to_target"],
+            source_data[x_col],
             multiplier * source_data["value"],
             marker="o",
             linewidth=2,
@@ -119,28 +136,29 @@ def plot_intra_period_accuracy(
         if z is not None and "se" in source_data.columns:
             colour = line[0].get_color()
             ax.fill_between(
-                source_data["days_to_target"],
+                source_data[x_col],
                 multiplier * (source_data["value"] - z * source_data["se"]),
                 multiplier * (source_data["value"] + z * source_data["se"]),
                 alpha=0.15,
                 color=colour,
             )
 
-    if not result.empty:
+    # Boundaries are anchored on target period ends, so only meaningful on that axis.
+    if not result.empty and axis == "period_end":
         _add_period_boundaries(
             ax,
-            result["days_to_target"].min(),
-            result["days_to_target"].max(),
+            result[x_col].min(),
+            result[x_col].max(),
             frequency,
             result.attrs.get("target_dates", []),
         )
 
     horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
     ax.set_title(
-        f"{stat_label} by Days to Target\n{variable.upper()} - {metric}{horizon_str}",
+        f"{stat_label} by {axis_label}\n{variable.upper()} - {metric}{horizon_str}",
         fontsize=14,
     )
-    ax.set_xlabel("Days to Target", fontsize=12)
+    ax.set_xlabel(axis_label, fontsize=12)
     ax.set_ylabel(stat_label, fontsize=12)
     ax.invert_xaxis()
     ax.grid(True, alpha=0.3)
@@ -160,11 +178,12 @@ def plot_intra_period_bias(
     frequency: Literal["Q", "M"] = "Q",
     forecast_horizon: Optional[int] = None,
     k: Optional[int] = None,
+    axis: Literal["period_end", "publication"] = "period_end",
     convert_to_percentage: bool = False,
     confidence_level: Optional[int] = None,
     return_plot: bool = False,
 ):
-    """Plot forecast bias (mean error) as a function of days to target.
+    """Plot forecast bias (mean error) as a function of a within-period time axis.
 
     Parameters
     ----------
@@ -182,6 +201,10 @@ def plot_intra_period_bias(
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
         (default), uses ``data.default_k`` for a ``ForecastData`` instance.
+    axis : {'period_end', 'publication'}
+        X-axis to plot against. ``'period_end'`` (default) is days from the
+        forecast vintage to the end of the target period; ``'publication'``
+        is days to the release of the selected outturn.
     convert_to_percentage : bool
         If True, multiplies values on the y-axis by 100.
     confidence_level : int or None
@@ -194,7 +217,9 @@ def plot_intra_period_bias(
     -------
     tuple of (matplotlib.figure.Figure, matplotlib.axes.Axes) or None
     """
-    result = compute_intra_period_bias(data, variable, metric, frequency, forecast_horizon, k)
+    result = compute_intra_period_bias(data, variable, metric, frequency, forecast_horizon, k, axis)
+    x_col = AXIS_COLUMNS[axis]
+    axis_label = AXIS_LABELS[axis]
 
     multiplier = 100 if convert_to_percentage else 1
 
@@ -206,7 +231,7 @@ def plot_intra_period_bias(
     for label in sorted(result[label_col].unique()):
         source_data = result[result[label_col] == label]
         line = ax.plot(
-            source_data["days_to_target"],
+            source_data[x_col],
             multiplier * source_data["value"],
             marker="o",
             linewidth=2,
@@ -216,7 +241,7 @@ def plot_intra_period_bias(
         if z is not None and "se" in source_data.columns:
             colour = line[0].get_color()
             ax.fill_between(
-                source_data["days_to_target"],
+                source_data[x_col],
                 multiplier * (source_data["value"] - z * source_data["se"]),
                 multiplier * (source_data["value"] + z * source_data["se"]),
                 alpha=0.15,
@@ -225,21 +250,22 @@ def plot_intra_period_bias(
 
     ax.axhline(y=0, color="black", linestyle="--", linewidth=0.8, alpha=0.5)
 
-    if not result.empty:
+    # Boundaries are anchored on target period ends, so only meaningful on that axis.
+    if not result.empty and axis == "period_end":
         _add_period_boundaries(
             ax,
-            result["days_to_target"].min(),
-            result["days_to_target"].max(),
+            result[x_col].min(),
+            result[x_col].max(),
             frequency,
             result.attrs.get("target_dates", []),
         )
 
     horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
     ax.set_title(
-        f"Bias by Days to Target\n{variable.upper()} - {metric}{horizon_str}",
+        f"Bias by {axis_label}\n{variable.upper()} - {metric}{horizon_str}",
         fontsize=14,
     )
-    ax.set_xlabel("Days to Target", fontsize=12)
+    ax.set_xlabel(axis_label, fontsize=12)
     ax.set_ylabel("Mean Error", fontsize=12)
     ax.invert_xaxis()
     ax.grid(True, alpha=0.3)

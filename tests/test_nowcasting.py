@@ -680,11 +680,11 @@ class TestExtraIdsPreserveForecastIdentity:
             f"{source} + {model}" for source in nowcast_fd_extra_ids.df["source"].unique() for model in ("A", "B")
         }
 
-        # One row per (source, model, days_to_target) - no pooling across models.
-        assert not result.duplicated(subset=["source", "model", "days_to_target"]).any()
+        # One row per (source, model, days_to_period_end) - no pooling across models.
+        assert not result.duplicated(subset=["source", "model", "days_to_period_end"]).any()
 
         # The two variants must produce different statistics.
-        pivot = result.pivot_table(index=["source", "days_to_target"], columns="model", values="value")
+        pivot = result.pivot_table(index=["source", "days_to_period_end"], columns="model", values="value")
         assert not pivot["A"].equals(pivot["B"])
 
     @pytest.mark.parametrize("plot", [plot_intra_period_accuracy, plot_intra_period_bias])

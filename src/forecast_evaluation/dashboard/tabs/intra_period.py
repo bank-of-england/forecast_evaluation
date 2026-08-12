@@ -49,6 +49,7 @@ def intra_period_accuracy(input, output, session, data):
             variable=input.variable(),
             metric=input.transform(),
             statistic=input.intra_statistic(),
+            axis=input.intra_axis(),
             convert_to_percentage=True,
             confidence_level=confidence_level,
             return_plot=True,
@@ -87,6 +88,7 @@ def intra_period_accuracy(input, output, session, data):
             variable=input.variable(),
             metric=input.transform(),
             statistic=input.intra_statistic(),
+            axis=input.intra_axis(),
         )
         csv_bytes = accuracy_results.to_csv()
         return io.BytesIO(csv_bytes.encode())
@@ -125,6 +127,7 @@ def intra_period_bias(input, output, session, data):
             data=data_filtered,
             variable=input.variable(),
             metric=input.transform(),
+            axis=input.intra_axis(),
             convert_to_percentage=True,
             confidence_level=confidence_level,
             return_plot=True,
@@ -162,6 +165,7 @@ def intra_period_bias(input, output, session, data):
             data=data_filtered,
             variable=input.variable(),
             metric=input.transform(),
+            axis=input.intra_axis(),
         )
         csv_bytes = bias_results.to_csv()
         return io.BytesIO(csv_bytes.encode())
