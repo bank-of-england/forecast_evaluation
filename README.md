@@ -90,3 +90,6 @@ To make visualisation of forecasts and their properties easier, the package incl
 ```python
 forecast_data.run_dashboard()
 ```
+
+## Data Classification
+Bank of England Data Classification: OFFICIAL BLUE
