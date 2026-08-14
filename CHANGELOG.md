@@ -84,5 +84,8 @@
 - Moved `pyarrow` back to required dependencies as it's required when initiating the `ForecastData` class with `load_fer=True`.
 
 ## 0.1.13 (unreleased)
+### Added
+- New `NowcastData` class to handle intra-period vintages.
+
 ### Adjustments
 - Specify metric in `add_fer_outturns` to be 'levels'.
