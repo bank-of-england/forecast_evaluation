@@ -1018,6 +1018,31 @@ class TestIntraPeriodKSelection:
         assert result["se"].isna().all()
         assert result["value"].iloc[0] == pytest.approx(3.0)
 
+    def test_intra_period_publication_axis_differs_from_period_end_axis(self):
+        """The publication axis differs from the period-end axis by the outturn's publication lag."""
+        # vintage_date_forecast to date (period end) is 14 days; vintage_date_forecast to
+        # vintage_date_outturn (publication) is 35 days. Both are exact multiples of 7, so
+        # the nearest-7-days rounding in _prepare_intra_period_data is a no-op here.
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-04-21", 0, "2024-04-21", 1.0),
+            ]
+        )
+
+        period_end_result = compute_intra_period_accuracy(
+            df, variable="gdp", metric="levels", frequency="Q", axis="period_end"
+        )
+        publication_result = compute_intra_period_accuracy(
+            df, variable="gdp", metric="levels", frequency="Q", axis="publication"
+        )
+
+        assert period_end_result["days_to_period_end"].iloc[0] == 14
+        assert publication_result["days_to_publication"].iloc[0] == 35
+        # Difference equals vintage_date_outturn - date (period end), the publication lag.
+        assert (
+            publication_result["days_to_publication"].iloc[0] - period_end_result["days_to_period_end"].iloc[0]
+        ) == 21
+
     def test_intra_period_hand_calculated_accuracy_and_bias(self):
         """RMSE/MAE/mean-error must match a hand-computed value for a small, known dataset."""
         # Same unique_id and axis bucket (14 days to period end) across two target
