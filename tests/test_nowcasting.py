@@ -914,6 +914,201 @@ class TestIntraPeriodPlot:
 
 
 # -----------------------
+# Intra-Period k Selection Metadata & Single-Counting
+# -----------------------
+class TestIntraPeriodKSelection:
+    """Verify the resolved outturn maturity is recorded and revisions are not double-counted."""
+
+    @staticmethod
+    def _row(
+        date,
+        vintage_date_forecast,
+        vintage_date_outturn,
+        k,
+        latest_vintage,
+        forecast_error,
+        source="model",
+    ):
+        return {
+            "date": pd.Timestamp(date),
+            "vintage_date_forecast": pd.Timestamp(vintage_date_forecast),
+            "vintage_date_outturn": pd.Timestamp(vintage_date_outturn),
+            "variable": "gdp",
+            "metric": "levels",
+            "frequency": "Q",
+            "forecast_horizon": 0,
+            "forecast_error": forecast_error,
+            "source": source,
+            "k": k,
+            "latest_vintage": pd.Timestamp(latest_vintage),
+        }
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_result_records_selected_k(self, compute):
+        """result.attrs['k'] should hold the resolved (non-None) k that was used."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 1, "2024-03-31", 1.0),
+            ]
+        )
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q", k=1)
+
+        assert result.attrs["k"] == 1
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_result_flags_k_fallback_when_revision_unavailable(self, compute):
+        """attrs['k_fallback_used'] is True when filter_k substituted an earlier vintage."""
+        df = pd.DataFrame(
+            [
+                # k=2 not yet released for this forecast; latest available is k=0, substituted.
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-03-31", 1.0),
+                # k=2 available for this one; no substitution needed.
+                self._row("2024-06-30", "2024-06-16", "2024-06-30", 2, "2024-09-30", 2.0),
+            ]
+        )
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q", k=2)
+
+        assert result.attrs["k_fallback_used"] is True
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_result_no_fallback_flag_when_k_fully_available(self, compute):
+        """attrs['k_fallback_used'] is False when every row already has the requested k."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 2, "2024-06-30", 1.0),
+                self._row("2024-06-30", "2024-06-16", "2024-06-30", 2, "2024-09-30", 2.0),
+            ]
+        )
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q", k=2)
+
+        assert result.attrs["k_fallback_used"] is False
+
+    def test_intra_period_accuracy_counts_each_forecast_once_across_revisions(self):
+        """A forecast with 3 outturn revisions must contribute exactly one observation for a given k."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-09-30", 1.0),
+                self._row("2024-03-31", "2024-03-17", "2024-06-30", 1, "2024-09-30", 3.0),
+                self._row("2024-03-31", "2024-03-17", "2024-09-30", 2, "2024-09-30", 5.0),
+            ]
+        )
+
+        result = compute_intra_period_accuracy(df, variable="gdp", metric="levels", frequency="Q", k=1)
+
+        assert len(result) == 1
+        assert result["se"].isna().all()
+        assert result["value"].iloc[0] == pytest.approx(3.0)
+
+    def test_intra_period_bias_counts_each_forecast_once_across_revisions(self):
+        """A forecast with 3 outturn revisions must contribute exactly one observation for a given k."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-09-30", 1.0),
+                self._row("2024-03-31", "2024-03-17", "2024-06-30", 1, "2024-09-30", 3.0),
+                self._row("2024-03-31", "2024-03-17", "2024-09-30", 2, "2024-09-30", 5.0),
+            ]
+        )
+
+        result = compute_intra_period_bias(df, variable="gdp", metric="levels", frequency="Q", k=1)
+
+        assert len(result) == 1
+        assert result["se"].isna().all()
+        assert result["value"].iloc[0] == pytest.approx(3.0)
+
+    def test_intra_period_hand_calculated_accuracy_and_bias(self):
+        """RMSE/MAE/mean-error must match a hand-computed value for a small, known dataset."""
+        # Same unique_id and axis bucket (14 days to period end) across two target
+        # quarters, so the group has two observations with known errors.
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-03-31", 2.0),
+                self._row("2024-06-30", "2024-06-16", "2024-06-30", 0, "2024-06-30", -4.0),
+            ]
+        )
+
+        accuracy = compute_intra_period_accuracy(df, variable="gdp", metric="levels", frequency="Q", k=0)
+        bias = compute_intra_period_bias(df, variable="gdp", metric="levels", frequency="Q", k=0)
+        mae = compute_intra_period_accuracy(df, variable="gdp", metric="levels", frequency="Q", k=0, statistic="mae")
+
+        expected_rmse = ((2.0**2 + 4.0**2) / 2) ** 0.5
+        expected_mean_error = (2.0 + -4.0) / 2
+        expected_mae = (2.0 + 4.0) / 2
+
+        assert len(accuracy) == 1
+        assert accuracy["value"].iloc[0] == pytest.approx(expected_rmse)
+        assert len(bias) == 1
+        assert bias["value"].iloc[0] == pytest.approx(expected_mean_error)
+        assert len(mae) == 1
+        assert mae["value"].iloc[0] == pytest.approx(expected_mae)
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_default_k_resolves_to_zero_for_dataframe(self, compute):
+        """When k is not passed explicitly, a raw DataFrame input resolves to k=0."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-03-31", 1.0),
+            ]
+        )
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q")
+
+        assert result.attrs["k"] == 0
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_default_k_resolves_from_nowcast_data(self, compute, nowcast_outturns, nowcast_forecasts):
+        """When k is not passed explicitly, a NowcastData instance resolves to data.default_k.
+
+        Uses a non-zero ``default_k`` so the test cannot pass by coincidence: if
+        ``data.default_k`` were ignored, ``k`` would silently fall back to 0 and the
+        result would differ from the explicit ``k=2`` call below.
+        """
+        fd = NowcastData(outturns_data=nowcast_outturns, default_k=2)
+        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        assert fd.default_k == 2
+
+        result = compute(fd, variable="gdp", metric="levels", frequency="Q")
+        expected = compute(fd, variable="gdp", metric="levels", frequency="Q", k=2)
+
+        assert result.attrs["k"] == 2
+        pd.testing.assert_frame_equal(result, expected)
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_no_fallback_flag_when_latest_vintage_all_nat(self, compute):
+        """attrs['k_fallback_used'] is False when filter_k's all-NaT no-op path applies,
+        even though the raw k values would otherwise look like a fallback occurred."""
+        df = pd.DataFrame(
+            [
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, pd.NaT, 1.0),
+                self._row("2024-06-30", "2024-06-16", "2024-06-30", 0, pd.NaT, 2.0),
+            ]
+        )
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q", k=2)
+
+        assert result.attrs["k_fallback_used"] is False
+
+    @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
+    def test_intra_period_fallback_outside_filter_mask_not_flagged(self, compute):
+        """A fallback substitution in a row filtered out by variable/metric/frequency must not set the flag."""
+        df = pd.DataFrame(
+            [
+                # k=2 not available; substituted with k=0 for a *different* variable - filtered out.
+                self._row("2024-03-31", "2024-03-17", "2024-03-31", 0, "2024-03-31", 1.0, source="model"),
+                # Matching row: k fully available, no substitution.
+                self._row("2024-06-30", "2024-06-16", "2024-06-30", 2, "2024-09-30", 2.0),
+            ]
+        )
+        df.loc[0, "variable"] = "unemployment"
+
+        result = compute(df, variable="gdp", metric="levels", frequency="Q", k=2)
+
+        assert result.attrs["k_fallback_used"] is False
+
+
+# -----------------------
 # Extra IDs Preserve Forecast Identity
 # -----------------------
 class TestExtraIdsPreserveForecastIdentity:
