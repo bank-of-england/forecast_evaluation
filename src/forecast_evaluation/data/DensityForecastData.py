@@ -19,7 +19,7 @@ from forecast_evaluation.data.ForecastData import (
 from forecast_evaluation.data.sample_data import (
     create_sample_density_forecasts,
 )
-from forecast_evaluation.data.utils import construct_unique_id
+from forecast_evaluation.data.utils import compute_target_minus_vintage, construct_unique_id
 
 
 class DensityForecastData(ForecastData):
@@ -154,6 +154,7 @@ class DensityForecastData(ForecastData):
 
         # Validate records using the ForecastRecord model
         df = _validate_records(df, forecast=True, optional_columns=extra_ids)
+        df = compute_target_minus_vintage(df)
 
         # ID columns
         id_cols = ["source"] if extra_ids is None else ["source"] + extra_ids
@@ -200,7 +201,7 @@ class DensityForecastData(ForecastData):
         forecasts = pd.concat([forecasts_levels, forecasts_yoy, forecasts_pop], ignore_index=True)
 
         # trim outturns from forecasts
-        forecasts = forecasts[forecasts["forecast_horizon"] >= 0]
+        forecasts = forecasts[forecasts["target_minus_vintage"] >= 0]
 
         # Ensure quantile remains float in forecasts
         df["quantile"] = df["quantile"].astype(float)
@@ -496,7 +497,9 @@ def _prepare_density_forecasts(df: pd.DataFrame, transform: str) -> pd.DataFrame
         df_freq = df[df["frequency"] == frequency].copy()
 
         # the sorting_cols are all cols but value and date
-        grouping_cols = [col for col in df_freq.columns if col not in ["value", "date", "forecast_horizon"]]
+        grouping_cols = [
+            col for col in df_freq.columns if col not in ["value", "date", "forecast_horizon", "target_minus_vintage"]
+        ]
         sorting_cols = grouping_cols + ["date"]
         df_freq = df_freq.sort_values(sorting_cols)
 

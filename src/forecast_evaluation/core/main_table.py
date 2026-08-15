@@ -111,7 +111,13 @@ def build_main_table(
 
     # Pre-select only needed columns to reduce memory footprint
     merge_cols = ["date", "variable", "frequency", "metric"]
-    forecast_cols = merge_cols + ["vintage_date", "value", "unique_id", "forecast_horizon"]
+    forecast_cols = merge_cols + [
+        "vintage_date",
+        "value",
+        "unique_id",
+        "forecast_horizon",
+        "target_minus_vintage",
+    ]
     outturn_cols = merge_cols + ["vintage_date", "value"]
 
     forecasts_slim = forecasts_filtered[[c for c in forecast_cols if c in forecasts_filtered.columns]]
@@ -138,6 +144,7 @@ def build_main_table(
             "metric",
             "frequency",
             "forecast_horizon",
+            "target_minus_vintage",
             "value_forecast",
             "value_outturn",
         ]

@@ -58,13 +58,21 @@ All of the above features can be explored interactively in a dashboard.
 The forecasts should be in a `pandas` dataframe format with the following structure:
 ```
             date vintage_date variable       source frequency  forecast_horizon  value
-0     2014-12-31   2015-03-31      gdp        BVAR         Q                -1    100
-1     2015-03-31   2015-03-31      gdp        BVAR         Q                 0    101
-2     2015-06-30   2015-03-31      gdp        BVAR         Q                 1    102
-3     2015-09-30   2015-03-31      gdp        BVAR         Q                 2    103
+0     2015-03-31   2015-03-31      gdp        BVAR         Q                 0    101
+1     2015-06-30   2015-03-31      gdp        BVAR         Q                 1    102
+2     2015-09-30   2015-03-31      gdp        BVAR         Q                 2    103
 ```
 
-Outturns follow the same structure but do not contain a `source` column. 
+`forecast_horizon` is the information horizon supplied by the forecaster. It is based on the
+forecast target date (`date`) and the last target observation used for estimation:
+`forecast_horizon = forecast_target_date - date_last_target_obs_used_for_estimation - 1`,
+measured in periods at the stated frequency. Thus, horizon `0` is the first period after the
+last observation used for estimation. It is not inferred from `vintage_date`.
+Negative horizons, including `-1`, may be supplied for forecast/outturn consistency checks, but
+are removed before forecasts are stored for evaluation.
+
+Outturns use the same `date`, `vintage_date`, `variable`, `frequency`, and `value` columns,
+but do not require `source` or `forecast_horizon`.
 
 ### Creating a ForecastData instance
 The package's main object is the `ForecastData` class which holds the outturns, forecasts, transformed forecasts and forecast errors. You can create an instance of this class with:

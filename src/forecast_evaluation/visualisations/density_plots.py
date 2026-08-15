@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from forecast_evaluation.data import DensityForecastData
+from forecast_evaluation.data.utils import compute_target_minus_vintage
 from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
@@ -151,12 +152,11 @@ def plot_density_vintage(
                     label=f"{forecast_id} ({quantiles[0]}-{quantiles[-1]})",
                 )
 
-    # Overlay the outturns series (forecast_horizon == -1)
-    outturns_data = outturns.sort_values("date")
+    # Overlay the outturns series, split at the selected forecast vintage.
+    outturns_data = compute_target_minus_vintage(outturns.assign(vintage_date=vintage_date)).sort_values("date")
     if not outturns_data.empty:
-        # Split outturns: solid before vintage_date, dashed from vintage_date onwards
-        solid_outturns = outturns_data[outturns_data["date"] < vintage_date]
-        dashed_outturns = outturns_data[outturns_data["date"] >= vintage_date]
+        solid_outturns = outturns_data[outturns_data["target_minus_vintage"] < 0]
+        dashed_outturns = outturns_data[outturns_data["target_minus_vintage"] >= 0]
 
         if not solid_outturns.empty:
             ax.plot(

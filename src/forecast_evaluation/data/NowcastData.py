@@ -3,7 +3,7 @@ from typing import Literal, Optional
 import pandas as pd
 
 from forecast_evaluation.data.ForecastData import _FORECAST_STATE, ForecastData, _atomic_state
-from forecast_evaluation.data.utils import compute_forecast_horizon
+from forecast_evaluation.data.utils import compute_target_minus_vintage
 
 
 class NowcastData(ForecastData):
@@ -11,13 +11,13 @@ class NowcastData(ForecastData):
 
     Designed for environments where forecasts (and outturns) are released
     multiple times per period with intra-period vintage dates (e.g. weekly).
-    Integer-period horizons are used (h=-1 backcast, h=0 nowcast, h=1 one-
-    period-ahead) so that multiple weekly vintages per horizon provide many
-    observations for accuracy statistics.
+    Non-negative information horizons are used (h=0 nowcast, h=1 one-period-
+    ahead) so that multiple weekly vintages per horizon provide many
+    observations for accuracy statistics. Vintage-relative backcasts are
+    identified by ``target_minus_vintage`` instead.
 
     Differences from ForecastData:
 
-    - ``first_forecast_horizon`` defaults to -1 (include backcasts).
     - The main table includes a ``days_to_publication`` column computed as
       ``(vintage_date_outturn - vintage_date_forecast).days``, which can be
       used for intra-period accuracy analysis.
@@ -53,7 +53,6 @@ class NowcastData(ForecastData):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        first_forecast_horizon: int = -1,
         default_k: Optional[int] = None,
     ):
         """Initialise NowcastData.
@@ -72,8 +71,6 @@ class NowcastData(ForecastData):
             Whether to auto-transform non-levels forecasts to levels.
         data_check : bool, optional
             Whether to run data checks when adding forecasts.
-        first_forecast_horizon : int, optional
-            Minimum forecast horizon to retain. Default is -1 (include backcasts).
         """
         super().__init__(
             outturns_data=outturns_data,
@@ -82,7 +79,6 @@ class NowcastData(ForecastData):
             metric=metric,
             compute_levels=compute_levels,
             data_check=data_check,
-            first_forecast_horizon=first_forecast_horizon,
             default_k=default_k,
         )
 
@@ -258,7 +254,7 @@ class NowcastData(ForecastData):
         revising history would otherwise leave it stale.
 
         How much history each snapshot needs is derived from the forecasts
-        themselves: the deepest horizon for that variable, less the
+        themselves: the smallest vintage distance for that variable, less the
         ``n_periods + 1`` base rows that ``pct_change`` needs for the
         year-on-year transform.
         """
@@ -283,12 +279,12 @@ class NowcastData(ForecastData):
         # snapshot row for the same date.
         fc_targets = forecasts_df.groupby(["variable", "vintage_date"])["date"].apply(set).to_dict()
 
-        # Deepest (most negative) forecast horizon being added per variable.
-        # ``prepare_forecasts`` only keeps forecasts at or above its threshold,
-        # so no retained forecast can sit below this, and the outturn history
-        # each snapshot needs is bounded relative to it.
-        fc_horizons = compute_forecast_horizon(forecasts_df[["variable", "date", "vintage_date", "frequency"]].copy())
-        min_fc_horizon = fc_horizons.groupby("variable")["forecast_horizon"].min().to_dict()
+        # Deepest vintage distance being added per variable. The outturn
+        # history for each snapshot is bounded relative to this distance.
+        fc_distances = compute_target_minus_vintage(
+            forecasts_df[["variable", "date", "vintage_date", "frequency"]].copy()
+        )
+        min_fc_distance = fc_distances.groupby("variable")["target_minus_vintage"].min().to_dict()
 
         n_periods_by_frequency = {"Q": 4, "M": 12}
 
@@ -300,14 +296,13 @@ class NowcastData(ForecastData):
             missing = set(forecast_vintages) - set(pd.to_datetime(var_outturns["vintage_date"]).unique())
 
             # ``pct_change`` needs n_periods+1 rows of base history below the
-            # deepest forecast horizon; anything older is discarded by
-            # ``prepare_forecasts`` anyway, so don't build it in the first place.
+            # deepest forecast distance, so don't build older snapshots.
             frequencies = var_outturns["frequency"].unique()
             if len(frequencies) > 1:
                 raise ValueError(f"Expected a single frequency for variable {variable!r}, got {sorted(frequencies)}.")
             freq = frequencies[0]
             n_periods = n_periods_by_frequency.get(freq)
-            min_horizon = None if n_periods is None else min_fc_horizon[variable] - (n_periods + 1)
+            min_distance = None if n_periods is None else min_fc_distance[variable] - (n_periods + 1)
 
             for vintage in sorted(missing):
                 # All outturn rows for this series released on or before *vintage*
@@ -315,10 +310,11 @@ class NowcastData(ForecastData):
                 if available.empty:
                     continue
 
-                if min_horizon is not None:
-                    date_periods = pd.to_datetime(available["date"]).dt.to_period(freq).astype("int64")
-                    vintage_period = pd.Period(vintage, freq=freq).ordinal
-                    available = available[date_periods - vintage_period >= min_horizon]
+                if min_distance is not None:
+                    release_vintages = available["vintage_date"].copy()
+                    available = compute_target_minus_vintage(available.assign(vintage_date=pd.Timestamp(vintage)))
+                    available["vintage_date"] = release_vintages
+                    available = available[available["target_minus_vintage"] >= min_distance]
                     if available.empty:
                         continue
 
@@ -343,7 +339,7 @@ class NowcastData(ForecastData):
             self._raw_outturns = self._raw_outturns.assign(_aligned=False)
         if new_rows:
             expanded = pd.concat(new_rows, ignore_index=True)
-            expanded = compute_forecast_horizon(expanded)
+            expanded = compute_target_minus_vintage(expanded)
             expanded["_aligned"] = True
             self._raw_outturns = pd.concat([self._raw_outturns, expanded], ignore_index=True)
         self._outturns = prepare_outturns(self._raw_outturns)

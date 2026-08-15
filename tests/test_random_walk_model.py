@@ -19,9 +19,25 @@ def _build_outturns(variable="x", frequency="Q", n=40, vintage_date=pd.Timestamp
             "vintage_date": vintage_date,
             "variable": variable,
             "frequency": frequency,
-            "forecast_horizon": -1,
             "value": values,
             "metric": "levels",
+        }
+    )
+
+
+def _build_forecasts(outturns: pd.DataFrame) -> pd.DataFrame:
+    """Supply the horizon information needed to choose the benchmark training cutoff."""
+    last_date = outturns["date"].max()
+    return pd.DataFrame(
+        {
+            "date": [last_date + pd.offsets.QuarterEnd()],
+            "vintage_date": [outturns["vintage_date"].iloc[0]],
+            "variable": [outturns["variable"].iloc[0]],
+            "frequency": [outturns["frequency"].iloc[0]],
+            "source": ["reference model"],
+            "forecast_horizon": [0],
+            "value": [0.0],
+            "metric": ["levels"],
         }
     )
 
@@ -29,7 +45,7 @@ def _build_outturns(variable="x", frequency="Q", n=40, vintage_date=pd.Timestamp
 def test_random_walk_forecasts_equal_latest_outturn():
     """Random walk forecasts in levels should equal the latest observed outturn value."""
     outturns = _build_outturns()
-    fd = ForecastData(outturns_data=outturns)
+    fd = ForecastData(outturns_data=outturns, forecasts_data=_build_forecasts(outturns))
 
     forecast_periods = 13
     result = build_random_walk_model(
@@ -38,7 +54,6 @@ def test_random_walk_forecasts_equal_latest_outturn():
         metric="levels",
         frequency="Q",
         forecast_periods=forecast_periods,
-        first_forecast_horizon=0,
     )
 
     assert not result.empty
@@ -53,7 +68,7 @@ def test_random_walk_forecasts_equal_latest_outturn():
 def test_random_walk_forecast_dates_and_horizons():
     """Random walk should produce the expected number of forecast horizons and dates."""
     outturns = _build_outturns()
-    fd = ForecastData(outturns_data=outturns)
+    fd = ForecastData(outturns_data=outturns, forecasts_data=_build_forecasts(outturns))
 
     forecast_periods = 13
     result = build_random_walk_model(
@@ -62,12 +77,10 @@ def test_random_walk_forecast_dates_and_horizons():
         metric="levels",
         frequency="Q",
         forecast_periods=forecast_periods,
-        first_forecast_horizon=0,
     )
 
-    # One anchor row (horizon -1) plus ``forecast_periods`` forecast rows.
-    assert len(result) == forecast_periods + 1
-    assert sorted(result["forecast_horizon"].tolist()) == list(range(-1, forecast_periods))
+    assert len(result) == forecast_periods
+    assert sorted(result["forecast_horizon"].tolist()) == list(range(forecast_periods))
 
     # Forecast dates should be consecutive quarter-ends after the last outturn date.
     last_outturn_date = outturns["date"].max()

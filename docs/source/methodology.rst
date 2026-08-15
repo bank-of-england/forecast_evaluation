@@ -56,7 +56,12 @@ where:
 
 - :math:`y_t` is the realized value (outturn)
 - :math:`\hat{y}_{t|t-h}` is the forecast made :math:`h` quarters ahead
-- :math:`h` is the forecast horizon (0 to 12 quarters)
+- :math:`h` is ``forecast_horizon``, the zero-based information horizon supplied by the
+  forecaster: :math:`h=0` is a one-step-ahead forecast (the first period after the last
+  observation used for estimation), :math:`h=1` is two-steps-ahead, and so on. HAC standard
+  errors for horizon-:math:`h` regressions (bias, weak/strong efficiency, revisions-errors
+  correlation, Diebold-Mariano) use a bandwidth of :math:`h` lags, reflecting the
+  :math:`h`-period overlap in errors from an :math:`(h+1)`-step-ahead forecast.
 
 **Data Vintages**
 

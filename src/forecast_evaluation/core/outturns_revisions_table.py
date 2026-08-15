@@ -29,7 +29,7 @@ def create_outturn_revisions(data: ForecastData) -> pd.DataFrame:
 
     outturns = data.outturns
 
-    if outturns.empty or "forecast_horizon" not in outturns.columns:
+    if outturns.empty:
         return outturns
 
     # NowcastData expands outturns to match weekly forecast vintages (tagged
@@ -47,7 +47,7 @@ def create_outturn_revisions(data: ForecastData) -> pd.DataFrame:
     # Split: first release (k=0) vs all releases
     first_release = outturns[outturns["k"] == 0].copy()
     first_release = first_release.rename(columns={"value": "value_original", "vintage_date": "vintage_date_original"})
-    first_release = first_release.drop(columns=["forecast_horizon", "k"])
+    first_release = first_release.drop(columns=["target_minus_vintage", "k"])
 
     revised = outturns.rename(columns={"value": "value_outturn", "vintage_date": "vintage_date_outturn"})
 
@@ -60,6 +60,6 @@ def create_outturn_revisions(data: ForecastData) -> pd.DataFrame:
     merged["latest_vintage"] = merged.groupby(group_cols)["vintage_date_outturn"].transform("max")
 
     merged["revision"] = merged["value_outturn"] - merged["value_original"]
-    merged = merged.drop(columns=["forecast_horizon"])
+    merged = merged.drop(columns=["target_minus_vintage"])
 
     return merged

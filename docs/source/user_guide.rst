@@ -62,17 +62,25 @@ Forecasts must include the standard identification columns together with a value
 
    date, vintage_date, variable, source, frequency, forecast_horizon, value
 
-Outturns use the same structure but do not require a ``source`` column.
+Outturns use the same ``date``, ``vintage_date``, ``variable``, ``frequency``, and ``value`` columns,
+but do not require ``source`` or ``forecast_horizon``.
 
 An example forecast table looks like this:
 
 .. code-block:: text
 
               date vintage_date variable source frequency  forecast_horizon  value
-   0    2014-12-31   2015-03-31      gdp   BVAR         Q                -1    100
-   1    2015-03-31   2015-03-31      gdp   BVAR         Q                 0    101
-   2    2015-06-30   2015-03-31      gdp   BVAR         Q                 1    102
-   3    2015-09-30   2015-03-31      gdp   BVAR         Q                 2    103
+   0    2015-03-31   2015-03-31      gdp   BVAR         Q                 0    101
+   1    2015-06-30   2015-03-31      gdp   BVAR         Q                 1    102
+   2    2015-09-30   2015-03-31      gdp   BVAR         Q                 2    103
+
+``forecast_horizon`` is the information horizon supplied by the forecaster. It is based on the
+forecast target date (``date``) and the last target observation used for estimation:
+``forecast_horizon = forecast_target_date - date_last_target_obs_used_for_estimation - 1``,
+measured in periods at the stated frequency. Therefore, horizon ``0`` is the first period after
+the last observation used for estimation; it is not inferred from ``vintage_date``.
+Negative horizons, including ``-1``, may be supplied for forecast/outturn consistency checks, but
+are removed before forecasts are stored for evaluation.
 
 The package supports different forecast metrics such as ``levels``, ``pop`` (period-on-period), and
 ``yoy`` (year-on-year). When required, transformations between these representations are computed

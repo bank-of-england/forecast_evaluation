@@ -15,7 +15,7 @@ from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import (
-    compute_forecast_horizon,
+    compute_target_minus_vintage,
     construct_unique_id,
     filter_fer_models,
     filter_fer_variables,
@@ -24,10 +24,8 @@ from forecast_evaluation.data.utils import (
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
-_UNSET = object()  # sentinel for "parameter not passed"
-
 # Instance attributes mutated while adding forecasts, restored on failure.
-_FORECAST_STATE = ("first_forecast_horizon", "_id_columns", "_raw_forecasts", "_forecasts", "_main_table")
+_FORECAST_STATE = ("_id_columns", "_raw_forecasts", "_forecasts", "_main_table")
 
 
 @contextmanager
@@ -70,7 +68,6 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
         outturn_vintages: bool = True,
         default_k: Optional[int] = None,
     ):
@@ -103,19 +100,11 @@ class ForecastData(PlottingMixin):
         outturn_vintages : bool, optional
             Whether the outturn data contains vintage information (multiple releases of the same data
             point over time). When False, the data is assumed to contain a single final outturn per
-            date, and columns ``vintage_date`` and ``forecast_horizon`` are not required in the
-            outturn data. The ``k`` and ``latest_vintage`` columns in the main table will be set to
+            date, and column ``vintage_date`` is not required in the outturn data.
+            The ``k`` and ``latest_vintage`` columns in the main table will be set to
             sentinel values and ``filter_k`` will be a no-op. Features that depend on outturn
             revisions (e.g., ``plot_outturn_revisions``, ``create_outturn_revisions``) will raise
             an error. Default is True.
-        first_forecast_horizon : int, dict[str, int], or None, optional
-            The minimum forecast horizon to retain in processed forecasts. Pass an int to apply
-            the same threshold to all variables, or a dict mapping variable names to per-variable
-            thresholds (variables not in the dict default to 0). Set to a negative value (e.g.,
-            -1, -2) to include backcasts, i.e., forecasts for periods that have already ended
-            but whose data has not yet been released. When None (default), the threshold for each
-            variable is max(0, min(forecast_horizon)) — i.e. the smallest non-negative horizon
-            present in that variable's forecasts.
         default_k : int or None, optional
             Default outturn revision index used by evaluation functions when ``k`` is omitted.
             If None, uses the class default.
@@ -127,7 +116,6 @@ class ForecastData(PlottingMixin):
         self._main_table = pd.DataFrame()
         self._id_columns = None
         self.default_k = type(self).default_k if default_k is None else default_k
-        self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
         if load_fer:
@@ -170,17 +158,10 @@ class ForecastData(PlottingMixin):
         """
         df = df.copy()
 
-        # When outturn_vintages is False, auto-populate missing columns
-        # before compute_forecast_horizon which requires vintage_date
+        # When outturn_vintages is False, auto-populate the missing vintage date.
         if not self._outturn_vintages:
             if "vintage_date" not in df.columns:
                 df["vintage_date"] = pd.NaT
-            if "forecast_horizon" not in df.columns:
-                df["forecast_horizon"] = -1
-
-        # Compute forecast_horizon if missing
-        if "forecast_horizon" not in df.columns:
-            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -202,6 +183,7 @@ class ForecastData(PlottingMixin):
         # Validate records using the ForecastRecord model
         # Include 'metric' as an optional column in validation
         df_validated = _validate_records(df, optional_columns=["metric"], nullable_vintage=not self._outturn_vintages)
+        df_validated = compute_target_minus_vintage(df_validated)
 
         # Check for duplicates if there are already some records stored
         if not self._raw_outturns.empty:
@@ -223,7 +205,6 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -251,7 +232,13 @@ class ForecastData(PlottingMixin):
             Whether to run data checks comparing forecast values to outturns
             per (source, variable, metric, frequency) group. When True:
 
-            - **Horizon -1 check** (primary): if ``forecast_horizon == -1`` rows exist,
+            - **Horizon-zero published-target check**: if rows with
+                ``forecast_horizon == 0`` match an outturn released on or before the forecast vintage
+                at the target date, warns that the target was already published at the forecast
+                vintage. A negative ``target_minus_vintage`` alone is not flagged because it can be
+                a legitimate backcast caused by a publication lag. Explicitly negative forecast
+                horizons are allowed and are not flagged by this check.
+            - **Vintage-distance -1 check** (primary): if ``target_minus_vintage == -1`` rows exist,
               each is compared to the outturn **from the same vintage** at the same date.
               Warns if the mean absolute deviation exceeds 0.5 std of the outturn series.
             - **IQR ratio check** (fallback): over all (date, vintage_date) pairs that
@@ -262,12 +249,6 @@ class ForecastData(PlottingMixin):
 
             Warnings only; never raises errors. Set to ``False`` to disable.
             Default is True.
-        first_forecast_horizon : int, dict[str, int], or None, optional
-            The minimum forecast horizon to retain. Overrides the instance-level attribute
-            when provided. Pass an int to apply the same threshold to all variables, or a
-            dict mapping variable names to per-variable thresholds (variables not in the
-            dict default to 0). Set to None to auto-compute as max(0, min(forecast_horizon))
-            per variable. When not provided, uses the existing instance attribute.
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
@@ -283,7 +264,6 @@ class ForecastData(PlottingMixin):
                 metric=metric,
                 compute_levels=compute_levels,
                 data_check=data_check,
-                first_forecast_horizon=first_forecast_horizon,
             )
 
     def _add_forecasts(
@@ -294,7 +274,6 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
-        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Add forecasts without rolling back on failure; see :meth:`add_forecasts`."""
         if self._raw_outturns is None or self._raw_outturns.empty:
@@ -303,16 +282,6 @@ class ForecastData(PlottingMixin):
             )
 
         df = df.copy()
-
-        if "forecast_horizon" not in df.columns:
-            df = compute_forecast_horizon(df)
-
-        # Update instance attribute if caller provided an explicit value
-        if first_forecast_horizon is not _UNSET:
-            if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
-                self.first_forecast_horizon = {**self.first_forecast_horizon, **first_forecast_horizon}
-            else:
-                self.first_forecast_horizon = first_forecast_horizon
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -339,6 +308,7 @@ class ForecastData(PlottingMixin):
         # Include 'metric' as an optional column in validation
         optional_cols = ["metric"] if extra_ids is None else ["metric"] + extra_ids
         df = _validate_records(df, forecast=True, optional_columns=optional_cols)
+        df = compute_target_minus_vintage(df)
 
         # Check frequency uniqueness and consistency
         new_frequencies = df["frequency"].unique()
@@ -394,26 +364,13 @@ class ForecastData(PlottingMixin):
         if data_check:
             _check_forecast_data(df, self._outturns)
 
+        df = df[df["forecast_horizon"] >= 0].copy()
+        if df.empty:
+            warnings.warn("No forecasts available after filtering/validation.", UserWarning, stacklevel=2)
+            return
+
         # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
-
-        # Resolve first_forecast_horizon: auto-compute for new variables
-        if self.first_forecast_horizon is None:
-            self.first_forecast_horizon = (
-                df.groupby("variable")["forecast_horizon"].min().clip(lower=0).astype(int).to_dict()
-            )
-        elif isinstance(self.first_forecast_horizon, dict):
-            new_vars = set(df["variable"].unique()) - set(self.first_forecast_horizon.keys())
-            if new_vars:
-                new_thresholds = (
-                    df[df["variable"].isin(new_vars)]
-                    .groupby("variable")["forecast_horizon"]
-                    .min()
-                    .clip(lower=0)
-                    .astype(int)
-                    .to_dict()
-                )
-                self.first_forecast_horizon = {**self.first_forecast_horizon, **new_thresholds}
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
         forecasts = prepare_forecasts(
@@ -421,10 +378,8 @@ class ForecastData(PlottingMixin):
             self._raw_outturns,
             self._id_columns,
             compute_levels=compute_levels,
-            first_forecast_horizon=self.first_forecast_horizon,
         )
 
-        # Compute main table.
         main_table = build_main_table(
             forecasts,
             self._outturns,
@@ -501,19 +456,11 @@ class ForecastData(PlottingMixin):
         if df["vintage_date"].isna().all():
             latest_date = df["date"].max()
             df["vintage_date"] = latest_date
-
-            # recompute forecast horizon
-            df["forecast_horizon"] = df.apply(
-                lambda row: (
-                    (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n
-                ),
-                axis=1,
-            )
+            df = compute_target_minus_vintage(df)
 
         # Create the dataframe that will be propagated to the new vintages
         # For each variable, select only the rows from the earliest available vintage
         df_propagate = df[df["vintage_date"] == df.groupby("variable")["vintage_date"].transform("min")]
-
         # Compute publication lag per variable in units of vintage_frequency
         lag_diff = (
             df_propagate["vintage_date"].dt.to_period(vintage_frequency)
@@ -568,8 +515,8 @@ class ForecastData(PlottingMixin):
         # Create expanded dataframe
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
-        # recompute forecast_horizon using each row's actual frequency
-        expanded_df = compute_forecast_horizon(expanded_df)
+        # Recompute vintage distance using each row's actual frequency.
+        expanded_df = compute_target_minus_vintage(expanded_df)
 
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
@@ -739,7 +686,6 @@ class ForecastData(PlottingMixin):
             self._raw_forecasts,
             self._raw_outturns,
             self._id_columns,
-            first_forecast_horizon=self.first_forecast_horizon,
         )
         outturns = prepare_outturns(self._raw_outturns)
 
@@ -755,7 +701,14 @@ class ForecastData(PlottingMixin):
 
     @property
     def df(self) -> pd.DataFrame:
-        """Get the main DataFrame."""
+        """Get the main DataFrame.
+
+        Alongside the forecaster-supplied ``forecast_horizon``, includes
+        ``target_minus_vintage``: the forecast target's period distance from its
+        vintage (``date`` minus ``vintage_date``, in periods at the row's frequency).
+        It is derived, not supplied, and is used internally for calendar/vintage
+        geometry rather than information content.
+        """
         return self._main_table
 
     @property
@@ -942,10 +895,6 @@ class ForecastData(PlottingMixin):
                 f"Invalid model(s) specified in models argument."
                 f"Valid options are {BENCHMARK_MODELS}. Got: {invalid_models}"
             )
-
-        # Resolve first_forecast_horizon if no user forecasts were added yet
-        if self.first_forecast_horizon is None:
-            self.first_forecast_horizon = 0
 
         if "AR" in models:
             from forecast_evaluation.core.ar_p_model import add_ar_p_forecasts
@@ -1213,6 +1162,11 @@ def _validate_records(
 
     if missing_columns:
         error_col = f"Attempting to add data but the following columns are missing: {sorted(missing_columns)}"
+
+        if forecast and "forecast_horizon" in missing_columns:
+            error_col += (
+                " The 'forecast_horizon' column represents forecast_target_date - last_target_used_for_estimation - 1."
+            )
         raise ValueError(error_col)
 
     schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
@@ -1362,7 +1316,11 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
 
     For each (source, variable, metric, frequency) group:
 
-    - **Horizon -1 check** (primary): if ``forecast_horizon == -1`` rows exist,
+        - **Horizon-zero published-target check**: if ``forecast_horizon == 0`` rows match an outturn
+            released on or before the forecast vintage at the target date, warns that the target was already
+            published at the forecast vintage. A negative ``target_minus_vintage`` alone is not flagged
+            because it can be a legitimate backcast caused by a publication lag.
+        - **Vintage-distance -1 check** (primary): if ``target_minus_vintage == -1`` rows exist,
       compares each forecast value to the outturn **from the same vintage** at the
       same date. Warns if the mean absolute deviation exceeds 0.5 standard deviations
       of the outturn series.
@@ -1370,7 +1328,9 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
       between forecasts and outturns, warns if the forecast IQR differs from the
       outturn IQR by more than 5x in either direction.
 
-    Outturns are matched vintage-for-vintage so data revisions do not cause false positives.
+    Publication checks use outturn releases available on or before each forecast vintage;
+    deviation and IQR checks use exact same-vintage pairs so data revisions do not cause
+    false positives.
     Issues are reported as UserWarnings, never errors.
     """
     _Y, _R = "\033[93m", "\033[0m"
@@ -1390,8 +1350,21 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
     paired_all = forecasts_df.merge(outturns_keyed, on=join_keys, how="inner")
 
     # Pre-compute per-(variable,metric,frequency) outturn std from all available
-    # outturn data (used to normalise the h=-1 deviation).
+    # outturn data (used to normalise the vintage-distance -1 deviation).
     outturn_std_map = outturns_df.groupby(["variable", "metric", "frequency"])["value"].std().rename("outturn_std")
+
+    # Identify horizon-zero forecasts whose targets had been released by the
+    # forecast vintage. The release need not happen on the forecast date.
+    horizon_zero_forecasts = forecasts_df[forecasts_df["forecast_horizon"] == 0]
+    published_horizon_zero = horizon_zero_forecasts.merge(
+        outturns_df[["variable", "metric", "frequency", "date", "vintage_date"]].drop_duplicates(),
+        on=["variable", "metric", "frequency", "date"],
+        how="inner",
+        suffixes=("_forecast", "_outturn"),
+    )
+    published_horizon_zero = published_horizon_zero[
+        published_horizon_zero["vintage_date_outturn"] <= published_horizon_zero["vintage_date_forecast"]
+    ]
 
     group_keys = ["source", "variable", "metric", "frequency"]
 
@@ -1406,19 +1379,38 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
             & (paired_all["frequency"] == frequency)
         ]
 
+        # Check 1: a horizon-zero target already published by the forecast vintage
+        # can indicate a mistaken information horizon. A negative
+        # target_minus_vintage alone can be a legitimate publication lag.
+        horizon_zero_published = published_horizon_zero[
+            (published_horizon_zero["source"] == source)
+            & (published_horizon_zero["variable"] == variable)
+            & (published_horizon_zero["metric"] == metric)
+            & (published_horizon_zero["frequency"] == frequency)
+        ]
+        if not horizon_zero_published.empty:
+            warnings.warn(
+                f"{_Y}[Data check] {label}: Some of these forecasts cover values already published "
+                "at the time of the forecast; if backcasting is intentional, ignore this warning; "
+                f"otherwise double-check your forecast_horizon column.{_R}",
+                UserWarning,
+                stacklevel=2,
+            )
+
         if paired.empty:
             continue
 
-        # Check 1: horizon -1 rows — compared to same-vintage outturns
-        horizon_minus1 = paired[paired["forecast_horizon"] == -1]
-        if not horizon_minus1.empty:
-            if len(horizon_minus1) >= 2:
+        vintage_distance_minus1 = paired[paired["target_minus_vintage"] == -1]
+        if not vintage_distance_minus1.empty:
+            if len(vintage_distance_minus1) >= 2:
                 outturn_std = outturn_std_map.get((variable, metric, frequency), 0)
                 if outturn_std > 0:
-                    mean_abs_dev = (horizon_minus1["value"] - horizon_minus1["outturn_value"]).abs().mean()
+                    mean_abs_dev = (
+                        (vintage_distance_minus1["value"] - vintage_distance_minus1["outturn_value"]).abs().mean()
+                    )
                     if mean_abs_dev > 0.5 * outturn_std:
                         warnings.warn(
-                            f"{_Y}[Data check] {label}: horizon=-1 forecasts deviate from "
+                            f"{_Y}[Data check] {label}: target_minus_vintage=-1 forecasts deviate from "
                             f"same-vintage outturns by {mean_abs_dev / outturn_std:.2f} std "
                             f"deviations.{_TIP}{_R}",
                             UserWarning,

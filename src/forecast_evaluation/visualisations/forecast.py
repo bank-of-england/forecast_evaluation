@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from forecast_evaluation.data import ForecastData
+from forecast_evaluation.data.utils import compute_target_minus_vintage
 from forecast_evaluation.utils import clean_unique_id
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
@@ -105,16 +106,16 @@ def plot_vintage(
             .sort_values("date")
         )
 
-        # Use -(k+1) if it exists, otherwise use max(forecast_horizon)
+        # Use -(k+1) if it exists, otherwise use the furthest available vintage.
         post_outturns = outturns.copy()
 
-        post_outturns["max_feasible_horizon"] = post_outturns.groupby("date")["forecast_horizon"].transform(
+        post_outturns["max_feasible_distance"] = post_outturns.groupby("date")["target_minus_vintage"].transform(
             lambda x: -(k + 1) if -(k + 1) in x.values else x.min()
         )
 
         post_outturns = (
             outturns[
-                (outturns["forecast_horizon"] == post_outturns["max_feasible_horizon"])
+                (outturns["target_minus_vintage"] == post_outturns["max_feasible_distance"])
                 & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
                 & (outturns["metric"] == metric)
                 & (outturns["date"] <= forecasts_filtered["date"].max())
@@ -149,9 +150,10 @@ def plot_vintage(
                 label="Outturns",
             )
     elif not real_time_outturns.empty:
-        # Split outturns: solid before vintage_date, dashed from vintage_date onwards
-        solid_outturns = real_time_outturns[real_time_outturns["date"] < vintage_date]
-        dashed_outturns = post_outturns[post_outturns["date"] >= vintage_date]
+        # Split at the selected vintage's target-period boundary, rather than its exact date.
+        solid_outturns = real_time_outturns[real_time_outturns["target_minus_vintage"] < 0]
+        post_outturns = compute_target_minus_vintage(post_outturns.assign(vintage_date=vintage_date))
+        dashed_outturns = post_outturns[post_outturns["target_minus_vintage"] >= 0]
 
         if not solid_outturns.empty:
             ax.plot(

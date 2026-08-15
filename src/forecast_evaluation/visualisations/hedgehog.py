@@ -81,7 +81,7 @@ def plot_hedgehog(
         (df_forecasts["variable"] == variable)
         & (df_forecasts["unique_id"] == forecast_source)
         & (df_forecasts["metric"] == metric)
-        & (df_forecasts["forecast_horizon"] >= 0)
+        & (df_forecasts["target_minus_vintage"] >= 0)
     ]
 
     if date_start is not None:
@@ -163,7 +163,7 @@ def plot_hedgehog(
             zorder=3,
         )
 
-    # Overlay the actuals series (forecast_horizon == 0)
+    # Overlay the actuals series.
     actuals_data = df_outturns_filtered
     actuals_data = actuals_data[["date", "value_outturn"]].drop_duplicates().sort_values("date")
 
