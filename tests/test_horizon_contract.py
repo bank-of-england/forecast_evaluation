@@ -2,8 +2,36 @@ import pandas as pd
 import pandera.pandas as pa
 import pytest
 
+from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.schema import OUTTURN_REQUIRED_COLUMNS, create_data_schema
 from forecast_evaluation.data.utils import compute_target_minus_vintage
+
+
+def _outturns() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "date": pd.date_range("2023-09-30", periods=4, freq="QE"),
+            "variable": "gdp",
+            "frequency": "Q",
+            "value": [100.0, 101.0, 102.0, 103.0],
+        }
+    )
+
+
+def _forecasts(*, include_horizon: bool = False) -> pd.DataFrame:
+    forecasts = pd.DataFrame(
+        {
+            "date": pd.date_range("2023-12-31", periods=3, freq="QE"),
+            "vintage_date": pd.Timestamp("2023-12-31"),
+            "variable": "gdp",
+            "frequency": "Q",
+            "source": "model",
+            "value": [101.0, 102.0, 103.0],
+        }
+    )
+    if include_horizon:
+        forecasts["forecast_horizon"] = [0, 1, 2]
+    return forecasts
 
 
 def test_target_minus_vintage_quarterly_and_monthly():
@@ -70,3 +98,62 @@ def test_forecast_schema_requires_forecast_horizon():
 
 def test_outturn_schema_omits_forecast_horizon():
     assert "forecast_horizon" not in OUTTURN_REQUIRED_COLUMNS
+
+
+def test_missing_forecast_horizon_is_derived_from_target_minus_vintage():
+    with pytest.warns(FutureWarning, match="target_minus_vintage"):
+        data = ForecastData(
+            outturns_data=_outturns(),
+            forecasts_data=_forecasts(),
+            outturn_vintages=False,
+            compute_levels=False,
+            data_check=False,
+        )
+
+    assert data._raw_forecasts["forecast_horizon"].tolist() == [0, 1, 2]
+    assert data._raw_forecasts["forecast_horizon"].tolist() == data._raw_forecasts["target_minus_vintage"].tolist()
+
+
+def test_deprecated_first_forecast_horizon_shifts_derived_horizons():
+    forecasts = _forecasts()
+    forecasts["date"] = pd.date_range("2023-09-30", periods=3, freq="QE")
+
+    with pytest.warns(FutureWarning, match="first_forecast_horizon"):
+        data = ForecastData(
+            outturns_data=_outturns(),
+            forecasts_data=forecasts,
+            first_forecast_horizon=-1,
+            outturn_vintages=False,
+            compute_levels=False,
+            data_check=False,
+        )
+
+    assert data._raw_forecasts["target_minus_vintage"].tolist() == [-1, 0, 1]
+    assert data._raw_forecasts["forecast_horizon"].tolist() == [0, 1, 2]
+
+
+def test_deprecated_first_forecast_horizon_is_supported_by_add_forecasts():
+    data = ForecastData(outturns_data=_outturns(), outturn_vintages=False, compute_levels=False)
+
+    with pytest.warns(FutureWarning, match="first_forecast_horizon"):
+        data.add_forecasts(
+            _forecasts(),
+            first_forecast_horizon=-1,
+            data_check=False,
+        )
+
+    assert data._raw_forecasts["forecast_horizon"].tolist() == [1, 2, 3]
+
+
+def test_explicit_forecast_horizon_is_not_overwritten_by_deprecated_argument():
+    with pytest.warns(FutureWarning, match="ignored"):
+        data = ForecastData(
+            outturns_data=_outturns(),
+            forecasts_data=_forecasts(include_horizon=True),
+            first_forecast_horizon=4,
+            outturn_vintages=False,
+            compute_levels=False,
+            data_check=False,
+        )
+
+    assert data._raw_forecasts["forecast_horizon"].tolist() == [0, 1, 2]

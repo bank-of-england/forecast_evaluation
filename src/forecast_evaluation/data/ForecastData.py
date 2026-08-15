@@ -23,9 +23,53 @@ from forecast_evaluation.data.utils import (
 )
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
+_UNSET = object()
 
 # Instance attributes mutated while adding forecasts, restored on failure.
-_FORECAST_STATE = ("_id_columns", "_raw_forecasts", "_forecasts", "_main_table")
+_FORECAST_STATE = (
+    "first_forecast_horizon",
+    "_id_columns",
+    "_raw_forecasts",
+    "_forecasts",
+    "_main_table",
+)
+
+
+def _add_compatibility_forecast_horizon(
+    df: pd.DataFrame,
+    first_forecast_horizon: Optional[Union[int, dict[str, int]]],
+) -> pd.DataFrame:
+    if "forecast_horizon" in df.columns:
+        if first_forecast_horizon is not None:
+            warnings.warn(
+                "'first_forecast_horizon' is deprecated and ignored when 'forecast_horizon' is provided.",
+                FutureWarning,
+                stacklevel=3,
+            )
+        return df
+
+    distance = compute_target_minus_vintage(df)["target_minus_vintage"]
+    if first_forecast_horizon is None:
+        warnings.warn(
+            "Forecasts input has no 'forecast_horizon' column; deriving it from 'target_minus_vintage'. "
+            "Supply 'forecast_horizon' explicitly because this compatibility behaviour is deprecated.",
+            FutureWarning,
+            stacklevel=3,
+        )
+        df["forecast_horizon"] = distance
+    else:
+        warnings.warn(
+            "'first_forecast_horizon' is deprecated; supply 'forecast_horizon' explicitly instead.",
+            FutureWarning,
+            stacklevel=3,
+        )
+        if isinstance(first_forecast_horizon, dict):
+            threshold = df["variable"].map(first_forecast_horizon).fillna(0)
+        else:
+            threshold = first_forecast_horizon
+        df["forecast_horizon"] = distance - threshold
+
+    return df
 
 
 @contextmanager
@@ -70,6 +114,7 @@ class ForecastData(PlottingMixin):
         data_check: bool = True,
         outturn_vintages: bool = True,
         default_k: Optional[int] = None,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
     ):
         """Initialise with user data, FER data or null.
 
@@ -108,6 +153,12 @@ class ForecastData(PlottingMixin):
         default_k : int or None, optional
             Default outturn revision index used by evaluation functions when ``k`` is omitted.
             If None, uses the class default.
+        first_forecast_horizon : int or dict[str, int], optional
+            DEPRECATED legacy value used when the input does not provide
+            ``forecast_horizon``. In that case, the missing horizon is derived from
+            ``target_minus_vintage`` and a ``FutureWarning`` is emitted. If this argument is
+            omitted too, the same deprecated fallback is used without a shift. Supply
+            ``forecast_horizon`` explicitly instead.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -116,6 +167,7 @@ class ForecastData(PlottingMixin):
         self._main_table = pd.DataFrame()
         self._id_columns = None
         self.default_k = type(self).default_k if default_k is None else default_k
+        self.first_forecast_horizon = copy.deepcopy(first_forecast_horizon)
         self._outturn_vintages = outturn_vintages
 
         if load_fer:
@@ -131,6 +183,7 @@ class ForecastData(PlottingMixin):
                 metric=metric,
                 compute_levels=compute_levels,
                 data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
             )
 
     def __repr__(self) -> str:
@@ -205,6 +258,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
 
@@ -249,6 +303,12 @@ class ForecastData(PlottingMixin):
 
             Warnings only; never raises errors. Set to ``False`` to disable.
             Default is True.
+        first_forecast_horizon : int or dict[str, int], optional
+            DEPRECATED legacy value used only when ``forecast_horizon`` is absent. In that case,
+            the missing horizon is derived from ``target_minus_vintage`` and a ``FutureWarning``
+            is emitted. If this argument is omitted too, the same deprecated fallback is used
+            without a shift. The argument is ignored when ``forecast_horizon`` is present.
+            Supply ``forecast_horizon`` explicitly instead.
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
@@ -264,6 +324,7 @@ class ForecastData(PlottingMixin):
                 metric=metric,
                 compute_levels=compute_levels,
                 data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
             )
 
     def _add_forecasts(
@@ -274,6 +335,7 @@ class ForecastData(PlottingMixin):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
         data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Add forecasts without rolling back on failure; see :meth:`add_forecasts`."""
         if self._raw_outturns is None or self._raw_outturns.empty:
@@ -282,6 +344,17 @@ class ForecastData(PlottingMixin):
             )
 
         df = df.copy()
+
+        if first_forecast_horizon is not _UNSET:
+            if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
+                self.first_forecast_horizon = {
+                    **self.first_forecast_horizon,
+                    **first_forecast_horizon,
+                }
+            else:
+                self.first_forecast_horizon = copy.deepcopy(first_forecast_horizon)
+
+        df = _add_compatibility_forecast_horizon(df, self.first_forecast_horizon)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:

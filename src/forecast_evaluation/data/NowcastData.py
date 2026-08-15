@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import pandas as pd
 
@@ -54,6 +54,7 @@ class NowcastData(ForecastData):
         compute_levels: bool = True,
         data_check: bool = True,
         default_k: Optional[int] = None,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
     ):
         """Initialise NowcastData.
 
@@ -71,6 +72,11 @@ class NowcastData(ForecastData):
             Whether to auto-transform non-levels forecasts to levels.
         data_check : bool, optional
             Whether to run data checks when adding forecasts.
+        first_forecast_horizon : int or dict[str, int], optional
+            DEPRECATED legacy value used when ``forecast_horizon`` is absent. In that case,
+            the missing horizon is derived from ``target_minus_vintage`` and a ``FutureWarning``
+            is emitted. If this argument is omitted too, the same deprecated fallback is used
+            without a shift. Supply ``forecast_horizon`` explicitly instead.
         """
         super().__init__(
             outturns_data=outturns_data,
@@ -80,6 +86,7 @@ class NowcastData(ForecastData):
             compute_levels=compute_levels,
             data_check=data_check,
             default_k=default_k,
+            first_forecast_horizon=first_forecast_horizon,
         )
 
     def add_outturns(self, df, **kwargs):

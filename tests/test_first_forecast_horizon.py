@@ -104,17 +104,16 @@ def data(outturns, forecasts) -> ForecastData:
 
 
 class TestForecastHorizonInput:
-    def test_missing_forecast_horizon_raises(self, outturns, forecasts):
-        """Forecast horizons must be supplied by the forecaster, not inferred."""
-        with pytest.raises(
-            ValueError,
-            match="The 'forecast_horizon' column represents forecast_target_date - last_target_used_for_estimation - 1",
-        ):
-            ForecastData(
+    def test_missing_forecast_horizon_is_derived(self, outturns, forecasts):
+        """Missing forecast horizons fall back to vintage-relative distance."""
+        with pytest.warns(FutureWarning, match="target_minus_vintage"):
+            data = ForecastData(
                 outturns_data=outturns,
                 forecasts_data=forecasts.drop(columns="forecast_horizon"),
                 outturn_vintages=False,
             )
+
+        assert data._raw_forecasts["forecast_horizon"].tolist() == data._raw_forecasts["target_minus_vintage"].tolist()
 
     def test_negative_forecast_horizons_are_filtered(self, outturns, forecasts):
         """Validated backcasts are excluded from the stored forecast tables."""
