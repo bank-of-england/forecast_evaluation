@@ -137,7 +137,7 @@ class DensityForecastData(ForecastData):
             self._add_density_forecasts(df, extra_ids=extra_ids)
 
     def _add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
-        """Add density forecasts without rolling back on failure; see :meth:`add_density_forecasts`."""
+        """Add density forecasts without discarding valid calendar backcasts."""
         # Check for quantile column
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
@@ -199,9 +199,6 @@ class DensityForecastData(ForecastData):
         forecasts_yoy = _prepare_density_forecasts(df, "yoy")
         forecasts_pop = _prepare_density_forecasts(df, "pop")
         forecasts = pd.concat([forecasts_levels, forecasts_yoy, forecasts_pop], ignore_index=True)
-
-        # trim outturns from forecasts
-        forecasts = forecasts[forecasts["target_minus_vintage"] >= 0]
 
         # Ensure quantile remains float in forecasts
         df["quantile"] = df["quantile"].astype(float)
