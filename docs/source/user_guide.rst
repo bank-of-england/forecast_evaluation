@@ -82,11 +82,6 @@ the last observation used for estimation; it is not inferred from ``vintage_date
 Negative horizons, including ``-1``, may be supplied for forecast/outturn consistency checks, but
 are removed before forecasts are stored for evaluation.
 
-For backward compatibility, ``ForecastData`` derives a missing ``forecast_horizon`` from
-``target_minus_vintage`` and emits a deprecation warning. The deprecated
-``first_forecast_horizon`` argument can be supplied to shift this distance so that the first
-forecast is horizon ``0``; supply ``forecast_horizon`` explicitly in new code.
-
 The package supports different forecast metrics such as ``levels``, ``pop`` (period-on-period), and
 ``yoy`` (year-on-year). When required, transformations between these representations are computed
 internally when enough outturn history is available.
