@@ -6,11 +6,13 @@ import pandas as pd
 import statsmodels.api as sm
 from statsmodels.regression.linear_model import OLS, RegressionResultsWrapper
 
+from forecast_evaluation._compat import accept_forecast_horizon_kwarg
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range, filter_k
 
 
+@accept_forecast_horizon_kwarg
 def evaluate_bias(
     df: pd.DataFrame,
     variable: str,

@@ -5,6 +5,7 @@ from typing import Literal, Optional, Union
 import numpy as np
 import pandas as pd
 
+from forecast_evaluation._compat import accept_forecast_horizon_kwarg
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.utils import construct_unique_id
 from forecast_evaluation.utils import filter_k, reconstruct_id_cols_from_unique_id
@@ -134,6 +135,7 @@ def _prepare_intra_period_data(
     return df, id_columns, axis_column, k, k_fallback_used
 
 
+@accept_forecast_horizon_kwarg
 def compute_intra_period_accuracy(
     data: Union[pd.DataFrame, ForecastData],
     variable: str,
@@ -177,7 +179,9 @@ def compute_intra_period_accuracy(
         (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the statistic.
     """
-    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
+    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(
+        data, variable, metric, frequency, horizon, k, axis
+    )
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
 
@@ -207,6 +211,7 @@ def compute_intra_period_accuracy(
     return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)
 
 
+@accept_forecast_horizon_kwarg
 def compute_intra_period_bias(
     data: Union[pd.DataFrame, ForecastData],
     variable: str,
@@ -247,7 +252,9 @@ def compute_intra_period_bias(
         (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the mean error.
     """
-    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
+    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(
+        data, variable, metric, frequency, horizon, k, axis
+    )
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
     mean_err = grouped.mean()

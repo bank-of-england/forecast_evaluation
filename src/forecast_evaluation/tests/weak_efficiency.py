@@ -6,11 +6,13 @@ import pandas as pd
 from statsmodels.regression.linear_model import OLS
 from statsmodels.tools import add_constant
 
+from forecast_evaluation._compat import accept_forecast_horizon_kwarg
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range, filter_k
 
 
+@accept_forecast_horizon_kwarg
 def weak_efficiency_test(
     df: pd.DataFrame,
     variable: str,
