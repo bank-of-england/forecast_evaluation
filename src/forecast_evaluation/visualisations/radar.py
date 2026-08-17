@@ -133,6 +133,28 @@ def plot_radar(
     -------
     tuple of (Figure, PolarAxes) or None
     """
+    from forecast_evaluation.data import ForecastData as _ForecastData
+
+    is_nowcast_data = isinstance(df, _ForecastData) and df.uses_intra_period_vintages
+    if is_nowcast_data:
+        if mode == "tests":
+            raise ValueError(
+                "Radar mode='tests' always computes an efficiency edge, which is not "
+                "supported for NowcastData. Use mode='variables' with test_type='accuracy' "
+                "or 'correlation' instead."
+            )
+        if mode == "variables" and test_type == "efficiency":
+            raise ValueError(
+                f"Radar test_type='efficiency' is not supported for NowcastData "
+                f"(efficiency_type={efficiency_type!r}). Use test_type='accuracy', "
+                "'correlation', or 'bias' with bias_type='mean' instead."
+            )
+        if mode == "variables" and test_type == "bias" and bias_type == "mz":
+            raise ValueError(
+                "Radar test_type='bias' with bias_type='mz' is not supported for "
+                "NowcastData. Use bias_type='mean' instead."
+            )
+
     if frequency is None:
         if hasattr(df, "_main_table") and df._main_table is not None:
             _freq_col = df._main_table["frequency"]

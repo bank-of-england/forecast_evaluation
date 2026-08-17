@@ -83,6 +83,12 @@ def create_sidebar(data):
         k_default = min(k_values, key=lambda x: abs(x - 12)) if k_values else 0
     supports_outturn_revision_analysis = data.supports_outturn_revision_analysis
 
+    if uses_intra_period_vintages and hasattr(data, "_forecasts") and not data.forecasts.empty:
+        max_release_rank = int(data.forecasts.groupby("date")["vintage_date"].rank(method="dense").max())
+        release_choices = [str(rank) for rank in range(1, max_release_rank + 1)]
+    else:
+        release_choices = ["1"]
+
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         quantiles = data._density_forecasts["quantile"].unique()
         closest_to_16 = min(quantiles, key=lambda x: abs(x - 0.16))
@@ -484,6 +490,31 @@ def create_sidebar(data):
                     ui.input_selectize("k_multiple", "k_multiple", choices=[0], multiple=True, selected=[0]),
                     ui.input_selectize(
                         "k_multiple_outturns", "k_multiple_outturns", choices=[0], multiple=True, selected=[0]
+                    ),
+                    style="display: none;",
+                ),
+            ]
+        ),
+        # Releases (single-select-multiple) — only meaningful for nowcast data
+        *(
+            [
+                ui.panel_conditional(
+                    hedgehog_tab,
+                    ui.input_selectize(
+                        "releases",
+                        "Releases:",
+                        choices=release_choices,
+                        multiple=True,
+                        selected=release_choices,
+                    ),
+                ),
+            ]
+            if uses_intra_period_vintages
+            else [
+                # Hidden default releases input so server-side handlers can still read input.releases()
+                ui.div(
+                    ui.input_selectize(
+                        "releases", "releases", choices=release_choices, multiple=True, selected=release_choices
                     ),
                     style="display: none;",
                 ),

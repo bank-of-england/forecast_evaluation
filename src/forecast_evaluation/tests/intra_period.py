@@ -20,7 +20,7 @@ def _prepare_intra_period_data(
     horizon: Optional[int] = None,
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
-) -> tuple[pd.DataFrame, list[str], str]:
+) -> tuple[pd.DataFrame, list[str], str, int, bool]:
     """Filter and prepare data for intra-period analysis.
 
     Adds the requested time axis column, measured in days from the forecast
@@ -54,10 +54,12 @@ def _prepare_intra_period_data(
 
     Returns
     -------
-    tuple of (pd.DataFrame, list of str, str)
+    tuple of (pd.DataFrame, list of str, str, int, bool)
         The prepared data (with ``unique_id`` and the axis column), the id
         columns encoded in ``unique_id`` (``source`` plus any ``extra_ids``),
-        and the name of the axis column.
+        the name of the axis column, the resolved ``k`` used to filter, and
+        whether ``filter_k`` substituted an earlier (not-yet-released)
+        vintage for at least one row.
     """
     if axis not in AXIS_COLUMNS:
         raise ValueError(f"Unknown axis: {axis}. Use 'period_end' or 'publication'.")
@@ -100,7 +102,11 @@ def _prepare_intra_period_data(
             raise ValueError(f"Columns {missing} not found; cannot identify distinct forecasts.")
         df["unique_id"] = construct_unique_id(df, id_columns)
 
-    df = filter_k(df, k if k is not None else 0)
+    k = k if k is not None else 0
+    # filter_k() is a no-op (returns data unfiltered/unsubstituted) when there is
+    # no outturn-vintage tracking at all, in which case a fallback can never occur.
+    k_filter_is_no_op = "latest_vintage" in df.columns and df["latest_vintage"].isna().all()
+    df = filter_k(df, k)
 
     mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
     if horizon is not None:
@@ -114,6 +120,10 @@ def _prepare_intra_period_data(
             f"frequency='{frequency}'" + (f", horizon={horizon}" if horizon is not None else "")
         )
 
+    # Computed on the final filtered rows only, so a substitution in a row
+    # excluded by the mask above is never mistaken for a fallback in the result.
+    k_fallback_used = False if k_filter_is_no_op else bool((df["k"] != k).any())
+
     # Rounded to the nearest 7 days so that weekly vintages whose
     # day-of-week alignment drifts across years are binned together.
     axis_column = AXIS_COLUMNS[axis]
@@ -121,7 +131,7 @@ def _prepare_intra_period_data(
     raw_days = (pd.to_datetime(end_point) - pd.to_datetime(df["vintage_date_forecast"])).dt.days
     df[axis_column] = (raw_days / 7).round().astype(int) * 7
 
-    return df, id_columns, axis_column
+    return df, id_columns, axis_column, k, k_fallback_used
 
 
 def compute_intra_period_accuracy(
@@ -167,7 +177,7 @@ def compute_intra_period_accuracy(
         (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the statistic.
     """
-    df, id_columns, axis_column = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
+    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
 
@@ -192,6 +202,8 @@ def compute_intra_period_accuracy(
 
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
     result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
+    result.attrs["k"] = resolved_k
+    result.attrs["k_fallback_used"] = k_fallback_used
     return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)
 
 
@@ -235,7 +247,7 @@ def compute_intra_period_bias(
         (``days_to_period_end`` or ``days_to_publication``), ``value`` and
         ``se``. ``se`` is the standard error of the mean error.
     """
-    df, id_columns, axis_column = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
+    df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(data, variable, metric, frequency, horizon, k, axis)
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
     mean_err = grouped.mean()
@@ -243,4 +255,6 @@ def compute_intra_period_bias(
     result = pd.DataFrame({"value": mean_err, "se": se_mean}).reset_index()
     result = reconstruct_id_cols_from_unique_id(result, id_columns)
     result.attrs["target_dates"] = pd.to_datetime(df["date"]).drop_duplicates().sort_values().tolist()
+    result.attrs["k"] = resolved_k
+    result.attrs["k_fallback_used"] = k_fallback_used
     return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)
