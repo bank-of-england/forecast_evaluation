@@ -44,6 +44,7 @@ class TestResult:
             - parameters : dict - Test parameters (k, same_date_range, etc.)
             - filters : dict - Applied filters (source, variable, etc.)
             - date_range : tuple - (start_date, end_date) of the data
+            - horizon_measure : str - What the ``horizon`` column measures
         """
 
         if id_columns is not None:
@@ -52,6 +53,11 @@ class TestResult:
         self._df = df.copy()
         self._metadata = metadata or {}
         self._id_columns = id_columns or None
+
+        # Results carry a single ``horizon`` column, so record what it measures rather
+        # than leaving readers to infer it. Kept as a metadata field because it is also
+        # the natural place to record a different measure, should one ever be offered.
+        self._metadata.setdefault("horizon_measure", "target_minus_vintage")
 
     def to_df(self) -> pd.DataFrame:
         """
@@ -236,11 +242,11 @@ class TestResult:
 
         # Apply horizon filter
         if horizon is not None:
-            if "forecast_horizon" in df_filtered.columns:
+            if "horizon" in df_filtered.columns:
                 if isinstance(horizon, int):
-                    df_filtered = df_filtered[df_filtered["forecast_horizon"] == horizon]
+                    df_filtered = df_filtered[df_filtered["horizon"] == horizon]
                 else:
-                    df_filtered = df_filtered[df_filtered["forecast_horizon"].isin(horizon)]
+                    df_filtered = df_filtered[df_filtered["horizon"].isin(horizon)]
 
         # Apply additional filters
         for col, value in kwargs.items():
@@ -478,7 +484,7 @@ class TestResult:
                 raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
 
         if horizon is None:
-            horizon = int(min(self._df["forecast_horizon"].unique()))
+            horizon = int(min(self._df["horizon"].unique()))
 
         return plot_correlation_heatmap(
             df=self._df,

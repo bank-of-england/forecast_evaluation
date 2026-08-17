@@ -12,7 +12,7 @@ from forecast_evaluation.dashboard.utils import render_legend, remove_legend
 def compute_accuracy_summary(df, start_date="start_date", end_date="end_date"):
     # Group by horizon and aggregate start, end, and observations
     summary = (
-        df.groupby("forecast_horizon")
+        df.groupby("horizon")
         .agg(start_date=(start_date, "min"), end_date=(end_date, "max"), n_obs=("n_observations", "first"))
         .reset_index()
     )
@@ -496,7 +496,7 @@ def error_distribution(input, output, session, data):
 
         main_table = data_filtered._main_table
         main_table = main_table[main_table["k"] == int(input.k())]
-        main_table = main_table[main_table["forecast_horizon"] == int(input.horizon())]
+        main_table = main_table[main_table["target_minus_vintage"] == int(input.horizon())]
 
         data = {
             "First observation": [main_table["date"].min()],

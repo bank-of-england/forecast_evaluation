@@ -56,7 +56,7 @@ def plot_intra_period_accuracy(
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: Optional[int] = None,
+    horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
@@ -68,7 +68,7 @@ def plot_intra_period_accuracy(
 
     Shows how forecast accuracy evolves as the forecast vintage approaches
     either the end of the target period or the outturn release (see ``axis``).
-    When ``forecast_horizon`` is ``None``, all horizons are shown on a
+    When ``horizon`` is ``None``, all horizons are shown on a
     single axis; with ``axis='period_end'`` dashed vertical lines mark
     calendar period boundaries.
 
@@ -83,7 +83,7 @@ def plot_intra_period_accuracy(
         Metric to analyse ('levels', 'pop', or 'yoy').
     frequency : str
         Data frequency ('Q' for quarterly or 'M' for monthly).
-    forecast_horizon : int or None
+    horizon : int or None
         Forecast horizon to plot. ``None`` (default) includes all horizons.
     statistic : str
         Accuracy statistic to compute ('rmse' or 'mae').
@@ -110,7 +110,7 @@ def plot_intra_period_accuracy(
         If return_plot is True, returns the figure and axes objects.
         Otherwise, displays the plot and returns None.
     """
-    result = compute_intra_period_accuracy(data, variable, metric, frequency, forecast_horizon, statistic, k, axis)
+    result = compute_intra_period_accuracy(data, variable, metric, frequency, horizon, statistic, k, axis)
     x_col = AXIS_COLUMNS[axis]
     axis_label = AXIS_LABELS[axis]
 
@@ -153,7 +153,7 @@ def plot_intra_period_accuracy(
             result.attrs.get("target_dates", []),
         )
 
-    horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
+    horizon_str = f" - horizon {horizon}" if horizon is not None else ""
     ax.set_title(
         f"{stat_label} by {axis_label}\n{variable.upper()} - {metric}{horizon_str}",
         fontsize=14,
@@ -176,7 +176,7 @@ def plot_intra_period_bias(
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: Optional[int] = None,
+    horizon: Optional[int] = None,
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
     convert_to_percentage: bool = False,
@@ -196,7 +196,7 @@ def plot_intra_period_bias(
         Metric to analyse.
     frequency : str
         Data frequency ('Q' or 'M').
-    forecast_horizon : int or None
+    horizon : int or None
         Forecast horizon to plot. ``None`` (default) includes all horizons.
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
@@ -217,7 +217,7 @@ def plot_intra_period_bias(
     -------
     tuple of (matplotlib.figure.Figure, matplotlib.axes.Axes) or None
     """
-    result = compute_intra_period_bias(data, variable, metric, frequency, forecast_horizon, k, axis)
+    result = compute_intra_period_bias(data, variable, metric, frequency, horizon, k, axis)
     x_col = AXIS_COLUMNS[axis]
     axis_label = AXIS_LABELS[axis]
 
@@ -260,7 +260,7 @@ def plot_intra_period_bias(
             result.attrs.get("target_dates", []),
         )
 
-    horizon_str = f" - horizon {forecast_horizon}" if forecast_horizon is not None else ""
+    horizon_str = f" - horizon {horizon}" if horizon is not None else ""
     ax.set_title(
         f"Bias by {axis_label}\n{variable.upper()} - {metric}{horizon_str}",
         fontsize=14,

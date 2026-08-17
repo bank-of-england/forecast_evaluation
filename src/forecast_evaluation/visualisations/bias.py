@@ -70,14 +70,14 @@ def plot_bias_by_horizon(
         df_filtered["ci_upper"] = 100 * df_filtered["ci_upper"]
 
     # Sort by forecast horizon for better visualization
-    df_filtered = df_filtered.sort_values("forecast_horizon")
+    df_filtered = df_filtered.sort_values("horizon")
 
     # Create the plot using themed figure
     fig, ax = create_themed_figure()
 
     # Plot: Average errors by horizon as a line chart
     ax.plot(
-        df_filtered["forecast_horizon"],
+        df_filtered["horizon"],
         df_filtered["bias_estimate"],
         marker="o",
         linewidth=2,
@@ -87,7 +87,7 @@ def plot_bias_by_horizon(
 
     # Add shaded error region if we have standard deviation data
     ax.fill_between(
-        df_filtered["forecast_horizon"],
+        df_filtered["horizon"],
         df_filtered["ci_lower"],
         df_filtered["ci_upper"],
         alpha=0.3,
@@ -133,7 +133,7 @@ def plot_rolling_bias(
 ):
     """
     Plot bias estimates with confidence intervals across window_end dates,
-    faceted by forecast_horizon.
+    faceted by horizon.
 
     If the data contains fluctuation rejection columns (reject_05, reject_10),
     the bias estimates are marked with coloured dots indicating significance levels.
@@ -181,8 +181,8 @@ def plot_rolling_bias(
         # warning message
         print(f"No source provided. Plotting for source: {clean_unique_id(sources[0])}")
 
-    df = df[df["forecast_horizon"].isin(horizons)]
-    n_horizons = df["forecast_horizon"].nunique()
+    df = df[df["horizon"].isin(horizons)]
+    n_horizons = df["horizon"].nunique()
     fig, axes = create_themed_figure(nrows=n_horizons, ncols=1, sharex=True)
 
     if n_horizons == 1:
@@ -197,7 +197,7 @@ def plot_rolling_bias(
 
     for i, h in enumerate(horizons):
         ax = axes[i]
-        sub = df[df["forecast_horizon"] == h]
+        sub = df[df["horizon"] == h]
 
         # Determine marker properties based on fluctuation test results if available
         if "reject_05" in sub.columns:

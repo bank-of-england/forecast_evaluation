@@ -16,7 +16,7 @@ def weak_efficiency_test(
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    forecast_horizon: int,
+    horizon: int,
     frequency: Optional[Literal["Q", "M"]] = None,
     verbose: bool = True,
 ) -> dict:
@@ -41,7 +41,7 @@ def weak_efficiency_test(
         - 'source' : str - Forecast source identifier (e.g., 'compass conditional', 'mpr')
         - 'metric' : str - Metric identifier (e.g., 'levels', 'yoy')
         - 'frequency' : str - Data frequency identifier (e.g., 'Q', 'M')
-        - 'forecast_horizon' : int - Forecast horizon identifier (0-12)
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'value_forecast' : float - Forecast values
         - 'value_outturn' : float - Actual observed values
 
@@ -55,8 +55,8 @@ def weak_efficiency_test(
         Metric to analyse: 'levels' for raw values, 'pop' for period-on-period percentage change,
         'yoy' for year-on-year percentage change (must exist in df['metric'])
 
-    forecast_horizon : int
-        Forecast horizon to analyse (must exist in df['forecast_horizon'])
+    horizon : int
+        Forecast horizon to analyse (must exist in df['horizon'])
 
     verbose : bool, default=True
         If True, prints detailed test results including coefficient estimates,
@@ -71,7 +71,7 @@ def weak_efficiency_test(
         - 'variable' : str - Variable identifier
         - 'metric' : str - Metric identifier
         - 'frequency' : str - Data frequency identifier
-        - 'forecast_horizon' : int - Forecast horizon identifier
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'forecast_coef' : float - Coefficient on value_outturn (β₁)
         - 'constant_coef' : float - Constant term coefficient (β₀)
         - 'forecast_se' : float - HAC-corrected standard error of forecast coefficient
@@ -80,6 +80,7 @@ def weak_efficiency_test(
         - 'joint_test_pvalue' : float - P-value for joint hypothesis test
         - 'reject_weak_efficiency' : bool - True if null hypothesis of weak efficiency is rejected (p < 0.05)
         - 'n_observations' : int - Number of observations used in regression
+        - 'hac_maxlags' : int - Newey-West truncation lag used (max information horizon in the group)
         - 'ols_model' : statsmodels regression results object - Full OLS model results for additional analysis
 
         Returns None if insufficient data (< 10 observations)
@@ -92,12 +93,16 @@ def weak_efficiency_test(
             stacklevel=2,
         )
 
-    subset = df[
-        (df["variable"] == variable)
-        & (df["unique_id"] == source)
-        & (df["metric"] == metric)
-        & (df["forecast_horizon"] == forecast_horizon)
-    ].copy()
+    subset = (
+        df[
+            (df["variable"] == variable)
+            & (df["unique_id"] == source)
+            & (df["metric"] == metric)
+            & (df["horizon"] == horizon)
+        ]
+        .sort_values("date")
+        .copy()
+    )
 
     frequency = subset["frequency"].iloc[0] if len(subset) > 0 else None
 
@@ -112,14 +117,15 @@ def weak_efficiency_test(
     X = add_constant(subset["value_forecast"])
 
     # Regress forecasts against X
-    # Fit with HAC standard errors (Newey-West)
-    maxlags = forecast_horizon
+    # Fit with HAC standard errors (Newey-West), with the lag set by the longest
+    # information horizon in this group rather than by the calendar horizon.
+    maxlags = max(0, int(subset["forecast_horizon"].max()))
     try:
         ols_model = OLS(subset["value_outturn"], X).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
     except Exception as e:
         raise ValueError(
             f"OLS regression failed for {variable} from source {source} "
-            f"with metric {metric} at horizon {forecast_horizon}. Error: {str(e)}"
+            f"with metric {metric} at horizon {horizon}. Error: {str(e)}"
         )
 
     # Extract results
@@ -139,7 +145,7 @@ def weak_efficiency_test(
 
     # Display results if verbose
     if verbose:
-        print(f"\n=== Weak Efficiency Test Results for {variable} (horizon {forecast_horizon}) ===")
+        print(f"\n=== Weak Efficiency Test Results for {variable} (horizon {horizon}) ===")
         print(f"Estimated coefficient on value_forecast: {forecast_value_coef:.4f}")
         print(f"Estimated constant term: {const_coef:.4f}")
         print("\nJoint Hypothesis Test (H0: β0=0, β1=1):")
@@ -154,7 +160,7 @@ def weak_efficiency_test(
             "variable": variable,
             "metric": metric,
             "frequency": frequency,
-            "forecast_horizon": forecast_horizon,
+            "horizon": horizon,
             "forecast_coef": forecast_value_coef,
             "constant_coef": const_coef,
             "forecast_se": forecast_value_se,
@@ -163,6 +169,7 @@ def weak_efficiency_test(
             "joint_test_pvalue": joint_test.pvalue,
             "reject_weak_efficiency": joint_test.pvalue < 0.05,
             "n_observations": len(subset),
+            "hac_maxlags": maxlags,
             "ols_model": ols_model,
         }
     else:
@@ -171,7 +178,7 @@ def weak_efficiency_test(
             "variable": variable,
             "metric": metric,
             "frequency": frequency,
-            "forecast_horizon": forecast_horizon,
+            "horizon": horizon,
             "forecast_coef": None,
             "constant_coef": None,
             "forecast_se": None,
@@ -180,6 +187,7 @@ def weak_efficiency_test(
             "joint_test_pvalue": None,
             "reject_weak_efficiency": False,
             "n_observations": 0,
+            "hac_maxlags": maxlags,
             "ols_model": None,
         }
 
@@ -196,7 +204,7 @@ def weak_efficiency_analysis(
     Run weak efficiency tests for all unique combinations in the dataset.
 
     This function systematically performs weak efficiency testing across all available
-    combinations of variable, source, metric, and forecast_horizon in the
+    combinations of variable, source, metric, and horizon in the
     dataset using the weak_efficiency_test function. It provides a comprehensive
     analysis of forecast efficiency across different variables, sources, and horizons.
 
@@ -235,7 +243,7 @@ def weak_efficiency_analysis(
         - 'variable' : str - Variable identifier
         - 'metric' : str - Metric identifier
         - 'frequency' : str - Data frequency identifier
-        - 'forecast_horizon' : int - Forecast horizon identifier
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'forecast_coef' : float - Coefficient on value_outturn from Mincer-Zarnowitz regression
         - 'constant_coef' : float - Constant term coefficient from Mincer-Zarnowitz regression
         - 'forecast_se' : float - HAC-corrected standard error of forecast coefficient
@@ -244,6 +252,7 @@ def weak_efficiency_analysis(
         - 'joint_test_pvalue' : float - P-value for joint hypothesis test
         - 'reject_weak_efficiency' : bool - True if weak efficiency is rejected at 5% significance level
         - 'n_observations' : int - Number of observations used in each test
+        - 'hac_maxlags' : int - Newey-West truncation lag used (max information horizon in the group)
         - 'ols_model' : object - Full OLS model results (statsmodels RegressionResults object)
     """
     if data._main_table is None:
@@ -255,7 +264,7 @@ def weak_efficiency_analysis(
     if data.uses_intra_period_vintages:
         raise ValueError("Weak efficiency analysis is not supported for nowcasting data. ")
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # We first align the main table with what is used in this function
     df = filter_k(df, k)
@@ -279,7 +288,7 @@ def weak_efficiency_analysis(
             df = df[df["variable"].isin(variable)]
 
     # Get all unique combinations
-    combinations = df[["variable", "unique_id", "metric", "frequency", "forecast_horizon"]].drop_duplicates()
+    combinations = df[["variable", "unique_id", "metric", "frequency", "horizon"]].drop_duplicates()
 
     # Preallocate results list for better performance
     n_combinations = len(combinations)
@@ -290,10 +299,10 @@ def weak_efficiency_analysis(
         variable = row["variable"]
         source = row["unique_id"]
         metric = row["metric"]
-        forecast_horizon = row["forecast_horizon"]
+        horizon = row["horizon"]
 
         # Run weak efficiency test with date exclusion
-        result = weak_efficiency_test(df, variable, source, metric, forecast_horizon, verbose=verbose)
+        result = weak_efficiency_test(df, variable, source, metric, horizon, verbose=verbose)
 
         # Store results in preallocated list
         results_list[i] = result

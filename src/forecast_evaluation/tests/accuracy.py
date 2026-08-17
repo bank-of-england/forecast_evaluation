@@ -18,7 +18,7 @@ def compute_accuracy_statistics(
 ) -> TestResult:
     """
     Calculate accuracy statistics for all unique combinations of variable, source, metric
-    and forecast_horizon.
+    and horizon.
 
     This function computes the Root Mean Square Error (RMSE), Mean Absolute Error (MAE),
     Root Median Square Error (RMedSE) and the number of observations for each combination.
@@ -49,7 +49,7 @@ def compute_accuracy_statistics(
         - 'source' : str - Forecast source identifier
         - 'metric' : str - Metric identifier
         - 'frequency' : str - Frequency identifier
-        - 'forecast_horizon' : int - Forecast horizon identifier
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'rmse' : float - Root Mean Square Error
         - 'rmedse' : float - Root Median Square Error
         - 'mean_abs_error' : float - Mean Absolute Error
@@ -63,7 +63,7 @@ def compute_accuracy_statistics(
     if k is None:
         k = data.default_k
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # Store original date range for metadata
     original_date_range = (df["vintage_date_forecast"].min(), df["vintage_date_forecast"].max())
@@ -98,7 +98,7 @@ def compute_accuracy_statistics(
     df["abs_error"] = df["forecast_error"].abs()
 
     # Group by all combinations and calculate statistics
-    groupby_cols = ["variable", "unique_id", "metric", "frequency", "forecast_horizon"]
+    groupby_cols = ["variable", "unique_id", "metric", "frequency", "horizon"]
 
     # Use agg to calculate multiple statistics at once
     accuracy_summary = (
@@ -120,7 +120,7 @@ def compute_accuracy_statistics(
         "unique_id",
         "metric",
         "frequency",
-        "forecast_horizon",
+        "horizon",
         "mse",
         "median_se",
         "mean_abs_error",
@@ -171,7 +171,7 @@ def compare_to_benchmark(
         - 'variable' : str - Variable identifier
         - 'source' : str - Forecast source identifier
         - 'metric' : str - Metric identifier
-        - 'forecast_horizon' : int - Forecast horizon identifier
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'rmse' : float - Root Mean Square Error
         - 'rmedse' : float - Root Median Square Error
         - 'mean_abs_error' : float - Mean Absolute Error
@@ -195,11 +195,11 @@ def compare_to_benchmark(
 
     # Separate benchmark data
     benchmark_df = df[df["unique_id"] == benchmark_model].copy()
-    benchmark_df = benchmark_df[["variable", "metric", "frequency", "forecast_horizon", statistic]]
+    benchmark_df = benchmark_df[["variable", "metric", "frequency", "horizon", statistic]]
     benchmark_df = benchmark_df.rename(columns={statistic: f"{statistic}_benchmark"})
 
     # Merge benchmark statistics back into the main DataFrame
-    comparison_df = df.merge(benchmark_df, on=["variable", "metric", "frequency", "forecast_horizon"], how="left")
+    comparison_df = df.merge(benchmark_df, on=["variable", "metric", "frequency", "horizon"], how="left")
 
     # Calculate the ratio from benchmark
     comparison_df[f"{statistic}_to_benchmark"] = comparison_df[statistic] / comparison_df[f"{statistic}_benchmark"]
@@ -232,7 +232,7 @@ def create_comparison_table(
         - 'variable' : str - Variable identifier (e.g., 'gdpkp', 'cpisa', 'unemp')
         - 'source' : str - Forecast source identifier (e.g., 'compass conditional', 'mpr')
         - 'metric' : str - Metric identifier (e.g., 'yoy', 'levels')
-        - 'forecast_horizon' : int - Forecast horizon identifier (forecast horizon)
+        - 'horizon' : int - Forecast horizon (target date minus forecast vintage)
         - 'rmse' : float - Root Mean Square Error
         - 'rmedse' : float - Root Median Square Error
         - 'mean_abs_error' : float - Mean Absolute Error
@@ -277,15 +277,15 @@ def create_comparison_table(
     df = df.loc[mask].copy()
 
     # Filter horizons
-    df = df[df["forecast_horizon"].isin(horizons)]
+    df = df[df["horizon"].isin(horizons)]
     # Remove benchmark model
     df = df[df["unique_id"] != benchmark_model]
 
     # Select columns for the table
-    table_df = df[["unique_id", "forecast_horizon", ratio_col]].copy()
+    table_df = df[["unique_id", "horizon", ratio_col]].copy()
 
-    # Pivot the table to have sources as rows and forecast_horizon as columns
-    table_df = table_df.pivot(index="unique_id", columns="forecast_horizon", values=ratio_col)
+    # Pivot the table to have sources as rows and horizon as columns
+    table_df = table_df.pivot(index="unique_id", columns="horizon", values=ratio_col)
 
     # Sort the table by source
     table_df = table_df.sort_index()

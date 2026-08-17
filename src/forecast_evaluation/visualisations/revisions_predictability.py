@@ -6,7 +6,7 @@ from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
 def plot_average_revision_by_period(data, source, variable, metric, frequency=None, return_plot: bool = False):
-    """Plot the average revision grouped by forecast_horizon.
+    """Plot the average revision grouped by horizon.
 
     Creates a line plot showing how the average size of forecast revisions
     varies by forecast horizon (periods until final revision).
@@ -42,16 +42,15 @@ def plot_average_revision_by_period(data, source, variable, metric, frequency=No
             stacklevel=2,
         )
 
-    df = forecasts[
-        (forecasts["variable"] == variable) & (forecasts["unique_id"] == source) & (forecasts["metric"] == metric)
-    ].copy()
+    df = forecasts.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
+    df = df[(df["variable"] == variable) & (df["unique_id"] == source) & (df["metric"] == metric)].copy()
 
     df = df.sort_values(by=["date", "vintage_date"], ascending=True).reset_index(drop=True)
 
     df["revision"] = df.groupby(["variable", "unique_id", "metric", "frequency", "date"])["value"].diff()
 
-    # Calculate average revision by forecast_horizon, ignoring NAs
-    avg_revision = df.groupby("forecast_horizon")["revision"].mean().dropna().reset_index()
+    # Calculate average revision by horizon, ignoring NAs
+    avg_revision = df.groupby("horizon")["revision"].mean().dropna().reset_index()
 
     # Create the plot
     fig, ax = create_themed_figure()

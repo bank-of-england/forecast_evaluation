@@ -19,7 +19,7 @@ def forecast_errors_correlation_analysis(
     """
     Compute pairwise Pearson correlations of forecast errors across sources.
 
-    For every unique combination of (variable, metric, frequency, forecast_horizon),
+    For every unique combination of (variable, metric, frequency, horizon),
     forecast errors are pivoted into a (date, vintage_date) by source matrix and the
     correlation is computed for every ordered pair of sources (including the
     diagonal, which equals 1). The output is a long-format DataFrame with one row
@@ -48,7 +48,7 @@ def forecast_errors_correlation_analysis(
     TestResult
         TestResult holding a DataFrame with columns:
 
-        - 'variable', 'metric', 'frequency', 'forecast_horizon'
+        - 'variable', 'metric', 'frequency', 'horizon'
         - 'unique_id'      : anchor source (column 'a')
         - 'unique_id_b'    : partner source (column 'b')
         - 'correlation'    : Pearson correlation of the paired forecast errors
@@ -62,7 +62,7 @@ def forecast_errors_correlation_analysis(
     if k is None:
         k = data.default_k
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     df = filter_k(df, k)
 
@@ -81,7 +81,7 @@ def forecast_errors_correlation_analysis(
         else:
             df = df[df["variable"].isin(variable)]
 
-    group_cols = ["variable", "metric", "frequency", "forecast_horizon"]
+    group_cols = ["variable", "metric", "frequency", "horizon"]
     results: list[pd.DataFrame] = []
 
     for keys, group in df.groupby(group_cols, sort=False):
@@ -125,7 +125,7 @@ def forecast_errors_correlation_analysis(
                         "variable": var,
                         "metric": metric,
                         "frequency": frequency,
-                        "forecast_horizon": horizon,
+                        "horizon": horizon,
                         "unique_id": a,
                         "unique_id_b": b,
                         "correlation": corr.loc[a, b],
@@ -146,7 +146,7 @@ def forecast_errors_correlation_analysis(
                 "variable",
                 "metric",
                 "frequency",
-                "forecast_horizon",
+                "horizon",
                 "unique_id",
                 "unique_id_b",
                 "correlation",

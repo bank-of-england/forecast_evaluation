@@ -157,8 +157,8 @@ def fluctuation_tests(
     tests["reject_05"] = tests["test_statistic"] > tests["critical_value_05"]
     tests["reject_10"] = tests["test_statistic"] > tests["critical_value_10"]
 
-    # get the max stat for each group (variable, metric, frequency, source, forecast_horizon)
-    group_cols = ["variable", "metric", "frequency", "unique_id", "forecast_horizon"]
+    # get the max stat for each group (variable, metric, frequency, source, horizon)
+    group_cols = ["variable", "metric", "frequency", "unique_id", "horizon"]
     tests["max_test_statistic"] = tests.groupby(group_cols)["test_statistic"].transform("max")
 
     tests["reject_max_05"] = tests["max_test_statistic"] > tests["critical_value_05"]

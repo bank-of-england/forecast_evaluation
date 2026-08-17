@@ -193,7 +193,7 @@ def test_evaluate_bias_unbiased_forecasts(unbiased_forecast_data):
     be > 0.05, failing to reject the null hypothesis of no bias.
     """
     # Get main table
-    df = unbiased_forecast_data._main_table.copy()
+    df = unbiased_forecast_data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # Run bias test
     result = evaluate_bias(
@@ -201,7 +201,7 @@ def test_evaluate_bias_unbiased_forecasts(unbiased_forecast_data):
         variable="gdpkp",
         source="unbiased_model",
         metric="levels",
-        forecast_horizon=0,
+        horizon=0,
         verbose=False,
     )
 
@@ -225,14 +225,14 @@ def test_evaluate_bias_optimistic_forecasts(biased_forecast_data):
     Optimistic forecasts consistently over-predict, leading to positive forecast errors.
     Should reject null hypothesis (p < 0.05) with positive bias estimate.
     """
-    df = biased_forecast_data._main_table.copy()
+    df = biased_forecast_data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     result = evaluate_bias(
         df=df,
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        forecast_horizon=0,
+        horizon=0,
         verbose=False,
     )
 
@@ -255,14 +255,14 @@ def test_evaluate_bias_pessimistic_forecasts(biased_forecast_data):
     Pessimistic forecasts consistently under-predict, leading to negative forecast errors.
     Should reject null hypothesis (p < 0.05) with negative bias estimate.
     """
-    df = biased_forecast_data._main_table.copy()
+    df = biased_forecast_data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     result = evaluate_bias(
         df=df,
         variable="gdpkp",
         source="pessimistic_model",
         metric="levels",
-        forecast_horizon=0,
+        horizon=0,
         verbose=False,
     )
 
@@ -296,7 +296,7 @@ def test_bias_analysis_returns_test_result(unbiased_forecast_data):
         "variable",
         "metric",
         "frequency",
-        "forecast_horizon",
+        "horizon",
         "bias_estimate",
         "std_error",
         "t_statistic",
@@ -428,12 +428,12 @@ def test_bias_analysis_horizon_dependence(multi_horizon_bias_data):
     df = result.to_df()
 
     # Sort by horizon
-    df = df.sort_values("forecast_horizon")
+    df = df.sort_values("horizon")
 
     # Extract bias estimates
-    h0_bias = df[df["forecast_horizon"] == 0]["bias_estimate"].iloc[0]
-    h1_bias = df[df["forecast_horizon"] == 1]["bias_estimate"].iloc[0]
-    h2_bias = df[df["forecast_horizon"] == 2]["bias_estimate"].iloc[0]
+    h0_bias = df[df["horizon"] == 0]["bias_estimate"].iloc[0]
+    h1_bias = df[df["horizon"] == 1]["bias_estimate"].iloc[0]
+    h2_bias = df[df["horizon"] == 2]["bias_estimate"].iloc[0]
 
     # Horizon 0 should be approximately unbiased
     assert abs(h0_bias) < 1.0, f"Horizon 0 should be unbiased, got {h0_bias}"
@@ -448,9 +448,9 @@ def test_bias_analysis_horizon_dependence(multi_horizon_bias_data):
     assert h0_bias > h1_bias > h2_bias, "Bias should become more negative with forecast horizon"
 
     # Check conclusions
-    assert df[df["forecast_horizon"] == 0]["bias_conclusion"].iloc[0] == "Unbiased"
-    assert df[df["forecast_horizon"] == 1]["bias_conclusion"].iloc[0] == "Biased"
-    assert df[df["forecast_horizon"] == 2]["bias_conclusion"].iloc[0] == "Biased"
+    assert df[df["horizon"] == 0]["bias_conclusion"].iloc[0] == "Unbiased"
+    assert df[df["horizon"] == 1]["bias_conclusion"].iloc[0] == "Biased"
+    assert df[df["horizon"] == 2]["bias_conclusion"].iloc[0] == "Biased"
 
 
 def test_bias_analysis_n_observations(unbiased_forecast_data):
@@ -469,14 +469,14 @@ def test_evaluate_bias_standard_errors(biased_forecast_data):
     """
     Test that HAC standard errors are reasonable.
     """
-    df = biased_forecast_data._main_table.copy()
+    df = biased_forecast_data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     result = evaluate_bias(
         df=df,
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        forecast_horizon=0,
+        horizon=0,
         verbose=False,
     )
 
@@ -491,14 +491,14 @@ def test_evaluate_bias_t_statistic(biased_forecast_data):
     """
     Test that t-statistic is calculated correctly (bias / std_error).
     """
-    df = biased_forecast_data._main_table.copy()
+    df = biased_forecast_data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     result = evaluate_bias(
         df=df,
         variable="gdpkp",
         source="optimistic_model",
         metric="levels",
-        forecast_horizon=0,
+        horizon=0,
         verbose=False,
     )
 

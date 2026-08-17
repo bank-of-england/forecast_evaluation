@@ -159,7 +159,7 @@ def plot_radar(
 
         if variable is None or horizon is None:
             raise ValueError("`variable` and `horizon` are required for mode='metrics'")
-        mask = (df["variable"] == variable) & (df["forecast_horizon"] == horizon)
+        mask = (df["variable"] == variable) & (df["horizon"] == horizon)
         sub = df.loc[mask]
         if sub.empty:
             raise ValueError(f"No data for variable={variable!r}, horizon={horizon}")
@@ -191,9 +191,7 @@ def plot_radar(
                 acc = df.to_df()
             else:
                 acc = df
-            acc = acc.loc[
-                (acc["frequency"] == frequency) & (acc["metric"] == metric) & (acc["forecast_horizon"] == horizon)
-            ]
+            acc = acc.loc[(acc["frequency"] == frequency) & (acc["metric"] == metric) & (acc["horizon"] == horizon)]
             if acc.empty:
                 raise ValueError(f"No data for metric={metric!r}, horizon={horizon}")
             pivot = acc.pivot_table(index="unique_id", columns="variable", values=statistic, aggfunc="first")
@@ -207,7 +205,7 @@ def plot_radar(
                 bias_df = bias_df.loc[
                     (bias_df["frequency"] == frequency)
                     & (bias_df["metric"] == metric)
-                    & (bias_df["forecast_horizon"] == horizon)
+                    & (bias_df["horizon"] == horizon)
                 ]
                 bias_df["value"] = bias_df["bias_estimate"].abs()
                 pivot = bias_df.pivot_table(index="unique_id", columns="variable", values="value", aggfunc="first")
@@ -215,9 +213,7 @@ def plot_radar(
             else:  # mz
                 we_df = weak_efficiency_analysis(data=df, k=k).to_df()
                 we_df = we_df.loc[
-                    (we_df["frequency"] == frequency)
-                    & (we_df["metric"] == metric)
-                    & (we_df["forecast_horizon"] == horizon)
+                    (we_df["frequency"] == frequency) & (we_df["metric"] == metric) & (we_df["horizon"] == horizon)
                 ]
                 we_df["value"] = we_df["joint_test_pvalue"].astype(float)
                 pivot = we_df.pivot_table(index="unique_id", columns="variable", values="value", aggfunc="first")
@@ -229,9 +225,7 @@ def plot_radar(
             if efficiency_type == "revision_predictability":
                 eff_df = weak_efficiency_analysis(data=df, k=k).to_df()
                 eff_df = eff_df.loc[
-                    (eff_df["frequency"] == frequency)
-                    & (eff_df["metric"] == metric)
-                    & (eff_df["forecast_horizon"] == horizon)
+                    (eff_df["frequency"] == frequency) & (eff_df["metric"] == metric) & (eff_df["horizon"] == horizon)
                 ]
                 eff_df["value"] = eff_df["joint_test_pvalue"].astype(float)
                 pivot = eff_df.pivot_table(index="unique_id", columns="variable", values="value", aggfunc="first")
@@ -239,9 +233,7 @@ def plot_radar(
             else:  # revisions_errors
                 re_df = revisions_errors_correlation_analysis(data=df, k=k).to_df()
                 re_df = re_df.loc[
-                    (re_df["frequency"] == frequency)
-                    & (re_df["metric"] == metric)
-                    & (re_df["forecast_horizon"] == horizon)
+                    (re_df["frequency"] == frequency) & (re_df["metric"] == metric) & (re_df["horizon"] == horizon)
                 ]
                 re_df["value"] = re_df["beta_pvalue"].astype(float)
                 pivot = re_df.pivot_table(index="unique_id", columns="variable", values="value", aggfunc="first")
@@ -257,7 +249,7 @@ def plot_radar(
             corr_df = corr_df.loc[
                 (corr_df["frequency"] == frequency)
                 & (corr_df["metric"] == metric)
-                & (corr_df["forecast_horizon"] == horizon)
+                & (corr_df["horizon"] == horizon)
                 & (corr_df["unique_id"] == anchor_source)
                 & (corr_df["unique_id_b"] != anchor_source)
             ]
@@ -304,7 +296,7 @@ def plot_radar(
         accuracy = accuracy.loc[
             (accuracy["variable"] == variable)
             & (accuracy["metric"] == metric)
-            & (accuracy["forecast_horizon"] == horizon)
+            & (accuracy["horizon"] == horizon)
             & (accuracy["frequency"] == frequency)
         ]
 
@@ -315,7 +307,7 @@ def plot_radar(
             bias_results = bias_results.loc[
                 (bias_results["variable"] == variable)
                 & (bias_results["metric"] == metric)
-                & (bias_results["forecast_horizon"] == horizon)
+                & (bias_results["horizon"] == horizon)
                 & (bias_results["frequency"] == frequency)
             ]
         else:  # mz
@@ -324,7 +316,7 @@ def plot_radar(
             bias_results = bias_results.loc[
                 (bias_results["variable"] == variable)
                 & (bias_results["metric"] == metric)
-                & (bias_results["forecast_horizon"] == horizon)
+                & (bias_results["horizon"] == horizon)
                 & (bias_results["frequency"] == frequency)
             ]
 
@@ -335,7 +327,7 @@ def plot_radar(
             eff_results = eff_results.loc[
                 (eff_results["variable"] == variable)
                 & (eff_results["metric"] == metric)
-                & (eff_results["forecast_horizon"] == horizon)
+                & (eff_results["horizon"] == horizon)
                 & (eff_results["frequency"] == frequency)
             ]
         else:  # revisions_errors
@@ -344,7 +336,7 @@ def plot_radar(
             eff_results = eff_results.loc[
                 (eff_results["variable"] == variable)
                 & (eff_results["metric"] == metric)
-                & (eff_results["forecast_horizon"] == horizon)
+                & (eff_results["horizon"] == horizon)
                 & (eff_results["frequency"] == frequency)
             ]
 

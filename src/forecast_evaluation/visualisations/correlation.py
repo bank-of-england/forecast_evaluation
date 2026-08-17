@@ -36,7 +36,7 @@ def plot_correlation_heatmap(
     ----------
     df : DataFrame or TestResult
         Output of :func:`forecast_errors_correlation_analysis`. Must contain
-        columns 'variable', 'metric', 'frequency', 'forecast_horizon',
+        columns 'variable', 'metric', 'frequency', 'horizon',
         'unique_id', 'unique_id_b', 'correlation'.
     variable : str
         Variable to plot (e.g. 'gdpkp').
@@ -68,7 +68,7 @@ def plot_correlation_heatmap(
             stacklevel=2,
         )
 
-    df = df[(df["variable"] == variable) & (df["metric"] == metric) & (df["forecast_horizon"] == horizon)]
+    df = df[(df["variable"] == variable) & (df["metric"] == metric) & (df["horizon"] == horizon)]
 
     if df.empty:
         raise ValueError(
@@ -153,7 +153,7 @@ def plot_rolling_correlation(
     ----------
     df : DataFrame or TestResult
         Output of ``rolling_analysis(analysis_func=forecast_errors_correlation_analysis, ...)``.
-        Must contain columns 'variable', 'metric', 'frequency', 'forecast_horizon',
+        Must contain columns 'variable', 'metric', 'frequency', 'horizon',
         'unique_id', 'unique_id_b', 'correlation', 'window_start', 'window_end'.
     variable : str
         Variable to plot.
@@ -206,7 +206,7 @@ def plot_rolling_correlation(
         & (df["unique_id"] == anchor_source_clean)
         & (df["unique_id_b"] != anchor_source_clean)
     ]
-    df = df[df["forecast_horizon"].isin(horizons)]
+    df = df[df["horizon"].isin(horizons)]
 
     if df.empty:
         raise ValueError(
@@ -223,7 +223,7 @@ def plot_rolling_correlation(
 
     for i, h in enumerate(horizons):
         ax = axes_list[i]
-        sub = df[df["forecast_horizon"] == h]
+        sub = df[df["horizon"] == h]
 
         for partner in partners:
             line_data = sub[sub["unique_id_b"] == partner].sort_values("window_end")
