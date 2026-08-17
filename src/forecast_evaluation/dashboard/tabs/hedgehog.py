@@ -36,6 +36,14 @@ def hedgehog(input, output, session, data):
         data_filtered = get_data()
         unique_id = data_filtered.forecasts["unique_id"].unique()[0]
 
+        releases_kwargs = {}
+        if data_filtered.uses_intra_period_vintages:
+            selected_releases = input.releases()
+            max_release_rank = int(data_filtered.forecasts.groupby("date")["vintage_date"].rank(method="dense").max())
+            all_releases = {str(rank) for rank in range(1, max_release_rank + 1)}
+            if set(selected_releases) != all_releases:
+                releases_kwargs["releases"] = [int(r) for r in selected_releases]
+
         fig, ax = fe.plot_hedgehog(
             data=data_filtered,
             variable=input.variable(),
@@ -43,6 +51,7 @@ def hedgehog(input, output, session, data):
             k=int(input.k()),
             metric=input.transform(),
             return_plot=True,
+            **releases_kwargs,
         )
 
         return fig, ax

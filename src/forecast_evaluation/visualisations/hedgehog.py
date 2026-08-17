@@ -21,6 +21,7 @@ def plot_hedgehog(
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
+    releases: Optional[list[int]] = None,
 ) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a hedgehog plot comparing forecasts with outturns.
 
@@ -46,6 +47,14 @@ def plot_hedgehog(
         If True, multiplies values on the y-axis by 100.
     return_plot : bool, default False
         If True, returns the matplotlib figure and axis objects.
+    releases : list of int, or None, default None
+        Restricts the plotted vintages to the given release ranks, numbered 1
+        (earliest/first-released nowcast) upward, based on the dense rank of
+        ``vintage_date`` within each target ``date``. Only supported for
+        nowcast data (i.e. a ``NowcastData`` instance, where forecasts are
+        released multiple times per target period); a ``ValueError`` is raised
+        if provided for other ``ForecastData`` types. Defaults to ``None``,
+        which plots all releases (unchanged behaviour).
 
     Returns
     -------
@@ -70,6 +79,14 @@ def plot_hedgehog(
     df_outturns = data._main_table.copy()
     df_outturns = filter_k(df_outturns, k)
 
+    uses_intra_period_vintages = data.uses_intra_period_vintages
+    if releases is not None and not uses_intra_period_vintages:
+        raise ValueError(
+            "The 'releases' argument is only supported for nowcast data (NowcastData), "
+            "where forecasts are released multiple times per target period. "
+            f"It cannot be used with {type(data).__name__}."
+        )
+
     # Filter the data
     df_outturns_filtered = df_outturns[
         (df_outturns["variable"] == variable)
@@ -88,9 +105,16 @@ def plot_hedgehog(
         df_forecasts_filtered = df_forecasts_filtered[df_forecasts_filtered["vintage_date"] >= date_start]
         df_outturns_filtered = df_outturns_filtered[df_outturns_filtered["vintage_date_forecast"] >= date_start]
 
+    if releases is not None:
+        release_ranks = df_forecasts_filtered.groupby("date")["vintage_date"].rank(method="dense")
+        df_forecasts_filtered = df_forecasts_filtered[release_ranks.isin(releases)]
+
     # Check if data exists
     if df_forecasts_filtered.empty:
-        raise ValueError(f"No forecast data found for {variable} from {forecast_source} with metric {metric}")
+        message = f"No forecast data found for {variable} from {forecast_source} with metric {metric}"
+        if releases is not None:
+            message += f" and releases {releases}"
+        raise ValueError(message)
 
     if df_outturns_filtered.empty:
         raise ValueError(f"No actuals data found for {variable} from {forecast_source} with metric {metric} and k {k}")
@@ -108,7 +132,6 @@ def plot_hedgehog(
     # target date we colour the dots with a gradient from the earliest to the
     # latest vintage so the evolution of the nowcast across the nowcasting
     # window is visible.
-    uses_intra_period_vintages = data.uses_intra_period_vintages
     if uses_intra_period_vintages:
         cmap_base = plt.get_cmap("YlOrRd")
         cmap = LinearSegmentedColormap.from_list(

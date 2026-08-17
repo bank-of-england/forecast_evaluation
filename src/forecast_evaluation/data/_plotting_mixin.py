@@ -17,6 +17,7 @@ class PlottingMixin:
         date_start: Union[str, date, None] = None,
         convert_to_percentage: bool = False,
         return_plot: bool = False,
+        releases: Optional[list[int]] = None,
     ):
         """Generate a hedgehog plot comparing forecasts with outturns.
 
@@ -36,6 +37,14 @@ class PlottingMixin:
             If True, multiplies values on the y-axis by 100.
         return_plot : bool, default False
             If True, returns the matplotlib figure and axis objects.
+        releases : list of int, or None, default None
+            Restricts the plotted vintages to the given release ranks, numbered 1
+            (earliest/first-released nowcast) upward, based on the dense rank of
+            ``vintage_date`` within each target ``date``. Only supported for
+            nowcast data (i.e. a ``NowcastData`` instance, where forecasts are
+            released multiple times per target period); a ``ValueError`` is raised
+            if provided for other ``ForecastData`` types. Defaults to ``None``,
+            which plots all releases (unchanged behaviour).
 
         Returns
         -------
@@ -55,6 +64,7 @@ class PlottingMixin:
             date_start=date_start,
             convert_to_percentage=convert_to_percentage,
             return_plot=return_plot,
+            releases=releases,
         )
 
     def plot_forecast_errors(

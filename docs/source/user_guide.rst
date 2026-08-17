@@ -157,6 +157,135 @@ forecast identifier:
 This is useful when you want to separate forecasts by model family, conditioning
 assumption, scenario, or other metadata beyond ``source``.
 
+Nowcasting
+----------
+
+:class:`forecast_evaluation.data.NowcastData` extends ``ForecastData`` for
+evaluating forecasts that are released multiple times *within* a single target
+period, e.g. weekly nowcast vintages of a quarterly variable. It uses
+integer-period forecast horizons (``h=-1`` backcast, ``h=0`` nowcast, ``h=1``
+one-period-ahead) so that many intra-period vintages sharing the same horizon
+can be pooled for accuracy statistics.
+
+Key differences from ``ForecastData``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* ``first_forecast_horizon`` defaults to ``-1`` so that backcasts are
+  retained by default.
+* ``default_k`` defaults to ``0``, i.e. the first outturn release, rather
+  than the fully revised outturn.
+* The ``load_fer`` and ``outturn_vintages`` constructor arguments used by
+  ``ForecastData`` are not exposed.
+
+Creating a ``NowcastData`` instance
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The package ships sample nowcast data with weekly forecast vintages and
+realistic outturn publication lags and revisions:
+
+.. code-block:: python
+
+   nowcast_outturns = fe.create_sample_nowcast_outturns()
+   nowcast_forecasts = fe.create_sample_nowcast_forecasts()
+
+   nowcast_data = fe.NowcastData(
+       outturns_data=nowcast_outturns,
+       forecasts_data=nowcast_forecasts,
+   )
+
+Plotting nowcast vintages
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`forecast_evaluation.plot_nowcasts` shows how forecasts for a single
+target quarter evolved over successive vintages, with one line per forecast
+identity (``source`` plus any ``extra_ids``) and the selected outturn
+maturity drawn as a horizontal reference. Pass ``k=0`` to reference the first
+outturn release, which is usually the relevant comparison for nowcasts:
+
+.. code-block:: python
+
+   fe.plot_nowcasts(
+       data=nowcast_data,
+       variable="gdp",
+       target_date="2024-06-30",
+       frequency="Q",
+       metric="levels",
+       k=0,
+   )
+
+Intra-period accuracy and bias
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+:func:`forecast_evaluation.compute_intra_period_accuracy` and
+:func:`forecast_evaluation.compute_intra_period_bias` group forecast errors by
+a within-period time axis rather than by calendar vintage or forecast
+horizon, which suits densely-spaced intra-period vintages. Their plotting
+counterparts, :func:`forecast_evaluation.plot_intra_period_accuracy` and
+:func:`forecast_evaluation.plot_intra_period_bias`, share the same arguments.
+
+The ``axis`` argument selects the time axis:
+
+* ``axis="period_end"`` (default) measures days from the forecast vintage to
+  the end of the target period.
+* ``axis="publication"`` measures days from the forecast vintage to the
+  release of the selected outturn vintage.
+
+If ``k`` is left as ``None`` it resolves to ``data.default_k`` (``0`` for
+``NowcastData``).
+
+.. code-block:: python
+
+   intra_period_accuracy = fe.compute_intra_period_accuracy(
+       data=nowcast_data,
+       variable="gdp",
+       metric="levels",
+       frequency="Q",
+       statistic="rmse",
+       axis="period_end",
+   )
+
+   fe.plot_intra_period_accuracy(
+       data=nowcast_data,
+       variable="gdp",
+       metric="levels",
+       frequency="Q",
+       statistic="rmse",
+       axis="period_end",
+   )
+
+   intra_period_bias = fe.compute_intra_period_bias(
+       data=nowcast_data,
+       variable="gdp",
+       metric="levels",
+       frequency="Q",
+       axis="publication",
+   )
+
+   fe.plot_intra_period_bias(
+       data=nowcast_data,
+       variable="gdp",
+       metric="levels",
+       frequency="Q",
+       axis="publication",
+   )
+
+Unsupported ``ForecastData`` functionality
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Some ``ForecastData`` methods and analyses do not apply to intra-period
+nowcast vintages and are unsupported on ``NowcastData``. The following raise
+``NotImplementedError``:
+
+* FER data loading and filtering (``add_fer_data``, ``add_fer_outturns``,
+  ``add_fer_forecasts``, ``filter_fer``)
+* pseudo-vintage creation (``create_pseudo_vintages``)
+* benchmark generation (``add_benchmarks``)
+
+The following raise ``ValueError``:
+
+* efficiency, Blanchard-Leigh, revision-predictability, and
+  revision-error-correlation analyses
+
 Visualisation Workflow
 ----------------------
 
