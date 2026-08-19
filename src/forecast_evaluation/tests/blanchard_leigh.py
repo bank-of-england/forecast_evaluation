@@ -184,7 +184,7 @@ def blanchard_leigh_horizon_analysis(
     horizons: np.ndarray = np.arange(13),
     j: int = 2,
     frequency: Optional[Literal["Q", "M"]] = None,
-    k: int = 12,
+    k: Optional[int] = None,
     alpha: float = 0.05,
 ) -> TestResult:
     """Run Blanchard-Leigh efficiency tests across multiple forecast horizons.
@@ -222,6 +222,12 @@ def blanchard_leigh_horizon_analysis(
     # Validating inputs:
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if k is None:
+        k = data.default_k
+
+    if data.uses_intra_period_vintages:
+        raise ValueError("Blanchard-Leigh efficiency analysis is not supported for nowcasting data. ")
 
     df = data._main_table.copy()
 

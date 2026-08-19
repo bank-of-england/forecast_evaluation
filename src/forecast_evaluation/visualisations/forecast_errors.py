@@ -8,7 +8,7 @@ from scipy.stats import gaussian_kde
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.utils import clean_unique_id, filter_k
-from forecast_evaluation.visualisations.theme import create_themed_figure
+from forecast_evaluation.visualisations.theme import create_themed_figure, set_integer_xaxis
 
 
 def plot_forecast_errors(
@@ -93,6 +93,7 @@ def plot_forecast_errors(
 
     ax.set_title(f"Forecast Errors for {variable.upper()} ({source}, vintage={vintage_date_forecast})\n{metric}, k={k}")
     ax.set_xlabel("Forecast Horizon")
+    set_integer_xaxis(ax)
 
     # Update y-axis label based on whether values were multiplied
     if convert_to_percentage:
@@ -223,6 +224,7 @@ def plot_forecast_errors_by_horizon(
         f"Average Forecast Errors by Forecast Horizon\n{variable.upper()} - {source_label} ({metric})", fontsize=14
     )
     ax.set_xlabel("Forecast Horizon", fontsize=12)
+    set_integer_xaxis(ax)
 
     # Update y-axis label based on whether values were multiplied
     if convert_to_percentage:

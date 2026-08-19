@@ -7,13 +7,23 @@ except PackageNotFoundError:
     __version__ = "unknown"
 
 from .core import add_ar_p_forecasts, add_random_walk_forecasts, create_outturn_revisions
-from .data import DensityForecastData, ForecastData, create_sample_forecasts, create_sample_outturns
+from .data import (
+    DensityForecastData,
+    ForecastData,
+    NowcastData,
+    create_sample_forecasts,
+    create_sample_nowcast_forecasts,
+    create_sample_nowcast_outturns,
+    create_sample_outturns,
+)
 from .data.utils import filter_fer_variables
 from .tests import (
     bias_analysis,
     blanchard_leigh_horizon_analysis,
     compare_to_benchmark,
     compute_accuracy_statistics,
+    compute_intra_period_accuracy,
+    compute_intra_period_bias,
     create_comparison_table,
     diebold_mariano_table,
     fluctuation_tests,
@@ -37,6 +47,9 @@ from .visualisations import (
     plot_forecast_errors,
     plot_forecast_errors_by_horizon,
     plot_hedgehog,
+    plot_intra_period_accuracy,
+    plot_intra_period_bias,
+    plot_nowcasts,
     plot_outturn_revisions,
     plot_outturns,
     plot_radar,
@@ -54,15 +67,20 @@ __all__ = [
     "add_ar_p_forecasts",
     # Data classes
     "ForecastData",
+    "NowcastData",
     "DensityForecastData",
     # Sample data functions
     "create_sample_forecasts",
+    "create_sample_nowcast_forecasts",
+    "create_sample_nowcast_outturns",
     "create_sample_outturns",
     # Test/analysis functions
     "bias_analysis",
     "blanchard_leigh_horizon_analysis",
     "compare_to_benchmark",
     "compute_accuracy_statistics",
+    "compute_intra_period_accuracy",
+    "compute_intra_period_bias",
     "create_comparison_table",
     "diebold_mariano_table",
     "fluctuation_tests",
@@ -83,6 +101,8 @@ __all__ = [
     "plot_forecast_errors",
     "plot_forecast_errors_by_horizon",
     "plot_hedgehog",
+    "plot_intra_period_accuracy",
+    "plot_intra_period_bias",
     "plot_outturn_revisions",
     "plot_outturns",
     "plot_radar",
@@ -90,6 +110,7 @@ __all__ = [
     "plot_rolling_correlation",
     "plot_rolling_relative_accuracy",
     "plot_bias_by_horizon",
+    "plot_nowcasts",
     "plot_vintage",
     "plot_errors_across_time",
     # Utility functions

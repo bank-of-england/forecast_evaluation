@@ -10,6 +10,7 @@ from tqdm import tqdm
 from forecast_evaluation.core.transformations import prepare_forecasts
 from forecast_evaluation.data.ForecastData import (
     ForecastData,
+    _atomic_state,
     _check_duplicates,
     _check_missing_outturns,
     _fix_extra_columns,
@@ -125,6 +126,18 @@ class DensityForecastData(ForecastData):
         ... })
         >>> density_data.add_density_forecasts(df)
         """
+        with _atomic_state(
+            self,
+            "_id_columns",
+            "_raw_forecasts",
+            "_forecasts",
+            "_density_df",
+            "_density_forecasts",
+        ):
+            self._add_density_forecasts(df, extra_ids=extra_ids)
+
+    def _add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
+        """Add density forecasts without rolling back on failure; see :meth:`add_density_forecasts`."""
         # Check for quantile column
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
@@ -149,7 +162,7 @@ class DensityForecastData(ForecastData):
         else:
             # re-add "quantile" to id columns if missing
             if "quantile" not in self._id_columns:
-                self._id_columns += ["quantile"]
+                self._id_columns = self._id_columns + ["quantile"]
             # check that the id columns of the new forecasts match the existing ones
             # and if not adjust the datasets
             if set(self._id_columns) != set(id_cols):
@@ -157,11 +170,11 @@ class DensityForecastData(ForecastData):
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
-                        self._raw_forecasts[col] = pd.NA
-                        self._forecasts[col] = pd.NA
-                        self._density_df[col] = pd.NA
-                        self._density_forecasts[col] = pd.NA
-                        self._id_columns += [col]
+                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
+                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
+                        self._density_df = self._density_df.assign(**{col: pd.NA})
+                        self._density_forecasts = self._density_forecasts.assign(**{col: pd.NA})
+                        self._id_columns = self._id_columns + [col]
                     if col not in id_cols:
                         # add missing columns to new data
                         df[col] = pd.NA

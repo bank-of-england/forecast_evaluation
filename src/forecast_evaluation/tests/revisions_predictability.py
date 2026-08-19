@@ -165,6 +165,9 @@ def revision_predictability_analysis(
             "ForecastData forecasts data is not available." + " Please ensure data has been added and processed."
         )
 
+    if data.uses_intra_period_vintages:
+        raise ValueError("Revision predictability analysis is not supported for nowcasting data. ")
+
     df = data._forecasts.copy()
 
     # Filter by source if specified

@@ -104,6 +104,27 @@ def test_add_density_forecasts_without_quantile_raises(sample_outturns):
         dfd.add_density_forecasts(forecasts_without_quantile)
 
 
+def test_rejected_density_forecasts_do_not_mutate_state(sample_outturns, sample_density_forecasts):
+    """A rejected density forecast batch must leave the instance unchanged."""
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+
+    before_id_columns = dfd._id_columns.copy()
+    before_raw_forecasts = dfd._raw_forecasts.copy(deep=True)
+    before_forecasts = dfd._forecasts.copy(deep=True)
+    before_density_df = dfd._density_df.copy(deep=True)
+    before_density_forecasts = dfd._density_forecasts.copy(deep=True)
+
+    invalid = sample_density_forecasts.assign(value=lambda frame: frame["value"] + 1)
+    with pytest.raises(ValueError):
+        dfd.add_density_forecasts(invalid)
+
+    assert dfd._id_columns == before_id_columns
+    pd.testing.assert_frame_equal(dfd._raw_forecasts, before_raw_forecasts)
+    pd.testing.assert_frame_equal(dfd._forecasts, before_forecasts)
+    pd.testing.assert_frame_equal(dfd._density_df, before_density_df)
+    pd.testing.assert_frame_equal(dfd._density_forecasts, before_density_forecasts)
+
+
 # -----------------------
 # Filtering Tests
 # -----------------------

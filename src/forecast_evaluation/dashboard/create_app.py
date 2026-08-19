@@ -1,9 +1,5 @@
 """Main dashboard application."""
 
-import base64
-from pathlib import Path
-from importlib.resources import files
-
 from shiny import App, ui
 
 from .tabs.accuracy import (
@@ -19,6 +15,7 @@ from .tabs.bias import errors, rolling_errors, bias, rolling_bias
 from .tabs.correlation import correlation_heatmap, rolling_correlation
 from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
 from .tabs.hedgehog import hedgehog
+from .tabs.intra_period import intra_period_accuracy, intra_period_bias
 from .tabs.outturn_revisions import outturn_revisions, outturns
 from .tabs.radar import radar
 from .tabs.time_machine import time_machine
@@ -35,7 +32,6 @@ from .ui import (
     create_time_machine_tab,
     create_quantile_time_machine_tab,
 )
-
 from .theme.brand import brand as _brand
 from .utils import patch_render_plot
 
@@ -49,18 +45,26 @@ def dashboard_app(data) -> App:
     def app_ui(request):
         """Main UI function"""
 
+        is_nowcast = data.uses_intra_period_vintages
+
         tabs = [
             about(),
-            create_accuracy_tab(),
-            create_bias_tab(),
-            create_efficiency_tab(),
-            create_correlation_tab(),
-            create_time_machine_tab(),
-            create_hedgehog_tab(),
-            create_radar_tab(),
+            create_accuracy_tab(show_intra_period=is_nowcast),
+            create_bias_tab(show_intra_period=is_nowcast),
         ]
 
-        if getattr(data, "outturn_vintages", True):
+        # Efficiency tests are not supported for nowcasting data
+        if not is_nowcast:
+            tabs.append(create_efficiency_tab())
+
+        tabs.extend([create_time_machine_tab(), create_hedgehog_tab()])
+
+        # Correlation and radar analyses are not supported for nowcasting
+        # data, so do not expose tabs whose handlers cannot be used.
+        if not is_nowcast:
+            tabs.extend([create_correlation_tab(), create_radar_tab()])
+
+        if data.supports_outturn_revision_analysis:
             tabs.append(create_outturn_revisions_tab())
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
@@ -93,17 +97,26 @@ def dashboard_app(data) -> App:
         rolling_errors(input, output, session, data)
         bias(input, output, session, data)
         rolling_bias(input, output, session, data)
-        blanchard_leigh(input, output, session, data)
-        revisions_predictability(input, output, session, data)
-        weak_efficiency(input, output, session, data)
-        revisions_errors_correlation(input, output, session, data)
-        correlation_heatmap(input, output, session, data)
-        rolling_correlation(input, output, session, data)
+
+        # Efficiency, correlation and radar handlers are not needed for nowcasting data
+        if not data.uses_intra_period_vintages:
+            blanchard_leigh(input, output, session, data)
+            revisions_predictability(input, output, session, data)
+            weak_efficiency(input, output, session, data)
+            revisions_errors_correlation(input, output, session, data)
+            correlation_heatmap(input, output, session, data)
+            rolling_correlation(input, output, session, data)
+        else:
+            # Intra-period handlers only for nowcasting data
+            intra_period_accuracy(input, output, session, data)
+            intra_period_bias(input, output, session, data)
+
         hedgehog(input, output, session, data)
-        if getattr(data, "outturn_vintages", True):
+        if data.supports_outturn_revision_analysis:
             outturn_revisions(input, output, session, data)
             outturns(input, output, session, data)
-        radar(input, output, session, data)
+        if not data.uses_intra_period_vintages:
+            radar(input, output, session, data)
         time_machine(input, output, session, data)
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:

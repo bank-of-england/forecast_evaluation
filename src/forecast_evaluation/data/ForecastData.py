@@ -2,6 +2,7 @@ import copy
 import re
 import warnings
 from collections.abc import Iterable
+from contextlib import contextmanager
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
@@ -13,11 +14,36 @@ from forecast_evaluation.core.transformations import prepare_forecasts, prepare_
 from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
-from forecast_evaluation.data.utils import construct_unique_id, filter_fer_models, filter_fer_variables, filter_tables
+from forecast_evaluation.data.utils import (
+    compute_forecast_horizon,
+    construct_unique_id,
+    filter_fer_models,
+    filter_fer_variables,
+    filter_tables,
+)
 
 BENCHMARK_MODELS = ["AR", "random_walk"]
 
 _UNSET = object()  # sentinel for "parameter not passed"
+
+# Instance attributes mutated while adding forecasts, restored on failure.
+_FORECAST_STATE = ("first_forecast_horizon", "_id_columns", "_raw_forecasts", "_forecasts", "_main_table")
+
+
+@contextmanager
+def _atomic_state(obj: object, *attributes: str):
+    """Restore the named attributes of ``obj`` if the block raises.
+
+    Keeps a reference to each attribute rather than a copy, so code inside the
+    block must rebind attributes rather than mutate them in place.
+    """
+    saved = [(name, getattr(obj, name)) for name in attributes]
+    try:
+        yield
+    except Exception:
+        for name, value in saved:
+            setattr(obj, name, value)
+        raise
 
 
 class ForecastData(PlottingMixin):
@@ -32,6 +58,8 @@ class ForecastData(PlottingMixin):
     or all monthly). To work with multiple frequencies, create separate ForecastData instances for each frequency.
     """
 
+    default_k = 12
+
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
@@ -44,6 +72,7 @@ class ForecastData(PlottingMixin):
         data_check: bool = True,
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
         outturn_vintages: bool = True,
+        default_k: Optional[int] = None,
     ):
         """Initialise with user data, FER data or null.
 
@@ -87,6 +116,9 @@ class ForecastData(PlottingMixin):
             but whose data has not yet been released. When None (default), the threshold for each
             variable is max(0, min(forecast_horizon)) — i.e. the smallest non-negative horizon
             present in that variable's forecasts.
+        default_k : int or None, optional
+            Default outturn revision index used by evaluation functions when ``k`` is omitted.
+            If None, uses the class default.
         """
         self._raw_forecasts = pd.DataFrame()
         self._raw_outturns = pd.DataFrame()
@@ -94,6 +126,7 @@ class ForecastData(PlottingMixin):
         self._forecasts = pd.DataFrame()
         self._main_table = pd.DataFrame()
         self._id_columns = None
+        self.default_k = type(self).default_k if default_k is None else default_k
         self.first_forecast_horizon = first_forecast_horizon
         self._outturn_vintages = outturn_vintages
 
@@ -138,11 +171,16 @@ class ForecastData(PlottingMixin):
         df = df.copy()
 
         # When outturn_vintages is False, auto-populate missing columns
+        # before compute_forecast_horizon which requires vintage_date
         if not self._outturn_vintages:
             if "vintage_date" not in df.columns:
                 df["vintage_date"] = pd.NaT
             if "forecast_horizon" not in df.columns:
                 df["forecast_horizon"] = -1
+
+        # Compute forecast_horizon if missing
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
 
         # Handle metric column: use column values if present, otherwise use parameter
         if "metric" not in df.columns:
@@ -188,6 +226,8 @@ class ForecastData(PlottingMixin):
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Validate new forecasts, transform forecasts and outturns and compute main table and revisions.
+
+        If any validation or transformation step fails, the instance is left unchanged.
 
         Parameters
         ----------
@@ -236,7 +276,27 @@ class ForecastData(PlottingMixin):
         When compute_levels is True, sufficient historical outturn data is required for transformation,
         especially for 'yoy' metrics which need data from one year prior.
         """
+        with _atomic_state(self, *_FORECAST_STATE):
+            self._add_forecasts(
+                df,
+                extra_ids=extra_ids,
+                metric=metric,
+                compute_levels=compute_levels,
+                data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
+            )
 
+    def _add_forecasts(
+        self,
+        df: pd.DataFrame,
+        *,
+        extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
+        compute_levels: bool = True,
+        data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+    ) -> None:
+        """Add forecasts without rolling back on failure; see :meth:`add_forecasts`."""
         if self._raw_outturns is None or self._raw_outturns.empty:
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
@@ -244,10 +304,13 @@ class ForecastData(PlottingMixin):
 
         df = df.copy()
 
+        if "forecast_horizon" not in df.columns:
+            df = compute_forecast_horizon(df)
+
         # Update instance attribute if caller provided an explicit value
         if first_forecast_horizon is not _UNSET:
             if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
-                self.first_forecast_horizon.update(first_forecast_horizon)
+                self.first_forecast_horizon = {**self.first_forecast_horizon, **first_forecast_horizon}
             else:
                 self.first_forecast_horizon = first_forecast_horizon
 
@@ -309,9 +372,9 @@ class ForecastData(PlottingMixin):
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
-                        self._raw_forecasts[col] = pd.NA
-                        self._forecasts[col] = pd.NA
-                        self._id_columns += [col]
+                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
+                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
+                        self._id_columns = self._id_columns + [col]
                     if col not in id_cols:
                         # add missing columns to new data
                         df[col] = pd.NA
@@ -350,7 +413,7 @@ class ForecastData(PlottingMixin):
                     .astype(int)
                     .to_dict()
                 )
-                self.first_forecast_horizon.update(new_thresholds)
+                self.first_forecast_horizon = {**self.first_forecast_horizon, **new_thresholds}
 
         # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
         forecasts = prepare_forecasts(
@@ -361,9 +424,13 @@ class ForecastData(PlottingMixin):
             first_forecast_horizon=self.first_forecast_horizon,
         )
 
-        # Compute main table
+        # Compute main table.
         main_table = build_main_table(
-            forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+            forecasts,
+            self._outturns,
+            self._id_columns,
+            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
+            outturn_vintages=self._outturn_vintages,
         )
 
         # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
@@ -502,10 +569,7 @@ class ForecastData(PlottingMixin):
         expanded_df = pd.concat(expanded_rows, ignore_index=True).drop(columns=["publication_lag", "publication_date"])
 
         # recompute forecast_horizon using each row's actual frequency
-        expanded_df["forecast_horizon"] = expanded_df.apply(
-            lambda row: (row["date"].to_period(row["frequency"]) - row["vintage_date"].to_period(row["frequency"])).n,
-            axis=1,
-        )
+        expanded_df = compute_forecast_horizon(expanded_df)
 
         # Update raw outturns
         self._raw_outturns = pd.concat([expanded_df, self._raw_outturns], ignore_index=True)
@@ -517,7 +581,11 @@ class ForecastData(PlottingMixin):
         # Recompute main table if forecasts exist
         if not self._forecasts.empty:
             main_table = build_main_table(
-                self._forecasts, self._outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+                self._forecasts,
+                self._outturns,
+                self._id_columns,
+                frequency=self._forecasts["frequency"].iloc[0],
+                outturn_vintages=self._outturn_vintages,
             )
             self._main_table = main_table
 
@@ -678,7 +746,11 @@ class ForecastData(PlottingMixin):
         self._forecasts = forecasts
         self._outturns = outturns
         self._main_table = build_main_table(
-            forecasts, outturns, self._id_columns, outturn_vintages=self._outturn_vintages
+            forecasts,
+            outturns,
+            self._id_columns,
+            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
+            outturn_vintages=self._outturn_vintages,
         )
 
     @property
@@ -715,6 +787,22 @@ class ForecastData(PlottingMixin):
     def outturn_vintages(self) -> bool:
         """Whether the outturn data contains vintage information."""
         return self._outturn_vintages
+
+    @property
+    def uses_intra_period_vintages(self) -> bool:
+        """Whether forecast vintages are intra-period releases for the same target period.
+
+        When True, a target period has many forecast vintages and outturn releases within
+        it, so analyses that assume one forecast per (source, horizon, period) - efficiency,
+        forecast revision, correlation and radar analyses - do not apply, while intra-period
+        analyses do.
+        """
+        return False
+
+    @property
+    def supports_outturn_revision_analysis(self) -> bool:
+        """Whether analyses and plots requiring outturn revisions are supported."""
+        return self.outturn_vintages
 
     def run_dashboard(self, from_jupyter: bool = False, host: str = "127.0.0.1", port: int = 8000) -> None:
         """Run the Shiny dashboard with the current data.
@@ -1307,7 +1395,7 @@ def _check_forecast_data(forecasts_df: pd.DataFrame, outturns_df: pd.DataFrame) 
 
     group_keys = ["source", "variable", "metric", "frequency"]
 
-    for keys, group in forecasts_df.groupby(group_keys, sort=False):
+    for keys, _group in forecasts_df.groupby(group_keys, sort=False):
         source, variable, metric, frequency = keys
         label = f"source='{source}', variable='{variable}', metric='{metric}', frequency='{frequency}'"
 

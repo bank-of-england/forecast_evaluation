@@ -3,6 +3,8 @@ from datetime import date
 from typing import Literal, Optional, Union
 
 import matplotlib.pyplot as plt
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.utils import clean_unique_id, filter_k
@@ -19,6 +21,7 @@ def plot_hedgehog(
     date_start: Union[str, date, None] = None,
     convert_to_percentage: bool = False,
     return_plot: bool = False,
+    releases: Optional[list[int]] = None,
 ) -> tuple[plt.Figure, plt.Axes] | None:
     """Generate a hedgehog plot comparing forecasts with outturns.
 
@@ -44,6 +47,14 @@ def plot_hedgehog(
         If True, multiplies values on the y-axis by 100.
     return_plot : bool, default False
         If True, returns the matplotlib figure and axis objects.
+    releases : list of int, or None, default None
+        Restricts the plotted vintages to the given release ranks, numbered 1
+        (earliest/first-released nowcast) upward, based on the dense rank of
+        ``vintage_date`` within each target ``date``. Only supported for
+        nowcast data (i.e. a ``NowcastData`` instance, where forecasts are
+        released multiple times per target period); a ``ValueError`` is raised
+        if provided for other ``ForecastData`` types. Defaults to ``None``,
+        which plots all releases (unchanged behaviour).
 
     Returns
     -------
@@ -68,6 +79,14 @@ def plot_hedgehog(
     df_outturns = data._main_table.copy()
     df_outturns = filter_k(df_outturns, k)
 
+    uses_intra_period_vintages = data.uses_intra_period_vintages
+    if releases is not None and not uses_intra_period_vintages:
+        raise ValueError(
+            "The 'releases' argument is only supported for nowcast data (NowcastData), "
+            "where forecasts are released multiple times per target period. "
+            f"It cannot be used with {type(data).__name__}."
+        )
+
     # Filter the data
     df_outturns_filtered = df_outturns[
         (df_outturns["variable"] == variable)
@@ -86,9 +105,16 @@ def plot_hedgehog(
         df_forecasts_filtered = df_forecasts_filtered[df_forecasts_filtered["vintage_date"] >= date_start]
         df_outturns_filtered = df_outturns_filtered[df_outturns_filtered["vintage_date_forecast"] >= date_start]
 
+    if releases is not None:
+        release_ranks = df_forecasts_filtered.groupby("date")["vintage_date"].rank(method="dense")
+        df_forecasts_filtered = df_forecasts_filtered[release_ranks.isin(releases)]
+
     # Check if data exists
     if df_forecasts_filtered.empty:
-        raise ValueError(f"No forecast data found for {variable} from {forecast_source} with metric {metric}")
+        message = f"No forecast data found for {variable} from {forecast_source} with metric {metric}"
+        if releases is not None:
+            message += f" and releases {releases}"
+        raise ValueError(message)
 
     if df_outturns_filtered.empty:
         raise ValueError(f"No actuals data found for {variable} from {forecast_source} with metric {metric} and k {k}")
@@ -100,12 +126,25 @@ def plot_hedgehog(
     fig, ax = create_themed_figure()
 
     # Get unique forecast vintages
-    vintage_dates = df_forecasts_filtered["vintage_date"].unique()
+    vintage_dates = sorted(df_forecasts_filtered["vintage_date"].unique())
+
+    # With intra-period vintages there are multiple releases per target date; within each
+    # target date we colour the dots with a gradient from the earliest to the
+    # latest vintage so the evolution of the nowcast across the nowcasting
+    # window is visible.
+    if uses_intra_period_vintages:
+        cmap_base = plt.get_cmap("YlOrRd")
+        cmap = LinearSegmentedColormap.from_list(
+            "nowcast_vintage_gradient",
+            [cmap_base(i / 255) for i in range(64, 243)],
+        )
 
     # Plot a line for each forecast vintage
     for i, vintage_date in enumerate(vintage_dates):
         # if there is only one available horizon dot_size = 3 otherwise 0
-        if (
+        if uses_intra_period_vintages:
+            dot_size = 0
+        elif (
             df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date]["forecast_horizon"].nunique()
             == 1
         ):
@@ -125,6 +164,26 @@ def plot_hedgehog(
             alpha=0.7,
             color="lightblue",
             label=label,
+        )
+
+    # For nowcasts, overlay scatter dots coloured by vintage rank within each
+    # target date so the gradient reflects nowcast evolution per outturn.
+    if uses_intra_period_vintages:
+        df_nc = df_forecasts_filtered.sort_values(["date", "vintage_date"]).copy()
+        # Rank vintages within each target date and normalise to [0, 1].
+        ranks = df_nc.groupby("date")["vintage_date"].rank(method="dense") - 1
+        counts = df_nc.groupby("date")["vintage_date"].transform("nunique")
+        denom = (counts - 1).where(counts > 1, 1)
+        df_nc["_vintage_pos"] = (ranks / denom).clip(0, 1)
+        colors = cmap(df_nc["_vintage_pos"].to_numpy())
+        ax.scatter(
+            df_nc["date"],
+            multiplier * df_nc["value"],
+            c=colors,
+            s=24,
+            alpha=0.85,
+            edgecolors="none",
+            zorder=3,
         )
 
     # Overlay the actuals series (forecast_horizon == 0)
@@ -164,6 +223,18 @@ def plot_hedgehog(
 
     # Add legend
     ax.legend()
+
+    # Colourbar showing the vintage gradient for nowcasts
+    if uses_intra_period_vintages:
+        sm = ScalarMappable(norm=Normalize(vmin=0, vmax=1), cmap=cmap)
+        sm.set_array([])
+        # Use an inset axes so we don't reshape the parent axes and clash with
+        # the figure's layout engine (e.g. constrained_layout in the dashboard).
+        cax = ax.inset_axes([1.02, 0.0, 0.025, 1.0])
+        cbar = fig.colorbar(sm, cax=cax)
+        cbar.set_ticks([0, 1])
+        cbar.set_ticklabels(["Earliest", "Latest"])
+        cbar.set_label("Vintage within outturn", fontsize=10)
 
     # Return or show the plot
     if return_plot:

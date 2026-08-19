@@ -5,6 +5,7 @@ from .blanchard_leigh import blanchard_leigh_horizon_analysis
 from .correlation import forecast_errors_correlation_analysis
 from .diebold_mariano import diebold_mariano_table, diebold_mariano_test
 from .fluctuation_tests import fluctuation_tests
+from .intra_period import compute_intra_period_accuracy, compute_intra_period_bias
 from .results import TestResult
 from .revisions_errors_correlation import revisions_errors_correlation_analysis
 from .revisions_predictability import revision_predictability_analysis
@@ -27,5 +28,7 @@ __all__ = [
     "revision_predictability_analysis",
     "rolling_analysis",
     "fluctuation_tests",
+    "compute_intra_period_accuracy",
+    "compute_intra_period_bias",
     "TestResult",
 ]

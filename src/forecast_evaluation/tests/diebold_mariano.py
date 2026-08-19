@@ -119,7 +119,7 @@ def diebold_mariano_test(
 def diebold_mariano_table(
     data,
     benchmark_model: str,
-    k: int = 12,
+    k: Optional[int] = None,
     loss_function: Literal["mse", "mae"] = "mse",
     horizons: Optional[list[int]] = None,
 ) -> TestResult:
@@ -161,6 +161,9 @@ def diebold_mariano_table(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if k is None:
+        k = data.default_k
 
     df = data._main_table.copy()
 

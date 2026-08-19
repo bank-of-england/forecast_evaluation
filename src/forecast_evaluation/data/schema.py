@@ -69,6 +69,12 @@ def create_data_schema(
                     pa.Check(lambda s: (s >= 0) & (s <= 1), name="quantile must be between 0 and 1"),
                     coerce=True,
                 )
+            elif col == "days_in_period":
+                columns[col] = pa.Column(
+                    int,
+                    pa.Check(lambda s: s >= 0, name="days_in_period must be non-negative"),
+                    coerce=True,
+                )
             else:
                 columns[col] = pa.Column(str, non_empty_string, nullable=True)
 

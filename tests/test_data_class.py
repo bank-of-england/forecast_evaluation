@@ -1,8 +1,10 @@
+import copy
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
+from forecast_evaluation.core.outturns_revisions_table import create_outturn_revisions
 from forecast_evaluation.data.ForecastData import (
     ForecastData,
     _check_duplicates,
@@ -240,6 +242,26 @@ def test_add_forecasts_invalid_metric_kwarg_raises_when_column_missing(sample_ou
 
     with pytest.raises(ValueError, match=r"Invalid metric values found"):
         fd.add_forecasts(df, metric="not_a_metric")
+
+
+def test_add_forecasts_rejected_input_does_not_mutate_state(sample_outturns, sample_forecasts):
+    """A rejected add_forecasts() must not leave the instance partially updated."""
+    fd = ForecastData(outturns_data=sample_outturns)
+    fd.add_forecasts(sample_forecasts, data_check=False)
+
+    before_horizon = copy.deepcopy(fd.first_forecast_horizon)
+    before_id_columns = copy.deepcopy(fd._id_columns)
+    before_raw_forecasts = fd._raw_forecasts.copy(deep=True)
+    before_main_table = fd._main_table.copy(deep=True)
+
+    invalid = sample_forecasts.assign(metric="not_a_metric")
+    with pytest.raises(ValueError, match=r"Invalid metric values found"):
+        fd.add_forecasts(invalid, data_check=False, first_forecast_horizon=7)
+
+    assert fd.first_forecast_horizon == before_horizon
+    assert fd._id_columns == before_id_columns
+    pd.testing.assert_frame_equal(fd._raw_forecasts, before_raw_forecasts)
+    pd.testing.assert_frame_equal(fd._main_table, before_main_table)
 
 
 def test_add_forecasts_mixed_frequencies_raises(sample_outturns):
@@ -994,3 +1016,16 @@ def test_benchmark_addition_AR_RW(fer_outturns_minimal):
     # Check that benchmark forecasts have been added
     assert not fd._raw_forecasts.empty
     assert set(fd._raw_forecasts["source"].unique()) == {"baseline random walk model", "baseline ar(p) model"}
+
+
+def test_outturn_revisions_snapshot(fer_minimal_fd, snapshot):
+    """Check that outturn revisions are computed correctly by comparing to a snapshot."""
+    revisions = create_outturn_revisions(fer_minimal_fd)
+
+    # Sort deterministically so the snapshot is stable regardless of
+    # internal row ordering in create_outturn_revisions.
+    revisions = revisions.sort_values(["date", "variable", "frequency", "metric", "k"]).reset_index(drop=True)
+
+    sample = revisions.sample(n=min(10, len(revisions)), random_state=42)
+
+    assert sample.to_dict() == snapshot

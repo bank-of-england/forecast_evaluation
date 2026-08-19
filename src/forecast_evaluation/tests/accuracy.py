@@ -13,7 +13,7 @@ def compute_accuracy_statistics(
     data: ForecastData,
     source: Union[None, str, list[str]] = None,
     variable: Union[None, str, list[str]] = None,
-    k: int = 12,
+    k: Optional[int] = None,
     same_date_range: bool = True,
 ) -> TestResult:
     """
@@ -59,6 +59,9 @@ def compute_accuracy_statistics(
     """
     if data._main_table is None:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+
+    if k is None:
+        k = data.default_k
 
     df = data._main_table.copy()
 
