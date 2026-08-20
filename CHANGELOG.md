@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.13 (unreleased)
+## 0.1.13
 ### Added
 - New `NowcastData` class to handle intra-period vintages.
 
