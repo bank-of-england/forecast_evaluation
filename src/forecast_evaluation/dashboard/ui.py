@@ -35,7 +35,7 @@ def create_sidebar(data):
         # Get frequency label from data
         freq_code = data.forecasts["frequency"].iloc[0] if not data.forecasts["frequency"].empty else "Q"
         period_label = frequency_labels.get(freq_code, "periods")
-        horizons = set(int(h) for h in data.forecasts["forecast_horizon"].dropna().unique())
+        horizons = set(int(h) for h in data.forecasts["target_minus_vintage"].dropna().unique())
     else:
         vintages_set = set()
         outturn_dates_set = set()
@@ -52,7 +52,7 @@ def create_sidebar(data):
         sources_set.update(data._density_forecasts["source"].unique().tolist())
         unique_ids_set.update(data._density_forecasts["unique_id"].unique().tolist())
         transformations_set.update(data._density_forecasts["metric"].unique().tolist())
-        horizons.update(int(h) for h in data._density_forecasts["forecast_horizon"].dropna().unique())
+        horizons.update(int(h) for h in data._density_forecasts["target_minus_vintage"].dropna().unique())
 
     vintages = sorted(list(vintages_set))
     outturn_vintages = sorted(

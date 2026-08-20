@@ -56,7 +56,47 @@ where:
 
 - :math:`y_t` is the realized value (outturn)
 - :math:`\hat{y}_{t|t-h}` is the forecast made :math:`h` quarters ahead
-- :math:`h` is the forecast horizon (0 to 12 quarters)
+- :math:`h` is ``horizon``, the calendar distance from the forecast vintage to the target date
+  (``date - vintage_date``, in periods). Every analysis groups and reports on this horizon:
+  :math:`h=0` is a same-period forecast, :math:`h=1` is one period ahead, and :math:`h=-1` is a
+  backcast. It depends only on when a forecast was made, so it is comparable across sources that
+  conditioned on different amounts of data.
+
+**Horizons and serial correlation**
+
+A second horizon, ``forecast_horizon``, is supplied by the forecaster and measures the
+*information* distance: the periods between the last outturn used for estimation and the target
+date, zero-based (:math:`0` is the first period after that last observation). The two horizons
+coincide only when forecasts are published as soon as the previous period's outturn is released;
+a publication lag makes the information horizon the longer of the two.
+
+``forecast_horizon`` plays no part in grouping. Its sole role is to set the bandwidth of the HAC
+(Newey-West) standard errors in the regression-based tests — bias, weak and strong efficiency,
+revisions-errors correlation, and Diebold-Mariano — because it is the information horizon, not the
+calendar one, that governs the overlap in forecast errors: an :math:`f`-period information horizon
+produces errors following an MA(:math:`f`) process.
+
+When the publication lag changes over a sample, one calendar horizon pools observations made at
+several information horizons. A concatenation of MA(:math:`f`) segments has autocovariances
+bounded by the largest :math:`f` present, so the bandwidth is set to the maximum
+``forecast_horizon`` in the pooled sample. This keeps the estimator consistent and is merely
+conservative in the rows where the lag shifted. The bandwidth actually used is reported in the
+``hac_maxlags`` column of each results table (``hac_bandwidth`` for Blanchard-Leigh).
+
+For the Diebold-Mariano test, the loss differential mixes both forecasters' errors, so the
+bandwidth follows the longer information horizon of the pair. Forecasts are compared only when
+made at the same vintage for the same target; two sources that used different amounts of outturn
+data at that vintage are still compared, since the calendar horizon is equal by construction.
+
+.. note::
+
+   Pooling estimates an average. A bias test at calendar horizon :math:`h` tests whether the
+   *average* error is zero, so offsetting biases either side of a publication-lag change (say
+   :math:`+0.5` before and :math:`-0.5` after) can read as unbiased. Use
+   :func:`~forecast_evaluation.fluctuation_tests` to detect instability over time. Relatedly, a
+   horizon present in only one lag regime covers only part of the sample, so its rolling series
+   starts or stops mid-sample and the globally computed window ratio makes the Giacomini-Rossi
+   critical values approximate for that horizon.
 
 **Data Vintages**
 

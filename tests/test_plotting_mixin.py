@@ -192,7 +192,7 @@ def test_plot_errors_across_time_absolute_error(fer_minimal_fd: ForecastData):
 
 
 def test_plot_errors_across_time_multiple_horizons(fer_minimal_fd: ForecastData):
-    horizons = fer_minimal_fd._main_table["forecast_horizon"].unique()[:2].tolist()
+    horizons = fer_minimal_fd._main_table["target_minus_vintage"].unique()[:2].tolist()
     result = fer_minimal_fd.plot_errors_across_time(
         variable=VARIABLE,
         metric=METRIC,
@@ -203,7 +203,7 @@ def test_plot_errors_across_time_multiple_horizons(fer_minimal_fd: ForecastData)
 
 
 def test_plot_forecast_error_density_returns_fig_ax(fer_minimal_fd: ForecastData):
-    horizon = fer_minimal_fd._main_table["forecast_horizon"].iloc[0]
+    horizon = fer_minimal_fd._main_table["target_minus_vintage"].iloc[0]
     result = fer_minimal_fd.plot_forecast_error_density(
         variable=VARIABLE,
         horizon=horizon,

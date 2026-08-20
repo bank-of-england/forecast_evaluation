@@ -1,65 +1,91 @@
-"""Tests for first_forecast_horizon: per-variable horizon filtering and benchmark training cutoff."""
+"""Tests for the user-supplied forecast_horizon contract."""
 
 import pandas as pd
 import pytest
 
 from forecast_evaluation.core.ar_p_model import build_ar_p_model
-from forecast_evaluation.core.random_walk_model import add_random_walk_forecasts, build_random_walk_model
+from forecast_evaluation.core.random_walk_model import build_random_walk_model
 from forecast_evaluation.data.ForecastData import ForecastData
 
 VINTAGE_DATE = pd.Timestamp("2022-12-31")
 VARIABLES = ("var_a", "var_b", "var_c")
-# first_forecast_horizon per variable: -1, 0, 1
-FFH_DICT = {"var_a": -1, "var_b": 0, "var_c": 1}
-
-
-# -----------------------
-# Helpers
-# -----------------------
+LAST_OBSERVATION_DATES = {
+    "var_a": pd.Timestamp("2022-06-30"),
+    "var_b": pd.Timestamp("2022-09-30"),
+    "var_c": pd.Timestamp("2022-12-31"),
+}
+REALTIME_VINTAGE_DATE = pd.Timestamp("2024-12-31")
+REALTIME_LAST_OBSERVATION_DATE = pd.Timestamp("2024-03-31")
+REALTIME_FIRST_FORECAST_DATE = pd.Timestamp("2024-06-30")
 
 
 def make_outturns(n: int = 20) -> pd.DataFrame:
-    """Quarterly outturns without vintage columns (outturn_vintages=False), ending at 2022-Q4."""
+    """Return quarterly final outturns ending in 2022 Q4."""
     frames = []
-    for i, var in enumerate(VARIABLES):
+    for index, variable in enumerate(VARIABLES):
         dates = pd.date_range(end="2022-12-31", periods=n, freq="QE")
         frames.append(
             pd.DataFrame(
                 {
                     "date": dates,
-                    "variable": var,
+                    "variable": variable,
                     "frequency": "Q",
-                    "value": [float(100 + i * 10 + j) for j in range(n)],
+                    "value": [float(100 + index * 10 + period) for period in range(n)],
                 }
             )
         )
     return pd.concat(frames, ignore_index=True)
 
 
-def make_forecasts(horizons=range(-1, 9)) -> pd.DataFrame:
-    """Forecasts spanning horizons -1..8 for each variable, single vintage 2022-Q4."""
+def make_forecasts() -> pd.DataFrame:
+    """Return forecasts whose horizons identify each variable's last observation."""
     frames = []
-    for var in VARIABLES:
-        dates = [VINTAGE_DATE + pd.offsets.QuarterEnd(h) for h in horizons]
+    for variable, last_observation_date in LAST_OBSERVATION_DATES.items():
+        horizons = list(range(0, 7))
+        dates = [last_observation_date + pd.offsets.QuarterEnd(horizon + 1) for horizon in horizons]
         frames.append(
             pd.DataFrame(
                 {
                     "date": dates,
-                    "variable": var,
+                    "variable": variable,
                     "vintage_date": VINTAGE_DATE,
                     "source": "test_model",
                     "frequency": "Q",
-                    "value": [float(100 + h) for h in horizons],
-                    "forecast_horizon": list(horizons),
+                    "value": [float(100 + horizon) for horizon in horizons],
+                    "forecast_horizon": horizons,
                 }
             )
         )
     return pd.concat(frames, ignore_index=True)
 
 
-# -----------------------
-# Fixtures
-# -----------------------
+def make_realtime_benchmark_outturns() -> pd.DataFrame:
+    """Return final outturn history extending beyond a realtime training cutoff."""
+    dates = pd.date_range(start="2018-03-31", end="2025-12-31", freq="QE")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "variable": "realtime_var",
+            "frequency": "Q",
+            "value": [float(index) for index in range(len(dates))],
+        }
+    )
+
+
+def make_realtime_benchmark_forecasts() -> pd.DataFrame:
+    """Declare a horizon-zero forecast for t-2 when the last observation is t-3."""
+    dates = pd.date_range(start=REALTIME_FIRST_FORECAST_DATE, periods=3, freq="QE")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "variable": "realtime_var",
+            "vintage_date": REALTIME_VINTAGE_DATE,
+            "source": "test_model",
+            "frequency": "Q",
+            "value": [100.0, 101.0, 102.0],
+            "forecast_horizon": [0, 1, 2],
+        }
+    )
 
 
 @pytest.fixture
@@ -73,268 +99,202 @@ def forecasts() -> pd.DataFrame:
 
 
 @pytest.fixture
-def fd_dict(outturns, forecasts) -> ForecastData:
-    """ForecastData with per-variable first_forecast_horizon dict."""
-    fd = ForecastData(first_forecast_horizon=FFH_DICT, outturn_vintages=False)
-    fd.add_outturns(outturns)
-    fd.add_forecasts(forecasts, data_check=False)
-    return fd
+def data(outturns, forecasts) -> ForecastData:
+    return ForecastData(outturns_data=outturns, forecasts_data=forecasts, data_check=False, outturn_vintages=False)
 
 
-@pytest.fixture
-def fd_default(outturns, forecasts) -> ForecastData:
-    """ForecastData with default first_forecast_horizon=0."""
-    fd = ForecastData(outturn_vintages=False)
-    fd.add_outturns(outturns)
-    fd.add_forecasts(forecasts, data_check=False)
-    return fd
-
-
-# -----------------------
-# Horizon filter tests
-# -----------------------
-
-
-class TestFirstForecastHorizonFilter:
-    """first_forecast_horizon controls which horizons survive into fd.forecasts."""
-
-    def test_dict_min_horizon_per_variable(self, fd_dict):
-        """Each variable's minimum horizon matches its entry in the dict."""
-        assert fd_dict.forecasts.loc[fd_dict.forecasts["variable"] == "var_a", "forecast_horizon"].min() == -1
-        assert fd_dict.forecasts.loc[fd_dict.forecasts["variable"] == "var_b", "forecast_horizon"].min() == 0
-        assert fd_dict.forecasts.loc[fd_dict.forecasts["variable"] == "var_c", "forecast_horizon"].min() == 1
-
-    def test_dict_max_horizon_unaffected(self, fd_dict):
-        """first_forecast_horizon is a lower-bound only; the upper end is untouched."""
-        for var in VARIABLES:
-            mask = (fd_dict.forecasts["variable"] == var) & (fd_dict.forecasts["metric"] == "levels")
-            assert fd_dict.forecasts.loc[mask, "forecast_horizon"].max() == 8
-
-    def test_int_applies_to_all_variables(self, outturns, forecasts):
-        """A scalar value applies uniformly: all variables respect the same floor."""
-        fd = ForecastData(first_forecast_horizon=1, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(forecasts, data_check=False)
-
-        for var in VARIABLES:
-            assert fd.forecasts.loc[fd.forecasts["variable"] == var, "forecast_horizon"].min() == 1
-
-    def test_default_excludes_backcasts(self, fd_default):
-        """Default first_forecast_horizon=0 means h<0 never appears in fd.forecasts."""
-        assert (fd_default.forecasts["forecast_horizon"] < 0).sum() == 0
-
-    def test_variable_absent_from_dict_defaults_to_zero(self, outturns, forecasts):
-        """Variables not in the dict default to first_forecast_horizon=0."""
-        fd = ForecastData(first_forecast_horizon={"var_a": -1}, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(forecasts, data_check=False)
-
-        assert fd.forecasts.loc[fd.forecasts["variable"] == "var_a", "forecast_horizon"].min() == -1
-        assert fd.forecasts.loc[fd.forecasts["variable"] == "var_b", "forecast_horizon"].min() == 0
-        assert fd.forecasts.loc[fd.forecasts["variable"] == "var_c", "forecast_horizon"].min() == 0
-
-    def test_no_outturn_rows_leak_into_forecasts(self, fd_dict):
-        """Helper outturn rows prepended for YoY/MoM transforms must not appear in forecasts."""
-        assert set(fd_dict.forecasts["source"].unique()) == {"test_model"}
-
-    def test_forecast_horizon_dtype_is_integer(self, fd_dict):
-        """forecast_horizon must stay integer after the NaN-heavy concat in transformations."""
-        assert pd.api.types.is_integer_dtype(fd_dict.forecasts["forecast_horizon"])
-
-
-# -----------------------
-# Benchmark training cutoff tests
-# -----------------------
-
-
-class TestFirstForecastHorizonBenchmarks:
-    """Benchmark models must shift their training cutoff with first_forecast_horizon."""
-
-    # expected dates based on outturns ending 2022-12-31 and vintage 2022-12-31
-    EXPECTED = {
-        "var_a": {
-            "ffh": -1,
-            "last_obs_h": -2,
-            "last_obs_date": pd.Timestamp("2022-06-30"),
-            "first_fc_date": pd.Timestamp("2022-09-30"),
-        },
-        "var_b": {
-            "ffh": 0,
-            "last_obs_h": -1,
-            "last_obs_date": pd.Timestamp("2022-09-30"),
-            "first_fc_date": pd.Timestamp("2022-12-31"),
-        },
-        "var_c": {
-            "ffh": 1,
-            "last_obs_h": 0,
-            "last_obs_date": pd.Timestamp("2022-12-31"),
-            "first_fc_date": pd.Timestamp("2023-03-31"),
-        },
-    }
-
-    @pytest.fixture
-    def fd_for_benchmarks(self, outturns, forecasts) -> ForecastData:
-        """ForecastData with forecasts loaded so benchmarks can read vintage dates."""
-        fd = ForecastData(first_forecast_horizon=FFH_DICT, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(forecasts, data_check=False)
-        return fd
-
-    @pytest.mark.parametrize("var", VARIABLES)
-    def test_rw_last_obs_horizon_label(self, fd_for_benchmarks, var):
-        """Raw RW output: the 'last training value' entry is labelled first_forecast_horizon - 1."""
-        ffh = FFH_DICT[var]
-        rw = build_random_walk_model(
-            fd_for_benchmarks, variable=var, metric="levels", frequency="Q", first_forecast_horizon=ffh
-        )
-        expected_h = self.EXPECTED[var]["last_obs_h"]
-        assert expected_h in rw["forecast_horizon"].values
-
-    @pytest.mark.parametrize("var", VARIABLES)
-    def test_rw_last_obs_date(self, fd_for_benchmarks, var):
-        """Training cutoff shifts correctly: last obs date differs per first_forecast_horizon."""
-        ffh = FFH_DICT[var]
-        rw = build_random_walk_model(
-            fd_for_benchmarks, variable=var, metric="levels", frequency="Q", first_forecast_horizon=ffh
-        )
-        expected_h = self.EXPECTED[var]["last_obs_h"]
-        expected_date = self.EXPECTED[var]["last_obs_date"]
-        actual_date = rw.loc[rw["forecast_horizon"] == expected_h, "date"].iloc[0]
-        assert actual_date == expected_date
-
-    @pytest.mark.parametrize("var", VARIABLES)
-    def test_rw_first_forecast_date(self, fd_for_benchmarks, var):
-        """First forecast is produced at the correct date for each first_forecast_horizon."""
-        ffh = FFH_DICT[var]
-        rw = build_random_walk_model(
-            fd_for_benchmarks, variable=var, metric="levels", frequency="Q", first_forecast_horizon=ffh
-        )
-        expected_date = self.EXPECTED[var]["first_fc_date"]
-        actual_date = rw.loc[rw["forecast_horizon"] == ffh, "date"].iloc[0]
-        assert actual_date == expected_date
-
-    def test_rw_cutoff_shifts_independently_per_variable(self, fd_for_benchmarks):
-        """The three variables use different training windows, not the same cutoff."""
-        last_obs_dates = {}
-        for var, meta in self.EXPECTED.items():
-            rw = build_random_walk_model(
-                fd_for_benchmarks, variable=var, metric="levels", frequency="Q", first_forecast_horizon=meta["ffh"]
+class TestForecastHorizonInput:
+    def test_missing_forecast_horizon_is_derived(self, outturns, forecasts):
+        """Missing forecast horizons fall back to vintage-relative distance."""
+        with pytest.warns(FutureWarning, match="target_minus_vintage"):
+            data = ForecastData(
+                outturns_data=outturns,
+                forecasts_data=forecasts.drop(columns="forecast_horizon"),
+                outturn_vintages=False,
             )
-            last_obs_dates[var] = rw.loc[rw["forecast_horizon"] == meta["last_obs_h"], "date"].iloc[0]
 
-        assert last_obs_dates["var_a"] < last_obs_dates["var_b"]
-        assert last_obs_dates["var_b"] < last_obs_dates["var_c"]
+        assert data._raw_forecasts["forecast_horizon"].tolist() == data._raw_forecasts["target_minus_vintage"].tolist()
 
-    def test_add_rw_forecasts_end_to_end(self, fd_for_benchmarks):
-        """add_random_walk_forecasts respects per-variable first_forecast_horizon end-to-end."""
-        add_random_walk_forecasts(fd_for_benchmarks, metric="levels")
+    def test_negative_forecast_horizons_are_filtered(self, outturns, forecasts):
+        """Validated backcasts are excluded from the stored forecast tables."""
+        forecasts = forecasts.copy()
+        forecasts.loc[0, "forecast_horizon"] = -1
 
-        rw = fd_for_benchmarks.forecasts[fd_for_benchmarks.forecasts["source"] == "baseline random walk model"]
+        data = ForecastData(outturns_data=outturns, forecasts_data=forecasts, data_check=False, outturn_vintages=False)
 
-        assert rw.loc[rw["variable"] == "var_a", "forecast_horizon"].min() == -1
-        assert rw.loc[rw["variable"] == "var_b", "forecast_horizon"].min() == 0
-        assert rw.loc[rw["variable"] == "var_c", "forecast_horizon"].min() == 1
+        assert len(data._raw_forecasts) == len(forecasts) - 1
+        assert (data._raw_forecasts["forecast_horizon"] >= 0).all()
+        assert (data.forecasts["forecast_horizon"] >= 0).all()
+        assert (data.df["forecast_horizon"] >= 0).all()
 
-    @pytest.mark.parametrize("var", VARIABLES)
-    def test_arp_training_cutoff(self, fd_for_benchmarks, var):
-        """AR(p) benchmark: same training-cutoff shift logic as the random walk."""
-        ffh = FFH_DICT[var]
-        ar = build_ar_p_model(
-            fd_for_benchmarks,
-            variable=var,
+    def test_all_negative_forecast_horizons_warn(self, outturns, forecasts):
+        """Adding only backcasts warns that no usable forecasts remain."""
+        forecasts = forecasts.assign(forecast_horizon=-1)
+
+        with pytest.warns(UserWarning, match="No forecasts available after filtering/validation"):
+            data = ForecastData(
+                outturns_data=outturns,
+                forecasts_data=forecasts,
+                data_check=False,
+                outturn_vintages=False,
+            )
+
+        assert data._raw_forecasts.empty
+        assert data.forecasts.empty
+        assert data.df.empty
+
+    def test_non_negative_horizons_are_retained(self, data):
+        """Non-negative forecast horizons are retained for every variable."""
+        levels = data.forecasts[data.forecasts["metric"] == "levels"]
+        actual = levels.groupby("variable")["forecast_horizon"].min().to_dict()
+
+        assert actual == dict.fromkeys(VARIABLES, 0)
+        assert (levels["forecast_horizon"] >= 0).all()
+
+    def test_forecast_horizon_is_an_integer_after_transformations(self, data):
+        """Derived rows retain the supplied information-horizon labels."""
+        assert pd.api.types.is_integer_dtype(data.forecasts["forecast_horizon"])
+        assert set(data.forecasts["source"].unique()) == {"test_model"}
+
+    def test_custom_filter_uses_information_horizon(self, data):
+        """ForecastData filtering remains keyed to the declared information horizon."""
+        data.filter(
+            custom_filter=lambda frame: (
+                frame if "forecast_horizon" not in frame else frame[frame["forecast_horizon"] >= 0]
+            )
+        )
+
+        assert (data.forecasts["forecast_horizon"] >= 0).all()
+        assert (data.df["forecast_horizon"] >= 0).all()
+
+
+class TestForecastHorizonAndVintageDistance:
+    def test_information_horizon_is_not_replaced_by_vintage_distance(self, outturns):
+        """The user-provided horizon can intentionally differ from calendar geometry."""
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2023-03-31")],
+                "variable": ["var_a"],
+                "vintage_date": [VINTAGE_DATE],
+                "source": ["test_model"],
+                "frequency": ["Q"],
+                "value": [101.0],
+                "forecast_horizon": [4],
+            }
+        )
+
+        data = ForecastData(outturns_data=outturns, forecasts_data=forecasts, data_check=False, outturn_vintages=False)
+        row = data._raw_forecasts.iloc[0]
+
+        assert row["forecast_horizon"] == 4
+        assert row["target_minus_vintage"] == 1
+
+
+class TestBenchmarkTrainingCutoffs:
+    @pytest.mark.parametrize("variable", VARIABLES)
+    def test_random_walk_uses_declared_horizon_to_choose_training_cutoff(self, data, variable):
+        """The first baseline forecast follows the last observation implied by its horizon."""
+        result = build_random_walk_model(data, variable=variable, metric="levels", frequency="Q", forecast_periods=1)
+        first_forecast = result.loc[result["forecast_horizon"] == 0].iloc[0]
+        expected_last_observation = LAST_OBSERVATION_DATES[variable]
+
+        assert first_forecast["date"] == expected_last_observation + pd.offsets.QuarterEnd()
+
+    @pytest.mark.parametrize("variable", VARIABLES)
+    def test_ar_p_uses_declared_horizon_to_choose_training_cutoff(self, data, variable):
+        """AR(p) benchmarks use the same last-observation contract as random walk."""
+        result = build_ar_p_model(
+            data,
+            variable=variable,
             metric="levels",
             frequency="Q",
-            first_forecast_horizon=ffh,
+            forecast_periods=1,
+            estimation_start_date=None,
+        )
+        first_forecast = result.loc[result["forecast_horizon"] == 0].iloc[0]
+        expected_last_observation = LAST_OBSERVATION_DATES[variable]
+
+        assert first_forecast["date"] == expected_last_observation + pd.offsets.QuarterEnd()
+
+    @pytest.mark.parametrize("variable", VARIABLES)
+    def test_random_walk_forecast_horizons_start_at_zero(self, data, variable):
+        """Benchmark forecasts begin at horizon zero after the training cutoff."""
+        result = build_random_walk_model(data, variable=variable, metric="levels", frequency="Q", forecast_periods=1)
+
+        assert result["forecast_horizon"].min() == 0
+
+    def test_random_walk_uses_t_minus_3_cutoff_and_starts_at_t_minus_2(self):
+        """A horizon-zero benchmark forecast starts one period after the last observation."""
+        outturns = make_realtime_benchmark_outturns()
+        data = ForecastData(
+            outturns_data=outturns,
+            forecasts_data=make_realtime_benchmark_forecasts(),
+            data_check=False,
+            outturn_vintages=False,
+        )
+
+        result = build_random_walk_model(
+            data,
+            variable="realtime_var",
+            metric="levels",
+            frequency="Q",
+            forecast_periods=3,
+        )
+
+        expected_dates = pd.date_range(start=REALTIME_FIRST_FORECAST_DATE, periods=3, freq="QE")
+        assert result["date"].tolist() == expected_dates.tolist()
+        assert result["forecast_horizon"].tolist() == [0, 1, 2]
+        expected_value = outturns.loc[outturns["date"] == REALTIME_LAST_OBSERVATION_DATE, "value"].iloc[0]
+        assert result.loc[result["forecast_horizon"] == 0, "value"].iloc[0] == expected_value
+
+    def test_random_walk_uses_earliest_horizon_across_forecast_ids(self, outturns):
+        """The cutoff uses the earliest supplied horizon even when it is not zero."""
+        forecasts = pd.DataFrame(
+            {
+                "date": [pd.Timestamp("2023-03-31"), pd.Timestamp("2023-03-31")],
+                "variable": ["var_a", "var_a"],
+                "vintage_date": [VINTAGE_DATE, VINTAGE_DATE],
+                "source": ["model_a", "model_b"],
+                "frequency": ["Q", "Q"],
+                "value": [101.0, 102.0],
+                "forecast_horizon": [1, 2],
+            }
+        )
+        data = ForecastData(
+            outturns_data=outturns,
+            forecasts_data=forecasts,
+            data_check=False,
+            outturn_vintages=False,
+        )
+
+        result = build_random_walk_model(data, variable="var_a", metric="levels", frequency="Q", forecast_periods=1)
+
+        first_forecast = result.iloc[0]
+        assert first_forecast["date"] == pd.Timestamp("2022-12-31")
+        expected_value = outturns.loc[
+            (outturns["variable"] == "var_a") & (outturns["date"] == pd.Timestamp("2022-09-30")), "value"
+        ].iloc[0]
+        assert first_forecast["value"] == expected_value
+
+    def test_ar_p_uses_t_minus_3_cutoff_and_starts_at_t_minus_2(self):
+        """AR(p) benchmarks use the declared realtime cutoff rather than final outturn history."""
+        data = ForecastData(
+            outturns_data=make_realtime_benchmark_outturns(),
+            forecasts_data=make_realtime_benchmark_forecasts(),
+            data_check=False,
+            outturn_vintages=False,
+        )
+
+        result = build_ar_p_model(
+            data,
+            variable="realtime_var",
+            metric="levels",
+            frequency="Q",
+            forecast_periods=3,
+            max_lag=1,
             estimation_start_date=None,
         )
 
-        expected_h = self.EXPECTED[var]["last_obs_h"]
-        expected_date = self.EXPECTED[var]["last_obs_date"]
-        actual_date = ar.loc[ar["forecast_horizon"] == expected_h, "date"].iloc[0]
-        assert actual_date == expected_date
-
-
-# -----------------------
-# Non-levels backcast tests
-# -----------------------
-
-
-class TestFirstForecastHorizonNonLevels:
-    """Backcasts (first_forecast_horizon < 0) must work through pop/yoy transformations."""
-
-    def test_backcast_produces_pop_and_yoy_rows(self, outturns, forecasts):
-        """Levels backcasts at h=-1 should yield pop and yoy rows at h=-1 too."""
-        fd = ForecastData(first_forecast_horizon=-1, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(forecasts, data_check=False)
-
-        backcasts = fd.forecasts[fd.forecasts["forecast_horizon"] == -1]
-        assert set(backcasts["metric"].unique()) >= {"levels", "pop", "yoy"}
-        for var in VARIABLES:
-            assert (backcasts["variable"] == var).any(), f"{var} missing from backcasts"
-
-    def test_pop_forecasts_with_backcast(self, outturns):
-        """Forecasts supplied directly as pop with ffh=-1 should survive the transform."""
-        horizons = list(range(-1, 5))
-        frames = []
-        for var in VARIABLES:
-            dates = [VINTAGE_DATE + pd.offsets.QuarterEnd(h) for h in horizons]
-            frames.append(
-                pd.DataFrame(
-                    {
-                        "date": dates,
-                        "variable": var,
-                        "vintage_date": VINTAGE_DATE,
-                        "source": "test_model",
-                        "frequency": "Q",
-                        "metric": "pop",
-                        "value": [0.5] * len(horizons),
-                        "forecast_horizon": horizons,
-                    }
-                )
-            )
-        pop_forecasts = pd.concat(frames, ignore_index=True)
-
-        fd = ForecastData(first_forecast_horizon=-1, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(pop_forecasts, data_check=False)
-
-        # pop rows at h=-1 must pass through
-        pop_backcasts = fd.forecasts[(fd.forecasts["forecast_horizon"] == -1) & (fd.forecasts["metric"] == "pop")]
-        for var in VARIABLES:
-            assert (pop_backcasts["variable"] == var).any()
-
-
-# -----------------------
-# Validation tests
-# -----------------------
-
-
-class TestFirstForecastHorizonValidation:
-    """Dict keys must match real variable names; partial dicts are allowed."""
-
-    def test_unknown_variable_raises(self, outturns, forecasts):
-        fd = ForecastData(first_forecast_horizon={"typo_var": -1}, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        with pytest.raises(ValueError, match="typo_var"):
-            fd.add_forecasts(forecasts, data_check=False)
-
-    def test_partial_dict_allowed(self, outturns, forecasts):
-        """Specifying only some variables is fine; the rest default to 0."""
-        fd = ForecastData(first_forecast_horizon={"var_a": -1}, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        fd.add_forecasts(forecasts, data_check=False)  # must not raise
-
-        assert fd.forecasts.loc[fd.forecasts["variable"] == "var_a", "forecast_horizon"].min() == -1
-        assert fd.forecasts.loc[fd.forecasts["variable"] == "var_b", "forecast_horizon"].min() == 0
-
-    def test_unknown_variable_lists_known_in_message(self, outturns, forecasts):
-        """Error message should list valid variable names to help debugging."""
-        fd = ForecastData(first_forecast_horizon={"typo_var": -1, "var_a": 0}, outturn_vintages=False)
-        fd.add_outturns(outturns)
-        with pytest.raises(ValueError) as exc_info:
-            fd.add_forecasts(forecasts, data_check=False)
-        msg = str(exc_info.value)
-        # Only the typo should be flagged, not var_a
-        assert "typo_var" in msg
-        assert "var_a" in msg  # listed under "Known variables"
+        expected_dates = pd.date_range(start=REALTIME_FIRST_FORECAST_DATE, periods=3, freq="QE")
+        assert result["date"].tolist() == expected_dates.tolist()
+        assert result["forecast_horizon"].tolist() == [0, 1, 2]

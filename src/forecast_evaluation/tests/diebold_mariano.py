@@ -152,10 +152,11 @@ def diebold_mariano_table(
         - 'metric': Metric identifier
         - 'frequency': Frequency identifier
         - 'source': Model being compared to benchmark
-        - 'forecast_horizon': Forecast horizon
+        - 'horizon': Forecast horizon (target date minus forecast vintage)
         - 'dm_statistic': DM test statistic
         - 'p_value': P-value from DM test
         - 'n_observations': Number of observations used
+        - 'hac_maxlags': Truncation lag used (max information horizon across the pair)
         - 'rmse_ratio': Ratio of model RMSE to benchmark RMSE
         - 'benchmark_source': Benchmark model name
     """
@@ -165,7 +166,7 @@ def diebold_mariano_table(
     if k is None:
         k = data.default_k
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # retrieve id columns but unique_id
     id_cols = [col for col in data.id_columns if col != "unique_id"]
@@ -174,9 +175,9 @@ def diebold_mariano_table(
     # If the use provided a subset of the horizons, filter accordingly
     if horizons is not None:
         # check that horizons are in the data
-        available_horizons = df["forecast_horizon"].unique().tolist()
+        available_horizons = df["horizon"].unique().tolist()
         horizons_valid = [h for h in horizons if h in available_horizons]
-        df = df[df["forecast_horizon"].isin(horizons_valid)]
+        df = df[df["horizon"].isin(horizons_valid)]
 
     # Filter dataset for particular value of k used to determined the outturns
     df = filter_k(df, k)
@@ -194,12 +195,20 @@ def diebold_mariano_table(
     # diff = error_model - error_benchmark
     # first drop unused columns to avoid duplication in merge
     df.drop(columns=["value_outturn", "value_forecast"], errors="ignore", inplace=True)
-    merge_on = df.columns.difference(["unique_id", "forecast_error", "forecast_error_transformed"]).tolist()
+
+    # Forecasts are paired when they were made at the same vintage for the same target,
+    # which the remaining key columns already enforce. `forecast_horizon` is deliberately
+    # excluded so that two forecasters who used different amounts of outturn data at that
+    # same vintage can still be compared; each side's own horizon is carried through the
+    # merge instead, and sets the lag length in `apply_dm_test`.
+    merge_on = df.columns.difference(
+        ["unique_id", "forecast_error", "forecast_error_transformed", "forecast_horizon"]
+    ).tolist()
 
     benchmark_df = df[df["unique_id"] == benchmark_model]
     merged_df = pd.merge(
         df,
-        benchmark_df[merge_on + ["forecast_error", "forecast_error_transformed"]],
+        benchmark_df[merge_on + ["forecast_error", "forecast_error_transformed", "forecast_horizon"]],
         on=merge_on,
         suffixes=("", "_benchmark"),
     )
@@ -210,15 +219,21 @@ def diebold_mariano_table(
     # Drop the benchmark
     merged_df = merged_df[merged_df["unique_id"] != benchmark_model]
 
+    # The autocovariances of the loss differential are computed in observation order,
+    # so the sample has to be in time order before grouping.
+    merged_df = merged_df.sort_values("date")
+
     # Group by all combinations and calculate statistics
-    groupby_cols = ["variable", "unique_id", "metric", "frequency", "forecast_horizon"]
+    groupby_cols = ["variable", "unique_id", "metric", "frequency", "horizon"]
+    lag_cols = ["forecast_horizon", "forecast_horizon_benchmark"]
 
     # Define function to apply DM test to each group
     def apply_dm_test(group):
-        # need this here because the horizon is given in the grouping
-        test_results = diebold_mariano_test(
-            error_difference=group["error_difference"], horizon=group["forecast_horizon"].iloc[0]
-        )
+        # The loss differential mixes both forecasters' errors, so its autocorrelation
+        # order is bounded by the longest information horizon on either side of the pair.
+        horizon = max(0, int(group[lag_cols].to_numpy().max()))
+
+        test_results = diebold_mariano_test(error_difference=group["error_difference"], horizon=horizon)
 
         # also return RMSE ratio
         rmse_ratio = np.sqrt(np.mean(group["forecast_error"] ** 2)) / (
@@ -227,13 +242,14 @@ def diebold_mariano_table(
 
         # Combine results
         test_results["rmse_ratio"] = rmse_ratio
+        test_results["hac_maxlags"] = horizon
 
         return test_results
 
     # Run DM test for each group using groupby + apply
     results_df = (
         merged_df.groupby(groupby_cols, group_keys=True)[
-            groupby_cols + ["error_difference"] + ["forecast_error"] + ["forecast_error_benchmark"]
+            groupby_cols + ["error_difference"] + ["forecast_error"] + ["forecast_error_benchmark"] + lag_cols
         ]
         .apply(apply_dm_test)
         .reset_index()

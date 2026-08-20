@@ -41,12 +41,12 @@ def create_data_schema(
         "frequency": pa.Column(
             str, pa.Check(lambda s: s.isin(ALLOWED_FREQUENCIES), name=f"must be one of {ALLOWED_FREQUENCIES}")
         ),
-        "forecast_horizon": pa.Column(int, coerce=True),
         "value": pa.Column(float, nullable=False, coerce=True),
     }
 
     # add source if data is forecast
     if forecast:
+        columns["forecast_horizon"] = pa.Column(int, coerce=True)
         columns["source"] = pa.Column(str, non_empty_string)
 
     # Add optional columns

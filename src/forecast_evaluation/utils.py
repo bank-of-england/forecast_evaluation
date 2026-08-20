@@ -35,34 +35,63 @@ def clean_unique_id(obj: pd.DataFrame | str) -> pd.DataFrame | str:
 
 
 def filter_k(df: pd.DataFrame, k: int = 12, fill_k: bool = True) -> pd.DataFrame:
-    """Filter the dataset for a particular k, replacing unreleased outturn vintages with the latest vintage.
+    """Filter the dataset for a particular k.
+
+    If k is not available and fill_k is True, the largest available k at or
+    below the requested k is retained. If none is available, the earliest
+    later maturity is retained.
+
+    For example, with ``k=12`` and ``fill_k=True``::
+
+        Available maturities    Selected maturity
+        ---------------------    -----------------
+        [5]                      5
+        [5, 8, 11]              11
+        [5, 8, 11, 14]           11
+        [12, 14]                 12
+        [14]                     14
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame containing forecast data with 'k', 'latest_vintage', and 'vintage_date_outturn' columns
+        DataFrame containing a ``k`` column and, when outturn vintages are
+        available, ``latest_vintage`` and ``vintage_date_outturn`` columns.
     k : int, default=12
         Number of revisions to filter by
     fill_k : bool, default=True
-        If True, substitutes unreleased outturns from the latest vintage
+        If True, retain the exact maturity when available; otherwise retain the
+        largest available maturity at or below ``k`` for each target series. If
+        no such maturity exists, retain the earliest later maturity. If False,
+        retain only rows at exactly ``k``.
 
     Returns
     -------
     pd.DataFrame
-        Filtered DataFrame containing only rows where k matches or latest vintage is used
+        Filtered DataFrame containing the selected maturity for each target series.
     """
     # When outturn vintages are not available (latest_vintage is all NaT),
     # there is only one outturn per date — return unfiltered.
     if "latest_vintage" in df.columns and df["latest_vintage"].isna().all():
         return df
 
-    # Subset the data
-    if fill_k:
-        df = df[(df["k"] == k) | ((df["k"] < k) & (df["latest_vintage"] == df["vintage_date_outturn"]))]
-    else:
-        df = df[df["k"] == k]
+    if not fill_k:
+        return df[df["k"] == k]
 
-    return df
+    group_columns = [column for column in ("date", "variable", "frequency", "metric") if column in df.columns]
+    group_columns.extend(column for column in ("unique_id", "source") if column in df.columns)
+
+    if group_columns:
+        grouped_k = df.groupby(group_columns, dropna=False)["k"]
+        lower_k = grouped_k.transform(lambda values: values.where(values <= k).max())
+        upper_k = grouped_k.transform(lambda values: values.where(values > k).min())
+    else:
+        lower_k = df["k"].where(df["k"] <= k).max()
+        upper_k = df["k"].where(df["k"] > k).min()
+        selected_k = lower_k if pd.notna(lower_k) else upper_k
+        return df[df["k"] == selected_k]
+
+    selected_k = lower_k.fillna(upper_k)
+    return df[df["k"] == selected_k]
 
 
 def covid_filter(df: pd.DataFrame) -> pd.DataFrame:

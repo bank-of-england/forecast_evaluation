@@ -97,6 +97,18 @@
       227: 'compass unconditional',
       260: 'mpr',
     }),
+    'target_minus_vintage': dict({
+      9: 2,
+      45: 4,
+      84: 0,
+      90: 6,
+      118: 1,
+      125: 1,
+      143: 2,
+      176: 5,
+      227: 4,
+      260: 5,
+    }),
     'unique_id': dict({
       9: 'compass unconditional',
       45: 'compass unconditional',

@@ -36,6 +36,10 @@ def nowcast_forecasts() -> pd.DataFrame:
     return create_sample_nowcast_forecasts()
 
 
+def _with_forecast_horizon(forecasts: pd.DataFrame, horizon: int = 0) -> pd.DataFrame:
+    return forecasts.assign(forecast_horizon=horizon)
+
+
 # -----------------------
 # compute_days_in_period Tests
 # -----------------------
@@ -130,13 +134,13 @@ class TestNowcastingFlow:
         assert set(fd._raw_forecasts["source"].unique()) == {"nowcast_dfm", "nowcast_bridge"}
         assert set(fd._raw_forecasts["variable"].unique()) == {"gdp", "cpi"}
 
-        # forecast_horizon is integer periods (e.g. -1 backcast, 0 nowcast, 1 one-quarter-ahead)
+        # forecast_horizon is the information horizon (0 nowcast, 1 one-quarter-ahead)
         fh = fd._raw_forecasts["forecast_horizon"]
         assert pd.api.types.is_integer_dtype(fh)
-        # Backcasts have negative horizon (vintage after quarter-end)
-        assert (fh < 0).any()
-        # Horizons are small integers, not days
+        assert (fh >= 0).all()
+        # Horizons are small integers, not days.
         assert fh.max() <= 10
+        assert (fd._raw_forecasts["target_minus_vintage"] == -1).any()
         # Multiple weekly vintages per (source, date, horizon) group
         assert len(fd._raw_forecasts) > len(fh.unique()) * 2
 
@@ -144,18 +148,13 @@ class TestNowcastingFlow:
         if not fd.df.empty:
             assert fd.df["k"].min() >= -1
 
-    def test_forecast_horizon_auto_computed(self, nowcast_outturns, nowcast_forecasts):
-        """forecast_horizon should be computed automatically if missing, using integer-period method."""
-        outturns_no_horizon = nowcast_outturns.drop(columns=["forecast_horizon"])
-
-        fd = NowcastData(outturns_data=outturns_no_horizon)
+    def test_outturns_omit_forecast_horizon(self, nowcast_outturns, nowcast_forecasts):
+        """Outturns do not carry the forecast-only information horizon."""
+        fd = NowcastData(outturns_data=nowcast_outturns)
         fd.add_forecasts(nowcast_forecasts, data_check=False)
 
-        assert "forecast_horizon" in fd._raw_forecasts.columns
-        # Integer horizons: at least -1, 0, 1
-        unique_horizons = sorted(fd._raw_forecasts["forecast_horizon"].unique())
-        assert -1 in unique_horizons or 0 in unique_horizons
-        assert len(unique_horizons) >= 2
+        assert "forecast_horizon" not in fd._raw_outturns.columns
+        assert fd._raw_forecasts["forecast_horizon"].equals(nowcast_forecasts["forecast_horizon"])
 
     def test_mixed_weekly_and_quarterly_vintages(self, nowcast_outturns, nowcast_forecasts):
         """Can add both quarterly-vintage and weekly-vintage forecasts."""
@@ -257,7 +256,7 @@ class TestAlignedColumnStaysNonNull:
 
         fd = NowcastData(outturns_data=outturns_1)
         # First round of forecasts triggers outturn-vintage alignment (`_aligned` rows added).
-        fd.add_forecasts(forecasts_1, data_check=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts_1), data_check=False)
 
         assert "_aligned" in fd._raw_outturns.columns
         assert fd._raw_outturns["_aligned"].isna().sum() == 0
@@ -295,7 +294,7 @@ class TestAlignedColumnStaysNonNull:
                 "value": [102.3],
             }
         )
-        fd.add_forecasts(forecasts_2, data_check=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts_2), data_check=False)
 
         assert fd._raw_outturns["_aligned"].isna().sum() == 0
         assert fd._raw_outturns["_aligned"].dtype == bool
@@ -341,7 +340,7 @@ class TestMergeExcludesSyntheticOutturns:
             }
         )
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False)
         return fd
 
     def test_merge_keeps_other_snapshots_marked_as_aligned(self):
@@ -433,7 +432,7 @@ class TestAlignmentIsMetricAware:
         )
 
         fd = NowcastData(outturns_data=_multi_metric_outturns())
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned_pop = raw[
@@ -460,7 +459,7 @@ class TestAlignmentIsMetricAware:
         )
 
         fd = NowcastData(outturns_data=_multi_metric_outturns())
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         snapshot = raw[raw["vintage_date"] == pd.Timestamp("2020-07-20")]
@@ -506,7 +505,7 @@ class TestAlignmentIsMetricAware:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         snapshot = raw[raw["vintage_date"] == pd.Timestamp("2020-07-20")]
@@ -541,7 +540,7 @@ class TestAlignmentIsMetricAware:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False)
 
         assert fd._raw_outturns["_aligned"].any()
         assert not fd.df.empty
@@ -570,8 +569,7 @@ def _long_history_outturns(n_quarters: int = 21) -> pd.DataFrame:
 
 class TestAlignOutturnVintagesHistoryBound:
     """``_align_outturn_vintages`` should bound synthetic snapshots to the window
-    actually consumed downstream (``first_forecast_horizon - (n_periods + 1)``),
-    instead of keeping the entire historical series.
+    actually consumed downstream instead of keeping the entire historical series.
     """
 
     def test_align_outturn_vintages_trims_old_history(self):
@@ -590,14 +588,12 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
         assert not aligned.empty
 
-        # first_forecast_horizon=-1 (default), n_periods=4 for 'Q' -> cutoff horizon = -6,
-        # which is the 2018Q4 outturn (2018-12-31).
         assert aligned["date"].min() == pd.Timestamp("2018-12-31")
         assert (aligned["date"] < pd.Timestamp("2018-12-31")).sum() == 0
 
@@ -618,7 +614,7 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=True)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=True)
 
         mt = fd.df
         yoy_rows = mt[
@@ -653,7 +649,7 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
@@ -680,7 +676,7 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
@@ -706,7 +702,7 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[raw["_aligned"]]
@@ -732,7 +728,7 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(shallow, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(shallow), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
@@ -749,7 +745,7 @@ class TestAlignOutturnVintagesHistoryBound:
                 "value": [115.5],
             }
         )
-        fd.add_forecasts(deep, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(deep), data_check=False, compute_levels=False)
 
         raw = fd._raw_outturns
         aligned = raw[(raw["_aligned"]) & (raw["vintage_date"] == forecast_vintage)]
@@ -770,11 +766,11 @@ class TestAlignOutturnVintagesHistoryBound:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
         after_first = len(fd._raw_outturns)
 
         fd.add_forecasts(
-            forecasts.assign(source="modelB", value=121.0),
+            _with_forecast_horizon(forecasts.assign(source="modelB", value=121.0)),
             data_check=False,
             compute_levels=False,
         )
@@ -801,7 +797,7 @@ class TestAddForecastsTransactional:
         )
 
         fd = NowcastData(outturns_data=outturns)
-        fd.add_forecasts(forecasts, data_check=False, compute_levels=False)
+        fd.add_forecasts(_with_forecast_horizon(forecasts), data_check=False, compute_levels=False)
         raw_outturns_before = fd._raw_outturns.copy(deep=True)
         outturns_before = fd._outturns.copy(deep=True)
 

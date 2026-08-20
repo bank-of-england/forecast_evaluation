@@ -96,8 +96,9 @@ def create_realtime_forecasts(outturns: pd.DataFrame | None = None) -> pd.DataFr
     """Issue a nowcast for every target series on every release date.
 
     For each release date in the calendar, each source produces a forecast for
-    the previous, current and next period (h = -1, 0, +1) of every series.
-    ``forecast_horizon`` is intentionally omitted so the library computes it.
+    the previous, current and next period. The previous-period path has
+    information horizon 0 and is identified as a vintage-relative backcast by
+    ``target_minus_vintage`` after ingestion.
     """
     if outturns is None:
         outturns = create_realtime_outturns()
@@ -113,8 +114,8 @@ def create_realtime_forecasts(outturns: pd.DataFrame | None = None) -> pd.DataFr
             for source in SOURCES:
                 for vintage in calendar:
                     v_period = vintage.to_period(freq)
-                    for horizon in (-1, 0, 1):
-                        target_period = v_period + horizon
+                    for target_offset in (-1, 0, 1):
+                        target_period = v_period + target_offset
                         target = valid_periods.get(target_period)
                         if target is None:
                             continue
@@ -125,6 +126,7 @@ def create_realtime_forecasts(outturns: pd.DataFrame | None = None) -> pd.DataFr
                                 "vintage_date": vintage,
                                 "source": source,
                                 "frequency": freq,
+                                "forecast_horizon": max(target_offset, 0),
                                 "value": round(_BASE[variable] + rng.normal(0, 1), 4),
                             }
                         )

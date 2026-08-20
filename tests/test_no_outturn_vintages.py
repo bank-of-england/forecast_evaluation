@@ -135,11 +135,6 @@ class TestConstructorNoVintages:
         fd = ForecastData(outturns_data=outturns_no_vintages, outturn_vintages=False)
         assert fd.outturns["vintage_date"].isna().all()
 
-    def test_forecast_horizon_auto_populated(self, outturns_no_vintages):
-        """forecast_horizon should be auto-populated when outturn_vintages=False."""
-        fd = ForecastData(outturns_data=outturns_no_vintages, outturn_vintages=False)
-        assert "forecast_horizon" in fd.outturns.columns
-
     def test_outturns_with_vintage_date_false_still_accepted(self, forecasts):
         """If the user provides vintage_date anyway, it should still work."""
         outturns = pd.DataFrame(
@@ -397,12 +392,13 @@ class TestBenchmarkModelsNoVintages:
         assert len(vintage_dates) == 3
 
     def test_rw_respects_realtime_constraint(self, fd_bench, outturns_long):
-        """For each vintage V, the baseline (h=-1) value should equal the last outturn before V."""
+        """For each vintage V, horizon-zero uses the last outturn before V."""
         from forecast_evaluation.core.random_walk_model import build_random_walk_model
 
         result = build_random_walk_model(fd_bench, variable="gdpkp", metric="levels", frequency="Q")
-        baselines = result[result["forecast_horizon"] == -1]
+        baselines = result[result["forecast_horizon"] == 0]
 
+        assert len(baselines) == result["vintage_date"].nunique()
         for _, row in baselines.iterrows():
             v = row["vintage_date"]
             expected_last = outturns_long[outturns_long["date"] < v].sort_values("date").iloc[-1]["value"]
@@ -417,8 +413,8 @@ class TestBenchmarkModelsNoVintages:
         result = build_random_walk_model(fd_bench, variable="gdpkp", metric="levels", frequency="Q")
         for v in result["vintage_date"].unique():
             v_data = result[result["vintage_date"] == v]
-            baseline_val = v_data[v_data["forecast_horizon"] == -1]["value"].iloc[0]
-            forecast_vals = v_data[v_data["forecast_horizon"] >= 0]["value"]
+            baseline_val = v_data[v_data["forecast_horizon"] == 0]["value"].iloc[0]
+            forecast_vals = v_data["value"]
             assert (forecast_vals == baseline_val).all()
 
     # --- AR(p) ---
@@ -433,20 +429,19 @@ class TestBenchmarkModelsNoVintages:
         assert len(vintage_dates) == 3
 
     def test_ar_respects_realtime_constraint(self, fd_bench, outturns_long):
-        """For each vintage V, the baseline (h=-1) value should equal the last outturn before V."""
+        """For each vintage V, horizon-zero starts after the last outturn before V."""
         from forecast_evaluation.core.ar_p_model import build_ar_p_model
 
         result = build_ar_p_model(
             fd_bench, variable="gdpkp", metric="levels", frequency="Q", estimation_start_date=None
         )
-        baselines = result[result["forecast_horizon"] == -1]
+        baselines = result[result["forecast_horizon"] == 0]
 
+        assert len(baselines) == result["vintage_date"].nunique()
         for _, row in baselines.iterrows():
             v = row["vintage_date"]
-            expected_last = outturns_long[outturns_long["date"] < v].sort_values("date").iloc[-1]["value"]
-            assert row["value"] == expected_last, (
-                f"Vintage {v}: baseline value {row['value']} != last outturn before vintage {expected_last}"
-            )
+            expected_last = outturns_long[outturns_long["date"] < v].sort_values("date").iloc[-1]["date"]
+            assert row["date"] == expected_last + pd.offsets.QuarterEnd()
 
     # --- add_* wrappers ---
     def test_add_rw_integrates(self, fd_bench):
@@ -471,7 +466,7 @@ class TestBenchmarkModelsNoVintages:
         from forecast_evaluation.core.random_walk_model import build_random_walk_model
 
         fd_empty = ForecastData(outturns_data=outturns_long, outturn_vintages=False)
-        with pytest.raises(ValueError, match="no forecasts"):
+        with pytest.raises(ValueError, match="supplied forecasts"):
             build_random_walk_model(fd_empty, variable="gdpkp", metric="levels", frequency="Q")
 
     def test_ar_raises_when_no_forecasts(self, outturns_long):
@@ -479,7 +474,7 @@ class TestBenchmarkModelsNoVintages:
         from forecast_evaluation.core.ar_p_model import build_ar_p_model
 
         fd_empty = ForecastData(outturns_data=outturns_long, outturn_vintages=False)
-        with pytest.raises(ValueError, match="no forecasts"):
+        with pytest.raises(ValueError, match="supplied forecasts"):
             build_ar_p_model(fd_empty, variable="gdpkp", metric="levels", frequency="Q")
 
 

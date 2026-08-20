@@ -24,7 +24,7 @@ class TestTestResultWithBias:
                 "unique_id": ["mpr", "mpr"],
                 "metric": ["yoy", "yoy"],
                 "frequency": ["Q", "Q"],
-                "forecast_horizon": [0, 1],
+                "horizon": [0, 1],
                 "bias_estimate": [0.1, 0.2],
                 "std_error": [0.05, 0.06],
                 "t_statistic": [2.0, 3.33],
@@ -58,7 +58,7 @@ class TestTestResultWithBias:
                 "unique_id": ["mpr"],
                 "metric": ["yoy"],
                 "frequency": ["Q"],
-                "forecast_horizon": [0],
+                "horizon": [0],
                 "bias_estimate": [0.1],
                 "p_value": [0.045],
             }
@@ -80,7 +80,7 @@ class TestTestResultWithBias:
                 "unique_id": ["mpr", "mpr", "mpr"],
                 "metric": ["yoy", "yoy", "yoy"],
                 "frequency": ["Q", "Q", "Q"],
-                "forecast_horizon": [0, 0, 1],
+                "horizon": [0, 0, 1],
                 "bias_estimate": [0.1, 0.2, 0.15],
             }
         )
@@ -97,7 +97,7 @@ class TestTestResultWithBias:
             {
                 "variable": ["gdpkp", "gdpkp", "gdpkp"],
                 "unique_id": ["mpr", "mpr", "mpr"],
-                "forecast_horizon": [0, 1, 2],
+                "horizon": [0, 1, 2],
                 "bias_estimate": [0.1, 0.2, 0.15],
             }
         )
@@ -106,7 +106,7 @@ class TestTestResultWithBias:
         filtered = result.filter(horizon=[0, 1])
 
         assert len(filtered) == 2
-        assert all(filtered._df["forecast_horizon"].isin([0, 1]))
+        assert all(filtered._df["horizon"].isin([0, 1]))
 
     def test_dataframe_like_indexing(self):
         """Test that result objects support DataFrame-like indexing."""
@@ -114,7 +114,7 @@ class TestTestResultWithBias:
             {
                 "variable": ["gdpkp", "cpisa"],
                 "unique_id": ["mpr", "mpr"],
-                "forecast_horizon": [0, 0],
+                "horizon": [0, 0],
                 "bias_estimate": [0.1, 0.2],
             }
         )
@@ -212,7 +212,7 @@ class TestTestResultWithAccuracy:
                 "unique_id": ["mpr", "compass conditional"],
                 "metric": ["yoy", "yoy"],
                 "frequency": ["Q", "Q"],
-                "forecast_horizon": [0, 0],
+                "horizon": [0, 0],
                 "rmse": [0.5, 0.6],
                 "rmedse": [0.45, 0.55],
                 "mean_abs_error": [0.4, 0.5],
@@ -233,7 +233,7 @@ class TestTestResultWithAccuracy:
                 "unique_id": ["mpr", "compass conditional"],
                 "metric": ["yoy", "yoy"],
                 "frequency": ["Q", "Q"],
-                "forecast_horizon": [0, 0],
+                "horizon": [0, 0],
                 "rmse": [0.5, 0.6],
             }
         )

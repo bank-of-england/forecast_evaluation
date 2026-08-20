@@ -1,33 +1,6 @@
-from typing import Literal, Union
+from typing import Literal
 
 import pandas as pd
-
-
-def _horizon_threshold(df: pd.DataFrame, first_forecast_horizon: Union[int, dict[str, int]]) -> Union[int, pd.Series]:
-    """Return the threshold to compare forecast_horizon against.
-
-    Returns a scalar int when first_forecast_horizon is an int, or a per-row Series
-    aligned to df when first_forecast_horizon is a dict (variables absent from the
-    dict default to 0).
-    """
-    if isinstance(first_forecast_horizon, dict):
-        return df["variable"].map(first_forecast_horizon).fillna(0).astype(int)
-    return first_forecast_horizon
-
-
-def _validate_first_forecast_horizon(
-    first_forecast_horizon: Union[int, dict[str, int]],
-    known_variables: set[str],
-) -> None:
-    """Raise if a dict references variable names that are not in the data."""
-    if not isinstance(first_forecast_horizon, dict):
-        return
-    unknown = set(first_forecast_horizon) - known_variables
-    if unknown:
-        raise ValueError(
-            f"first_forecast_horizon contains unknown variable(s): {sorted(unknown)}. "
-            f"Known variables: {sorted(known_variables)}."
-        )
 
 
 def transform_series(
@@ -87,7 +60,6 @@ def prepare_forecasts(
     outturns: pd.DataFrame,
     id_columns: list[str],
     compute_levels: bool = True,
-    first_forecast_horizon: Union[int, dict[str, int]] = 0,
 ) -> pd.DataFrame:
     """Prepare forecast data for evaluation by combining with outturns and applying transformations.
 
@@ -107,11 +79,6 @@ def prepare_forecasts(
         If the transformation fails for specific groups (e.g., due to insufficient
         historical data), those groups will be skipped with a warning message.
         Default is True.
-    first_forecast_horizon : int or dict[str, int], optional
-        The minimum forecast horizon to retain. Pass an int to apply the same threshold to all
-        variables, or a dict mapping variable names to per-variable thresholds (variables not in
-        the dict default to 0). Set to a negative value to include backcasts. Default is 0.
-
     Returns
     -------
     pd.DataFrame
@@ -124,18 +91,11 @@ def prepare_forecasts(
 
     forecasts = forecasts.copy()
 
-    # Validate dict keys against the variables present in forecasts + outturns.
-    known_variables = set(forecasts["variable"].dropna().unique())
-    if outturns is not None and not outturns.empty:
-        known_variables |= set(outturns["variable"].dropna().unique())
-    _validate_first_forecast_horizon(first_forecast_horizon, known_variables)
-
     if outturns is None or outturns.empty:
-        # Keep only valid forecast horizons; do not attempt transformations.
         df = forecasts.copy()
         if "metric" not in df.columns:
             df["metric"] = "levels"
-        return df[df["forecast_horizon"] >= _horizon_threshold(df, first_forecast_horizon)].copy()
+        return df
 
     # Auto-transform non-levels forecasts to levels if requested
     if compute_levels:
@@ -145,7 +105,6 @@ def prepare_forecasts(
         updated_level_forecasts = transform_forecast_to_levels(
             outturns,
             forecasts,
-            first_forecast_horizon=first_forecast_horizon,
         )
 
         # add back non-levels forecasts
@@ -172,22 +131,16 @@ def prepare_forecasts(
     forecasts_all = []
 
     for frequency in frequencies:
-        _thresholds = _horizon_threshold(levels_forecasts, first_forecast_horizon)
-        forecasts_freq = levels_forecasts[
-            (levels_forecasts["frequency"] == frequency) & (levels_forecasts["forecast_horizon"] >= _thresholds)
-        ].copy()
+        forecasts_freq = levels_forecasts[levels_forecasts["frequency"] == frequency].copy()
         outturns_freq = outturns[outturns["frequency"] == frequency].copy()
 
         # YoY/MoM transforms require prepending enough outturn history so that
-        # pct_change(n_periods) has a valid base at first_forecast_horizon.
-        # We need n_periods+1 outturn rows before first_forecast_horizon per vintage.
+        # pct_change(n_periods) has a valid base at the earliest forecast target.
         n_periods = {"Q": 4, "M": 12}[frequency]
-        if isinstance(first_forecast_horizon, dict):
-            min_ffh = min(first_forecast_horizon.values(), default=0)
-        else:
-            min_ffh = first_forecast_horizon
-        min_outturn_horizon = min_ffh - (n_periods + 1)
-        outturns_filtered = outturns_freq[outturns_freq["forecast_horizon"] >= min_outturn_horizon].copy()
+        min_distance = forecasts_freq["target_minus_vintage"].min() - (n_periods + 1)
+        outturns_filtered = outturns_freq[
+            outturns_freq["target_minus_vintage"].isna() | (outturns_freq["target_minus_vintage"] >= min_distance)
+        ].copy()
         outturns_filtered = outturns_filtered[outturns_filtered["metric"] == "levels"]
         # Mark outturn rows so they can be stripped out after transformations.
         outturns_filtered["_helper_outturn"] = True
@@ -206,6 +159,9 @@ def prepare_forecasts(
                 synthetic_frames.append(outturn_copy)
             if synthetic_frames:
                 outturns_filtered = pd.concat(synthetic_frames, ignore_index=True)
+                from forecast_evaluation.data.utils import compute_target_minus_vintage
+
+                outturns_filtered = compute_target_minus_vintage(outturns_filtered)
 
         # We need to loop through each id and concat to the outturns
         forecast_dfs = []
@@ -241,27 +197,16 @@ def prepare_forecasts(
     if not non_levels_forecasts.empty:
         df_forecasts = pd.concat([df_forecasts, non_levels_forecasts], ignore_index=True)
 
-    df_forecasts = df_forecasts[
-        df_forecasts["forecast_horizon"] >= _horizon_threshold(df_forecasts, first_forecast_horizon)
-    ]
-
     # Remove the helper outturn rows that were prepended for transformation purposes only.
     if "_helper_outturn" in df_forecasts.columns:
         df_forecasts = df_forecasts[df_forecasts["_helper_outturn"].isna()]
         df_forecasts = df_forecasts.drop(columns=["_helper_outturn"])
-
-    # Ensure forecast_horizon stays integer (concat with _helper_outturn NaN column
-    # can upcast int to float)
-    if "forecast_horizon" in df_forecasts.columns:
-        df_forecasts["forecast_horizon"] = df_forecasts["forecast_horizon"].astype(int)
 
     # drop duplicates TODO: ideally we shouldn't have any duplicates
     # these are introduced because pop and yoy are always computed, even if
     # they are already present
     df_forecasts = df_forecasts.drop_duplicates(subset=[col for col in df_forecasts.columns if col != "value"])
 
-    # Ensure forecast_horizon stays integer (concat with _helper_outturn NaN column
-    # can upcast int to float)
     if "forecast_horizon" in df_forecasts.columns:
         df_forecasts["forecast_horizon"] = df_forecasts["forecast_horizon"].astype(int)
 
@@ -319,7 +264,6 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
 def transform_forecast_to_levels(
     outturns: pd.DataFrame,
     forecasts: pd.DataFrame,
-    first_forecast_horizon: Union[int, dict[str, int]] = 0,
 ) -> pd.DataFrame:
     """Transform forecast back to levels.
 
@@ -329,22 +273,11 @@ def transform_forecast_to_levels(
         Validated DataFrame containing outturn data.
     forecasts : pd.DataFrame
         Validated DataFrame containing forecast data.
-    first_forecast_horizon : int or dict[str, int], optional
-        The minimum forecast horizon to retain. Pass an int to apply the same threshold to all
-        variables, or a dict mapping variable names to per-variable thresholds (variables not in
-        the dict default to 0). Default is 0.
-
     Returns
     -------
     pd.DataFrame
-        Transformed forecast in levels (forecast_horizon >= first_forecast_horizon only).
+        Transformed forecast in levels.
     """
-
-    # Keep only forecast rows
-    if "forecast_horizon" in forecasts.columns:
-        forecasts = forecasts[
-            forecasts["forecast_horizon"] >= _horizon_threshold(forecasts, first_forecast_horizon)
-        ].copy()
 
     # Separate forecasts that are already in levels and those that need transformation
     forecasts_levels = forecasts[forecasts["metric"] == "levels"].copy()
@@ -386,11 +319,18 @@ def transform_forecast_to_levels(
             group["date"] = pd.to_datetime(group["date"]).dt.normalize()
             group["vintage_date"] = pd.to_datetime(group["vintage_date"]).dt.normalize()
 
+            from forecast_evaluation.data.utils import infer_last_observation_dates
+
+            last_observation_date = infer_last_observation_dates(group, variable, group["frequency"].iloc[0]).loc[
+                vintage_date
+            ]
+
             outturns_subset = (
                 outturns[
                     (outturns["variable"] == variable)
                     & (outturns["vintage_date"] == vintage_date)
                     & (outturns["metric"] == "levels")
+                    & (outturns["date"] <= last_observation_date)
                 ]
                 .sort_values("date")
                 .copy()
@@ -405,7 +345,7 @@ def transform_forecast_to_levels(
                         (outturns["variable"] == variable)
                         & (outturns["vintage_date"].isna())
                         & (outturns["metric"] == "levels")
-                        & (outturns["date"] < vintage_date)
+                        & (outturns["date"] <= last_observation_date)
                     ]
                     .sort_values("date")
                     .copy()

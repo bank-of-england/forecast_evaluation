@@ -59,7 +59,7 @@ def plot_forecast_errors(
             stacklevel=2,
         )
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
     df = filter_k(df, k)
 
     # Filter data for the specific combination
@@ -87,7 +87,7 @@ def plot_forecast_errors(
     # Create the plot using themed figure
     fig, ax = create_themed_figure()
 
-    ax.plot(subset["forecast_horizon"], subset["forecast_error"], "o-", label="Forecast Error")
+    ax.plot(subset["horizon"], subset["forecast_error"], "o-", label="Forecast Error")
     ax.axhline(y=0, color="r", linestyle="-", label="Zero Error")
     ax.axhline(y=mean_error, color="g", linestyle="--", label=f"Mean Error: {mean_error:.4f}")
 
@@ -162,7 +162,7 @@ def plot_forecast_errors_by_horizon(
     # Normalise source to a list
     sources = [source] if isinstance(source, str) else source
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
     df = filter_k(df, k)
 
     # Filter data for the specific variable, sources and metric
@@ -189,14 +189,14 @@ def plot_forecast_errors_by_horizon(
 
         # Calculate average forecast error by forecast horizon
         avg_errors_by_horizon = (
-            src_subset.groupby("forecast_horizon")["forecast_error"].agg(["mean", "std", "count"]).reset_index()
+            src_subset.groupby("horizon")["forecast_error"].agg(["mean", "std", "count"]).reset_index()
         )
-        avg_errors_by_horizon.columns = ["forecast_horizon", "avg_forecast_error", "std_error", "n_observations"]
-        avg_errors_by_horizon = avg_errors_by_horizon.sort_values("forecast_horizon")
+        avg_errors_by_horizon.columns = ["horizon", "avg_forecast_error", "std_error", "n_observations"]
+        avg_errors_by_horizon = avg_errors_by_horizon.sort_values("horizon")
 
         # Plot: Average errors by horizon as a line chart
         line = ax.plot(
-            avg_errors_by_horizon["forecast_horizon"],
+            avg_errors_by_horizon["horizon"],
             avg_errors_by_horizon["avg_forecast_error"],
             marker="o",
             linewidth=2,
@@ -208,7 +208,7 @@ def plot_forecast_errors_by_horizon(
         if len(sources) == 1 and not avg_errors_by_horizon["std_error"].isna().all():
             color = line[0].get_color()
             ax.fill_between(
-                avg_errors_by_horizon["forecast_horizon"],
+                avg_errors_by_horizon["horizon"],
                 avg_errors_by_horizon["avg_forecast_error"] - avg_errors_by_horizon["std_error"],
                 avg_errors_by_horizon["avg_forecast_error"] + avg_errors_by_horizon["std_error"],
                 alpha=0.2,
@@ -295,7 +295,7 @@ def plot_forecast_error_density(
             stacklevel=2,
         )
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
     df = filter_k(df, k)
 
     # Filter data for the specific combination
@@ -303,7 +303,7 @@ def plot_forecast_error_density(
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["forecast_horizon"] == horizon)
+        & (df["horizon"] == horizon)
     )
 
     subset = df.loc[mask].copy().sort_values("date")

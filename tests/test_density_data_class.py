@@ -104,6 +104,29 @@ def test_add_density_forecasts_without_quantile_raises(sample_outturns):
         dfd.add_density_forecasts(forecasts_without_quantile)
 
 
+def test_density_forecasts_retain_calendar_backcasts(sample_outturns):
+    """Retain valid information-horizon forecasts before the vintage period."""
+    forecasts = pd.DataFrame(
+        {
+            "date": pd.Timestamp("2022-12-31"),
+            "variable": "gdpkp",
+            "vintage_date": pd.Timestamp("2023-03-31"),
+            "source": "mpr2",
+            "frequency": "Q",
+            "quantile": [0.25, 0.75],
+            "value": [101.0, 103.0],
+            "forecast_horizon": [0, 0],
+        }
+    )
+
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts)
+
+    retained = dfd.density_forecasts[dfd.density_forecasts["metric"] == "levels"]
+    assert len(retained) == 2
+    assert retained["forecast_horizon"].tolist() == [0, 0]
+    assert retained["target_minus_vintage"].tolist() == [-1, -1]
+
+
 def test_rejected_density_forecasts_do_not_mutate_state(sample_outturns, sample_density_forecasts):
     """A rejected density forecast batch must leave the instance unchanged."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)

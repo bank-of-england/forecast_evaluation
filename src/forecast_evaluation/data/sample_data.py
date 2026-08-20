@@ -26,10 +26,6 @@ def create_sample_outturns() -> pd.DataFrame:
 
     df_outturn = pd.concat([df_outturn_1, df_outturn_2], ignore_index=True)
 
-    df_outturn["forecast_horizon"] = (
-        df_outturn["date"].dt.to_period("Q") - df_outturn["vintage_date"].dt.to_period("Q")
-    ).apply(lambda x: x.n)
-
     return df_outturn
 
 
@@ -46,9 +42,7 @@ def create_sample_forecasts() -> pd.DataFrame:
         }
     )
 
-    df_forecasts["forecast_horizon"] = (
-        df_forecasts["date"].dt.to_period("Q") - df_forecasts["vintage_date"].dt.to_period("Q")
-    ).apply(lambda x: x.n)
+    df_forecasts["forecast_horizon"] = list(range(len(df_forecasts)))
 
     return df_forecasts
 
@@ -131,10 +125,6 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
                 )
 
     df_outturn = pd.DataFrame(rows)
-    df_outturn["forecast_horizon"] = (
-        df_outturn["date"].dt.to_period("Q") - df_outturn["vintage_date"].dt.to_period("Q")
-    ).apply(lambda x: x.n)
-
     return df_outturn
 
 
@@ -147,10 +137,10 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
 
     - **h = 1** (forecast): the next quarter (not yet started or in progress).
     - **h = 0** (nowcast): the current quarter (in progress).
-    - **h = -1** (backcast): the previous quarter, but **only** while its
-      official outturn has not yet been published (gdp: 6 weeks after
-      quarter-end; cpi: 2 weeks after quarter-end). Once the data is
-      released, backcasting for that quarter stops.
+        - the previous quarter while its official outturn has not yet been
+            published (gdp: 6 weeks after quarter-end; cpi: 2 weeks after
+            quarter-end). Once the data is released, that vintage-relative path
+            stops.
 
     Forecast errors converge toward zero as the vintage date approaches the
     end of the target quarter, with additive noise so that convergence is
@@ -160,9 +150,7 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     -------
     pd.DataFrame
         DataFrame with columns: date, variable, vintage_date, source,
-        frequency, value.  ``forecast_horizon`` is intentionally omitted so
-        that :meth:`NowcastData.add_forecasts` computes the integer-period
-        horizon automatically.
+        frequency, value, and the explicitly supplied ``forecast_horizon``.
 
     Examples
     --------
@@ -215,17 +203,17 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
             for vintage in all_vintages:
                 v_period = vintage.to_period("Q")
 
-                for horizon in (-1, 0, 1):
+                for target_offset in (-1, 0, 1):
                     # Resolve the target quarter for this horizon
-                    target_period = v_period + horizon
+                    target_period = v_period + target_offset
                     if target_period not in target_by_period:
                         continue
                     target = target_by_period[target_period]
 
                     pub_date = target + pd.Timedelta(days=lag)
 
-                    # h=-1: stop once the official outturn has been published
-                    if horizon == -1 and vintage >= pub_date:
+                    # Stop the previous-period path once its official outturn is published.
+                    if target_offset == -1 and vintage >= pub_date:
                         continue
 
                     # Unified error model: error decreases monotonically as the
@@ -243,6 +231,7 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
                             "vintage_date": vintage,
                             "source": source,
                             "frequency": "Q",
+                            "forecast_horizon": max(target_offset, 0),
                             "value": round(truth[variable][target] + error + noise, 2),
                         }
                     )
@@ -299,8 +288,6 @@ def create_sample_density_forecasts() -> pd.DataFrame:
         for quantile in quantiles:
             quantile_value = np.quantile(samples, quantile)
 
-            forecast_horizon = (pd.Period(date, freq="Q") - pd.Period(vintage_date, freq="Q")).n
-
             density_forecasts.append(
                 {
                     "date": date,
@@ -310,7 +297,7 @@ def create_sample_density_forecasts() -> pd.DataFrame:
                     "frequency": "Q",
                     "quantile": quantile,
                     "value": quantile_value,
-                    "forecast_horizon": forecast_horizon,
+                    "forecast_horizon": i,
                 }
             )
 

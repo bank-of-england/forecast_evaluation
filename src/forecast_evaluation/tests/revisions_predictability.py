@@ -31,7 +31,7 @@ def revision_test(
     ----------
     df : pd.DataFrame
         DataFrame containing forecast revision data with columns:
-        'variable', 'source', 'metric', 'frequency', 'forecast_horizon', 'revision', 'date'
+        'variable', 'source', 'metric', 'frequency', 'horizon', 'revision', 'date'
     variable : str
         Economic variable name (e.g., 'cpisa', 'gdpkp', 'unemp')
     source : str
@@ -75,7 +75,7 @@ def revision_test(
         (df["variable"] == variable)
         & (df["unique_id"] == source)
         & (df["metric"] == metric)
-        & (df["forecast_horizon"] <= n_revisions)
+        & (df["horizon"] <= n_revisions)
     ].copy()
 
     # Check if the DataFrame is empty
@@ -83,15 +83,13 @@ def revision_test(
         raise ValueError("Filtered DataFrame is empty. Check the input parameters.")
 
     df_pivot = (
-        df_filtered.pivot(index=["date"], columns=["variable", "forecast_horizon"], values=["revision"])
-        .reset_index()
-        .dropna()
+        df_filtered.pivot(index=["date"], columns=["variable", "horizon"], values=["revision"]).reset_index().dropna()
     )
 
     X = add_constant(df_pivot.iloc[:, 2:])
     y = df_pivot.iloc[:, 1]
 
-    # Here y is the revision to the nowcast, which in principle should not be autocorrelated
+    # Here y is the revision at the shortest horizon, which in principle should not be autocorrelated
     # So we do not set maxlags to H as usual
     # In practice the revisions are still likely to be autocorrelated so we use maxlags=1
     try:
@@ -168,7 +166,7 @@ def revision_predictability_analysis(
     if data.uses_intra_period_vintages:
         raise ValueError("Revision predictability analysis is not supported for nowcasting data. ")
 
-    df = data._forecasts.copy()
+    df = data._forecasts.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # Filter by source if specified
     if source is not None:

@@ -79,7 +79,7 @@ def plot_errors_across_time(
     # filter
     data_filtered = data.copy()
     data_filtered.filter(variables=variable, metrics=metric, sources=sources)
-    forecast_errors = data_filtered._main_table.copy()
+    forecast_errors = data_filtered._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
     forecast_errors = filter_k(forecast_errors, k=k)
 
     # cleaning ids
@@ -87,7 +87,7 @@ def plot_errors_across_time(
     sources = forecast_errors["unique_id"].unique().tolist()  # update sources after cleaning
 
     if horizons is None:
-        horizons = [forecast_errors["forecast_horizon"].min()]
+        horizons = [forecast_errors["horizon"].min()]
     elif isinstance(horizons, int):
         horizons = [horizons]
 
@@ -111,7 +111,7 @@ def plot_errors_across_time(
             axes = [axes]
 
     for idx, h in enumerate(horizons):
-        horizon_errors = forecast_errors[forecast_errors["forecast_horizon"] == h].copy()
+        horizon_errors = forecast_errors[forecast_errors["horizon"] == h].copy()
         ax = axes[idx]
 
         if convert_to_percentage:

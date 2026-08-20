@@ -5,6 +5,7 @@ from typing import Literal, Optional, Union
 import numpy as np
 import pandas as pd
 
+from forecast_evaluation._compat import accept_forecast_horizon_kwarg
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.data.utils import construct_unique_id
 from forecast_evaluation.utils import filter_k, reconstruct_id_cols_from_unique_id
@@ -17,7 +18,7 @@ def _prepare_intra_period_data(
     variable: str,
     metric: str = "levels",
     frequency: str = "Q",
-    forecast_horizon: Optional[int] = None,
+    horizon: Optional[int] = None,
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
 ) -> tuple[pd.DataFrame, list[str], str, int, bool]:
@@ -29,7 +30,7 @@ def _prepare_intra_period_data(
 
     Parameters
     ----------
-    forecast_horizon : int or None
+    horizon : int or None
         If given, restrict to a single horizon. If ``None`` (default),
         include all horizons so the full axis range is visible.
     k : int or None
@@ -84,6 +85,16 @@ def _prepare_intra_period_data(
                 "or a DataFrame with vintage_date_forecast and vintage_date_outturn columns."
             )
 
+    # Raw DataFrames are accepted here, and only the horizon filter needs the column,
+    # so a frame without it stays usable as long as no horizon is requested.
+    if "target_minus_vintage" in df.columns:
+        df = df.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
+    elif horizon is not None:
+        raise ValueError(
+            "Column 'target_minus_vintage' not found, so horizons cannot be identified. "
+            "Pass a ForecastData instance, or omit the 'horizon' argument."
+        )
+
     # ForecastData already builds unique_id from source plus any extra_ids;
     # only raw DataFrames need it constructing.
     if "unique_id" not in df.columns:
@@ -99,16 +110,15 @@ def _prepare_intra_period_data(
     df = filter_k(df, k)
 
     mask = (df["variable"] == variable) & (df["metric"] == metric) & (df["frequency"] == frequency)
-    if forecast_horizon is not None:
-        mask = mask & (df["forecast_horizon"] == forecast_horizon)
+    if horizon is not None:
+        mask = mask & (df["horizon"] == horizon)
 
     df = df.loc[mask].copy()
 
     if df.empty:
         raise ValueError(
             f"No data for variable='{variable}', metric='{metric}', "
-            f"frequency='{frequency}'"
-            + (f", forecast_horizon={forecast_horizon}" if forecast_horizon is not None else "")
+            f"frequency='{frequency}'" + (f", horizon={horizon}" if horizon is not None else "")
         )
 
     # Computed on the final filtered rows only, so a substitution in a row
@@ -125,12 +135,13 @@ def _prepare_intra_period_data(
     return df, id_columns, axis_column, k, k_fallback_used
 
 
+@accept_forecast_horizon_kwarg
 def compute_intra_period_accuracy(
     data: Union[pd.DataFrame, ForecastData],
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: Optional[int] = None,
+    horizon: Optional[int] = None,
     statistic: Literal["rmse", "mae"] = "rmse",
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
@@ -147,7 +158,7 @@ def compute_intra_period_accuracy(
         Metric to analyse.
     frequency : str
         Data frequency ('Q' or 'M').
-    forecast_horizon : int or None
+    horizon : int or None
         Forecast horizon to evaluate. ``None`` includes all horizons.
     statistic : str
         'rmse' or 'mae'.
@@ -169,7 +180,7 @@ def compute_intra_period_accuracy(
         ``se``. ``se`` is the standard error of the statistic.
     """
     df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(
-        data, variable, metric, frequency, forecast_horizon, k, axis
+        data, variable, metric, frequency, horizon, k, axis
     )
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]
@@ -200,12 +211,13 @@ def compute_intra_period_accuracy(
     return result.sort_values(["unique_id", axis_column], ascending=[True, False]).reset_index(drop=True)
 
 
+@accept_forecast_horizon_kwarg
 def compute_intra_period_bias(
     data: Union[pd.DataFrame, ForecastData],
     variable: str,
     metric: Literal["levels", "pop", "yoy"] = "levels",
     frequency: Literal["Q", "M"] = "Q",
-    forecast_horizon: Optional[int] = None,
+    horizon: Optional[int] = None,
     k: Optional[int] = None,
     axis: Literal["period_end", "publication"] = "period_end",
 ) -> pd.DataFrame:
@@ -221,7 +233,7 @@ def compute_intra_period_bias(
         Metric to analyse.
     frequency : str
         Data frequency ('Q' or 'M').
-    forecast_horizon : int or None
+    horizon : int or None
         Forecast horizon to evaluate. ``None`` includes all horizons.
     k : int or None
         Outturn revision index used to select the outturn. If ``None``
@@ -241,7 +253,7 @@ def compute_intra_period_bias(
         ``se``. ``se`` is the standard error of the mean error.
     """
     df, id_columns, axis_column, resolved_k, k_fallback_used = _prepare_intra_period_data(
-        data, variable, metric, frequency, forecast_horizon, k, axis
+        data, variable, metric, frequency, horizon, k, axis
     )
 
     grouped = df.groupby(["unique_id", axis_column])["forecast_error"]

@@ -184,7 +184,13 @@ def filter_tables(
         df = pd.concat(df_source).drop_duplicates().reset_index(drop=True)
 
     if custom_filter is not None:
-        df = custom_filter(df)
+        try:
+            df = custom_filter(df)
+        except KeyError as error:
+            missing_column = error.args[0] if error.args else None
+            if isinstance(missing_column, str) and missing_column not in df.columns:
+                return df
+            raise
 
     return df
 
@@ -214,17 +220,17 @@ def construct_unique_id(df: pd.DataFrame, id_columns: list[str]) -> pd.Series:
     return unique_id
 
 
-def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute forecast_horizon from date, vintage_date, and frequency.
+def compute_target_minus_vintage(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute the period distance between each target date and vintage date.
 
-    The horizon is the integer number of periods (quarters or months) between
+    The distance is the integer number of periods (quarters or months) between
     the vintage date and the target date: 0 for a same-period forecast,
-    1 for one period ahead, -1 for a backcast (vintage is in the period
-    after the target).
+    1 for one period ahead, -1 for a vintage-relative backcast (the vintage
+    is in the period after the target).
 
     For nowcasting data with weekly vintages, multiple vintages within the
-    same period all map to the same integer horizon, giving many observations
-    per (source, date, horizon) group for robust accuracy statistics.
+    same period all map to the same calendar distance, giving many observations
+    per (source, date, distance) group for robust accuracy statistics.
 
     Parameters
     ----------
@@ -234,21 +240,67 @@ def compute_forecast_horizon(df: pd.DataFrame) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        DataFrame with 'forecast_horizon' column added or replaced.
+        DataFrame with a nullable ``target_minus_vintage`` column added or
+        replaced.
     """
     df = df.copy()
     dates = pd.to_datetime(df["date"])
     vintages = pd.to_datetime(df["vintage_date"])
-    result = pd.Series(index=df.index, dtype=int)
+    result = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    valid_dates = dates.notna() & vintages.notna()
 
-    for freq in df["frequency"].unique():
-        mask = df["frequency"] == freq
+    for freq in df.loc[valid_dates, "frequency"].unique():
+        mask = valid_dates & (df["frequency"] == freq)
         date_periods = dates[mask].dt.to_period(freq).astype("int64")
         vintage_periods = vintages[mask].dt.to_period(freq).astype("int64")
         result[mask] = date_periods - vintage_periods
 
-    df["forecast_horizon"] = result
+    df["target_minus_vintage"] = result
     return df
+
+
+def infer_last_observation_dates(
+    forecasts: pd.DataFrame,
+    variable: str,
+    frequency: str,
+    fallback_outturns: Optional[pd.DataFrame] = None,
+) -> pd.Series:
+    """Infer each vintage's final observed target date.
+
+    The earliest available forecast horizon across all forecast identities for
+    each vintage determines the cutoff. A horizon of ``h`` means that the
+    final observation used for estimation is ``h + 1`` periods before the
+    forecast target. If forecasts are unavailable, the latest outturn date
+    available in each vintage provides the cutoff instead.
+    """
+    if forecasts is not None and not forecasts.empty:
+        relevant = forecasts[(forecasts["variable"] == variable) & (forecasts["frequency"] == frequency)].copy()
+        if not relevant.empty:
+            date_offset = pd.offsets.QuarterEnd() if frequency == "Q" else pd.offsets.MonthEnd()
+            earliest_horizon = relevant.groupby("vintage_date")["forecast_horizon"].transform("min")
+            earliest_horizon_rows = relevant[relevant["forecast_horizon"] == earliest_horizon].copy()
+            earliest_horizon_rows["last_observation_date"] = [
+                target_date - (int(horizon) + 1) * date_offset
+                for target_date, horizon in zip(
+                    earliest_horizon_rows["date"], earliest_horizon_rows["forecast_horizon"], strict=False
+                )
+            ]
+
+            return earliest_horizon_rows.groupby("vintage_date")["last_observation_date"].min()
+
+    if (forecasts is None or forecasts.empty) and fallback_outturns is not None and not fallback_outturns.empty:
+        relevant = fallback_outturns[
+            (fallback_outturns["variable"] == variable)
+            & (fallback_outturns["frequency"] == frequency)
+            & fallback_outturns["vintage_date"].notna()
+        ]
+        if not relevant.empty:
+            return relevant.groupby("vintage_date")["date"].max()
+
+    raise ValueError(
+        "Cannot infer last observation dates without supplied forecasts for "
+        f"variable '{variable}' and frequency '{frequency}'."
+    )
 
 
 def compute_days_in_period(vintage_dates: pd.Series, frequencies: pd.Series) -> pd.Series:
