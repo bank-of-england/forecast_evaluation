@@ -1,53 +1,29 @@
 # Changelog
 
-## [0.1.0] - 2026-01-22
-- Initial release.
-
-## [0.1.1] - 2026-02-26
-- Updated documentation.
-- Fixed legend issue with rolling plots when showing only one horizon.
-- Added filtering of outturns in the filtering methods.
-- Removed method-chaining with filter() and merge() methods.
-
-## [0.1.2] - 2026-03-19
-- Added `construct_pseudo_vintages()` method to `ForecastData`
-- Added `add_benchmark()` method to `ForecastData` for computing benchmark forecasts, with a progress bar
-- Added `compute_levels` argument to forecast transformation methods; existing pop and yoy columns are no longer overwritten
-- Optimised merging inside `build_main_table` function
-
-## [0.1.3] - 
-- Added option to plot multiple sources in `plot_forecast_errors_by_horizon()`
-- Added optional argument `convert_to_percentage` to `plot_vintage()`, similar to other plotting functions
-
-## [0.1.4] - 2026-04-08
-### Fixed
-- Fixed duplicate level rows when both pop and yoy forecasts present with `compute_levels=True`
-- Fixed insufficient outturn history window for YoY transformations (now frequency-aware)
-- Fixed multi-frequency outturn duplication in `prepare_outturns`
-- Fixed hedgehog chart not displaying single-horizon forecasts
-
+## 0.1.13 (unreleased)
 ### Added
-- Enhanced data validation and diagnostics
-- Improved duplicate detection logic to compare against raw input only
-
-## [0.1.5] - 2026-04-14
-### Added
-- Radar charts
-
-## [0.1.6] - 2026-04-27
-### Added
-- Added plotting methods directly to `ForecastData` via `PlottingMixin`: `plot_hedgehog()`, `plot_forecast_errors()`, `plot_forecast_errors_by_horizon()`, `plot_forecast_error_density()`, `plot_outturn_revisions()`, `plot_outturns()`, `plot_average_revision_by_period()`, `plot_vintage()`, `plot_errors_across_time()`
-- Added `outturn_revisions` argument to `ForecastData` to support forecast evaluation without outturn vintages. Users don't need to provide the "vintage_date" or "forecast_horizon" columns in their outturns if the argument is False. 
+- New `NowcastData` class to handle intra-period vintages.
 
 ### Adjustments
-- Made `frequency` argument optional (default `None`) and inferred from the data in: `plot_hedgehog()`, `build_ar_p_model`, `build_random_walk_model`, `plot_density_vintage`, `plot_vintage`, `plot_radar`, `plot_accuracy`, `strong_efficiency_analysis`, `revision_predictability_analysis`, `blanchard_leigh_horizon_analysis`, `plot_accuracy`
+- Specify metric in `add_fer_outturns` to be 'levels'.
+- Redefined `forecast_horizon` as "forecast target period" minus "last target observation used for forecasting" minus 1. Analyses now group and report on `horizon`, currently set to the calendar distance `target_minus_vintage`. `forecast_horizon` sets the HAC bandwidth, reported in the new `hac_maxlags`.
 
-## [0.1.7] - 2026-05-07
-### Fixed
-- Clean the `unique_id` when using multi id cols.
+## 0.1.12
+### Adjustments
+- Moved `pyarrow` back to required dependencies as it's required when initiating the `ForecastData` class with `load_fer=True`.
 
-## [0.1.8] - 2026-05-08
-- Added forecast error correlation analysis and plots.
+## 0.1.11
+### Added
+- `max_lag` argument (1 or 2, default 2) on `add_benchmarks`, `add_ar_p_forecasts`, and `build_ar_p_model` to control the maximum AR order considered during BIC lag selection.
+
+### Adjustments
+- For the AR model, when `max_lag=1`, the BIC lag-selection loop is skipped and `optimal_lag` is set directly to 1, avoiding a redundant model fit per vintage.
+- Moved pyarray and Ipython to dev deps.
+
+## 0.1.10
+### Adjustments
+- **Bugfix** in `add_ar_p_forecasts` where the AR(2) forecasts were forecasting with the coefficients the wrong way around.
+- fer_forecasts.parquet updated with the bugfix with the AR(2) forecasts.
 
 ## [0.1.9] - 2026-06-04 
 ### Added
@@ -66,27 +42,51 @@
 - Removed hardcoded quarterly frequency in some of the dashboard tabs.
 - Fixed type hints and docstrings across the codebase.
 
-## 0.1.10
-### Adjustments
-- **Bugfix** in `add_ar_p_forecasts` where the AR(2) forecasts were forecasting with the coefficients the wrong way around.
-- fer_forecasts.parquet updated with the bugfix with the AR(2) forecasts.
+## [0.1.8] - 2026-05-08
+- Added forecast error correlation analysis and plots.
 
-## 0.1.11
+## [0.1.7] - 2026-05-07
+### Fixed
+- Clean the `unique_id` when using multi id cols.
+
+## [0.1.6] - 2026-04-27
 ### Added
-- `max_lag` argument (1 or 2, default 2) on `add_benchmarks`, `add_ar_p_forecasts`, and `build_ar_p_model` to control the maximum AR order considered during BIC lag selection.
+- Added plotting methods directly to `ForecastData` via `PlottingMixin`: `plot_hedgehog()`, `plot_forecast_errors()`, `plot_forecast_errors_by_horizon()`, `plot_forecast_error_density()`, `plot_outturn_revisions()`, `plot_outturns()`, `plot_average_revision_by_period()`, `plot_vintage()`, `plot_errors_across_time()`
+- Added `outturn_revisions` argument to `ForecastData` to support forecast evaluation without outturn vintages. Users don't need to provide the "vintage_date" or "forecast_horizon" columns in their outturns if the argument is False. 
 
 ### Adjustments
-- For the AR model, when `max_lag=1`, the BIC lag-selection loop is skipped and `optimal_lag` is set directly to 1, avoiding a redundant model fit per vintage.
-- Moved pyarray and Ipython to dev deps.
+- Made `frequency` argument optional (default `None`) and inferred from the data in: `plot_hedgehog()`, `build_ar_p_model`, `build_random_walk_model`, `plot_density_vintage`, `plot_vintage`, `plot_radar`, `plot_accuracy`, `strong_efficiency_analysis`, `revision_predictability_analysis`, `blanchard_leigh_horizon_analysis`, `plot_accuracy`
 
-## 0.1.12
-### Adjustments
-- Moved `pyarrow` back to required dependencies as it's required when initiating the `ForecastData` class with `load_fer=True`.
-
-## 0.1.13 (unreleased)
+## [0.1.5] - 2026-04-14
 ### Added
-- New `NowcastData` class to handle intra-period vintages.
+- Radar charts
 
-### Adjustments
-- Specify metric in `add_fer_outturns` to be 'levels'.
-- **Breaking**: analyses now group and report on `horizon`, the calendar distance `target_minus_vintage` from the forecast `vintage_date` to the target `date`, where they used `forecast_horizon`, the information horizon running from the last outturn used for estimation to the target date. A publication lag makes the two differ, so groups once split by information horizon are pooled by calendar horizon and results change. `forecast_horizon` stays a required input column but groups nothing; it only sets the HAC bandwidth, reported in the new `hac_maxlags`.
+## [0.1.4] - 2026-04-08
+### Fixed
+- Fixed duplicate level rows when both pop and yoy forecasts present with `compute_levels=True`
+- Fixed insufficient outturn history window for YoY transformations (now frequency-aware)
+- Fixed multi-frequency outturn duplication in `prepare_outturns`
+- Fixed hedgehog chart not displaying single-horizon forecasts
+
+### Added
+- Enhanced data validation and diagnostics
+- Improved duplicate detection logic to compare against raw input only
+
+## [0.1.3] - 
+- Added option to plot multiple sources in `plot_forecast_errors_by_horizon()`
+- Added optional argument `convert_to_percentage` to `plot_vintage()`, similar to other plotting functions
+
+## [0.1.2] - 2026-03-19
+- Added `construct_pseudo_vintages()` method to `ForecastData`
+- Added `add_benchmark()` method to `ForecastData` for computing benchmark forecasts, with a progress bar
+- Added `compute_levels` argument to forecast transformation methods; existing pop and yoy columns are no longer overwritten
+- Optimised merging inside `build_main_table` function
+
+## [0.1.1] - 2026-02-26
+- Updated documentation.
+- Fixed legend issue with rolling plots when showing only one horizon.
+- Added filtering of outturns in the filtering methods.
+- Removed method-chaining with filter() and merge() methods.
+
+## [0.1.0] - 2026-01-22
+- Initial release.
