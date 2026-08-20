@@ -82,6 +82,30 @@ the last observation used for estimation; it is not inferred from ``vintage_date
 Negative horizons, including ``-1``, may be supplied for forecast/outturn consistency checks, but
 are removed before forecasts are stored for evaluation.
 
+The two horizons
+~~~~~~~~~~~~~~~~
+
+Results tables and plots use a different horizon from the one you supply, so it is worth keeping
+the two apart:
+
+``horizon``
+   The calendar distance from the forecast vintage to the target date, ``date - vintage_date``,
+   in periods. This is the dimension every analysis groups, filters and reports on, and the one
+   ``TestResult.filter(horizon=...)`` selects. It is ``0`` for a same-period forecast, ``1`` for
+   one period ahead, and ``-1`` for a backcast. Because it depends only on when a forecast was
+   made, it is comparable across sources that conditioned on different amounts of data.
+
+``forecast_horizon``
+   The information horizon you supply, as described above. It is not a reporting dimension: its
+   only role is to set the lag length of the HAC standard errors in the regression-based tests,
+   because it is what bounds the serial correlation in forecast errors.
+
+The two coincide when forecasts are published as soon as the previous period's outturn is
+released, and differ when there is a publication lag. Where the lag changes over a sample, one
+calendar horizon pools observations made at several information horizons; the lag length is then
+taken from the largest information horizon in the group and reported in the ``hac_maxlags``
+column of the results. See :doc:`methodology` for what pooling implies for interpretation.
+
 The package supports different forecast metrics such as ``levels``, ``pop`` (period-on-period), and
 ``yoy`` (year-on-year). When required, transformations between these representations are computed
 internally when enough outturn history is available.

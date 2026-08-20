@@ -5,18 +5,20 @@ import pandas as pd
 from statsmodels.regression.linear_model import OLS, RegressionResultsWrapper
 from statsmodels.tools import add_constant
 
+from forecast_evaluation._compat import accept_forecast_horizon_kwarg
 from forecast_evaluation.core.revisions_table import create_revision_dataframe
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
 from forecast_evaluation.utils import ensure_consistent_date_range
 
 
+@accept_forecast_horizon_kwarg
 def revisions_errors_regression(
     df: pd.DataFrame,
     variable: str,
     source: str,
     metric: Literal["levels", "pop", "yoy"],
-    forecast_horizon: int,
+    horizon: int,
     frequency: Optional[Literal["Q", "M"]] = None,
 ) -> Optional[RegressionResultsWrapper]:
     """
@@ -37,7 +39,7 @@ def revisions_errors_regression(
     ----------
     df : pd.DataFrame
         DataFrame containing forecast revision data with columns:
-        'variable', 'source', 'metric', 'forecast_horizon',
+        'variable', 'source', 'metric', 'horizon',
         'revision', 'forecast_error'
     variable : str
         Economic variable name (e.g., 'cpisa', 'gdpkp', 'unemp', 'aweagg')
@@ -46,8 +48,8 @@ def revisions_errors_regression(
     metric : Literal["levels", "pop", "yoy"]
         Metric type: 'levels' for raw values, 'pop' for period-on-period percentage change,
         'yoy' for year-on-year percentage change
-    forecast_horizon : int
-        Forecast horizon (e.g., 1, 2, 3, 4)
+    horizon : int
+        Forecast horizon: target date minus forecast vintage (e.g., 1, 2, 3, 4)
 
     Returns
     -------
@@ -67,7 +69,7 @@ def revisions_errors_regression(
     Notes
     -----
     - Uses HAC (Heteroskedasticity and Autocorrelation Consistent) standard errors
-      with Newey-West correction and maxlags=H
+      with Newey-West correction, truncated at the largest information horizon in the sample
     - Tests null hypothesis H0: β = 0 (no correlation between revisions and errors)
     - Rejecting H0 suggests forecast inefficiency
     """
@@ -79,12 +81,16 @@ def revisions_errors_regression(
             stacklevel=2,
         )
 
-    subset = df[
-        (df["variable"] == variable)
-        & (df["unique_id"] == source)
-        & (df["metric"] == metric)
-        & (df["forecast_horizon"] == forecast_horizon)
-    ].copy()
+    subset = (
+        df[
+            (df["variable"] == variable)
+            & (df["unique_id"] == source)
+            & (df["metric"] == metric)
+            & (df["horizon"] == horizon)
+        ]
+        .sort_values("date")
+        .copy()
+    )
 
     # Check if the DataFrame is empty
     if subset.empty:
@@ -97,13 +103,14 @@ def revisions_errors_regression(
     # Regress forecast errors against constant and forecast errors
     try:
         model = OLS(y, X)
-        # Fit with HAC standard errors (Newey-West)
-        maxlags = forecast_horizon
+        # Fit with HAC standard errors (Newey-West), with the lag set by the longest
+        # information horizon in this group rather than by the calendar horizon.
+        maxlags = max(0, int(subset["forecast_horizon"].max()))
         results = model.fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
     except Exception as e:
         raise ValueError(
             f"OLS regression failed for {variable} from source {source} "
-            f"with metric {metric} at horizon {forecast_horizon}. Error: {str(e)}"
+            f"with metric {metric} at horizon {horizon}. Error: {str(e)}"
         )
 
     return results
@@ -118,7 +125,7 @@ def revisions_errors_correlation_analysis(
 ) -> TestResult:
     """
     Run regressions of forecast revisions against forecast errors for all unique
-    combinations of variable, source, metric, and forecast_horizon.
+    combinations of variable, source, metric, and horizon.
 
     This function systematically tests forecast efficiency across all available
     forecast series by running the revisions-errors regression for each unique
@@ -153,7 +160,7 @@ def revisions_errors_correlation_analysis(
         - source: str - forecast source identifier
         - variable: str - economic variable name
         - metric: str - measurement type
-        - forecast_horizon: int - forecast horizon
+        - horizon: int - forecast horizon (target date minus forecast vintage)
         - const: float - intercept coefficient (α)
         - const_se: float - standard error of intercept
         - beta: float - slope coefficient (β)
@@ -163,6 +170,7 @@ def revisions_errors_correlation_analysis(
         - correlated: bool - True if β is significant at 5% level
         - rsquared: float - coefficient of determination
         - n_observations: int - number of observations in regression
+        - hac_maxlags: int - Newey-West truncation lag used (max information horizon in the group)
     """
     if data._main_table is None or data._forecasts is None:
         raise ValueError("ForecastData missing data. Please ensure data has been added and processed.")
@@ -174,6 +182,7 @@ def revisions_errors_correlation_analysis(
         raise ValueError("Revisions-errors correlation analysis is not supported for nowcasting data. ")
 
     df = create_revision_dataframe(data._main_table, data._forecasts, k)
+    df = df.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     # Filter by source if specified
     if source is not None:
@@ -194,7 +203,7 @@ def revisions_errors_correlation_analysis(
             df = df[df["variable"].isin(variable)]
 
     # Get all unique combinations
-    combinations = df[["variable", "unique_id", "metric", "frequency", "forecast_horizon"]].drop_duplicates()
+    combinations = df[["variable", "unique_id", "metric", "frequency", "horizon"]].drop_duplicates()
 
     # Preallocate results list for better performance
     n_combinations = len(combinations)
@@ -206,16 +215,16 @@ def revisions_errors_correlation_analysis(
         source = row["unique_id"]
         metric = row["metric"]
         frequency = row["frequency"]
-        forecast_horizon = row["forecast_horizon"]
+        horizon = row["horizon"]
 
         try:
-            results = revisions_errors_regression(df, variable, source, metric, forecast_horizon)
+            results = revisions_errors_regression(df, variable, source, metric, horizon)
             results_list[i] = {
                 "unique_id": source,
                 "variable": variable,
                 "metric": metric,
                 "frequency": frequency,
-                "forecast_horizon": forecast_horizon,
+                "horizon": horizon,
                 "const": results.params.iloc[0],
                 "const_se": results.bse.iloc[0],
                 "beta": results.params.iloc[1],
@@ -225,12 +234,10 @@ def revisions_errors_correlation_analysis(
                 "correlated": results.pvalues.iloc[1] < 0.05,
                 "rsquared": results.rsquared,
                 "n_observations": results.nobs,
+                "hac_maxlags": results.cov_kwds["maxlags"],
             }
         except Exception as e:
-            print(
-                f"Failed regression for variable={variable}, "
-                f"source={source}, metric={metric}, h={forecast_horizon}: {e}"
-            )
+            print(f"Failed regression for variable={variable}, source={source}, metric={metric}, h={horizon}: {e}")
 
     # Convert results list to DataFrame
     results_df = pd.DataFrame(results_list)

@@ -145,7 +145,9 @@ def plot_hedgehog(
         if uses_intra_period_vintages:
             dot_size = 0
         elif (
-            df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date]["forecast_horizon"].nunique()
+            df_forecasts_filtered[df_forecasts_filtered["vintage_date"] == vintage_date][
+                "target_minus_vintage"
+            ].nunique()
             == 1
         ):
             dot_size = 5

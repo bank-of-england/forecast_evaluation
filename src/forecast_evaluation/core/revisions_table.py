@@ -70,6 +70,7 @@ def create_revision_dataframe(main_df: pd.DataFrame, forecasts: pd.DataFrame, k:
             "metric",
             "frequency",
             "vintage_date_forecast",
+            "target_minus_vintage",
             "forecast_horizon",
             "value_forecast",
             "value_outturn",

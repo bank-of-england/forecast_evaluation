@@ -50,6 +50,7 @@ def strong_efficiency_test(
         - outcome_variable: Name of outcome variable
         - instrument_variable: Name of instrument variable
         - n_observations: Number of observations
+        - hac_maxlags: Newey-West truncation lag used (max information horizon in the group)
         - ols_coefficient: OLS coefficient estimate
         - ols_se: Standard error of coefficient
         - coeff_ci_lower: Lower bound of confidence interval
@@ -64,8 +65,12 @@ def strong_efficiency_test(
     outcome_var = ("forecast_error", outcome_variable, h)
     instrument = ("value_forecast", instrument_variable, j)
 
+    # The pivot replaces the horizon columns with column keys, so the information
+    # horizon has to be carried through as a value to set the lag length below.
+    information_horizon = ("forecast_horizon", outcome_variable, h)
+
     # Check if required columns exist
-    required_cols = [outcome_var, instrument]
+    required_cols = [outcome_var, instrument, information_horizon]
     missing_cols = [col for col in required_cols if col not in df_pivot.columns]
     if missing_cols:
         raise ValueError(f"Missing columns in df_pivot: {missing_cols}")
@@ -80,8 +85,9 @@ def strong_efficiency_test(
     X_robust = add_constant(analysis_data[instrument])
     y_robust = analysis_data[outcome_var]
 
-    # OLS regression with HAC standard errors
-    maxlags = h
+    # OLS regression with HAC standard errors, with the lag set by the longest
+    # information horizon in this group rather than by the calendar horizon.
+    maxlags = max(0, int(analysis_data[information_horizon].max()))
     try:
         ols_model = OLS(y_robust, X_robust).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
     except Exception as e:
@@ -113,6 +119,7 @@ def strong_efficiency_test(
         "outcome_variable": outcome_variable,
         "instrument_variable": instrument_variable,
         "n_observations": len(analysis_data),
+        "hac_maxlags": maxlags,
         "ols_coefficient": ols_coefficient,
         "ols_se": ols_se,
         "coeff_ci_lower": coeff_ci_lower,
@@ -211,7 +218,7 @@ def strong_efficiency_analysis(
             stacklevel=2,
         )
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     frequency = df["frequency"].iloc[0]
 
@@ -237,8 +244,8 @@ def strong_efficiency_analysis(
     # Pivot data wider
     df_pivot = df.pivot(
         index=["vintage_date_forecast"],
-        columns=["variable", "forecast_horizon"],
-        values=["value_forecast", "value_outturn", "forecast_error"],
+        columns=["variable", "horizon"],
+        values=["value_forecast", "value_outturn", "forecast_error", "forecast_horizon"],
     ).reset_index()
 
     results_list = []

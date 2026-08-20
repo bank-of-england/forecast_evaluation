@@ -30,7 +30,7 @@ def plot_accuracy(
     ----------
     df : DataFrame or AccuracyResults object
         containing accuracy statistics with columns 'variable', 'source', 'metric',
-        'frequency', 'forecast_horizon', 'rmse', 'rmedse', 'mse', 'mean_abs_error',
+        'frequency', 'horizon', 'rmse', 'rmedse', 'mse', 'mean_abs_error',
         'n_observations', 'start_date', 'end_date'.
 
     variable : str
@@ -94,10 +94,10 @@ def plot_accuracy(
     # Plot accuracy statistic for each source
     for source in sources:
         source_data = df[df["unique_id"] == source].copy()
-        source_data = source_data.sort_values("forecast_horizon")
+        source_data = source_data.sort_values("horizon")
 
         ax.plot(
-            source_data["forecast_horizon"],
+            source_data["horizon"],
             multiplier * source_data[statistic],
             marker="o",
             linewidth=2,
@@ -148,7 +148,7 @@ def plot_compare_to_benchmark(
     ----------
     df : DataFrame
         containing accuracy statistics with columns 'variable', 'source', 'metric',
-        'frequency', 'forecast_horizon', 'rmse', 'rmedse', 'mean_abs_error',
+        'frequency', 'horizon', 'rmse', 'rmedse', 'mean_abs_error',
         'n_observations', 'start_date', 'end_date'.
     variable : str
         Variable to analyse (e.g., 'gdpkp', 'cpisa', 'unemp').
@@ -206,11 +206,9 @@ def plot_compare_to_benchmark(
     # Plot accuracy statistic ratio for each source
     for source in sources:
         source_data = df[df["unique_id"] == source].copy()
-        source_data = source_data.sort_values("forecast_horizon")
+        source_data = source_data.sort_values("horizon")
 
-        ax.plot(
-            source_data["forecast_horizon"], source_data[ratio_col], marker="o", linewidth=2, markersize=6, label=source
-        )
+        ax.plot(source_data["horizon"], source_data[ratio_col], marker="o", linewidth=2, markersize=6, label=source)
 
     # Relabel statistics for y-axis labels
     stat_labels = {
@@ -248,7 +246,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame with columns: variable, source, forecast_horizon, rmse_ratio,
+        DataFrame with columns: variable, source, horizon, rmse_ratio,
         p_value, window_start, window_end
     variable : str
         Variable to plot (used for title)
@@ -270,7 +268,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
     df["window_end"] = pd.to_datetime(df["window_end"])
 
     # Filter for specified horizons
-    df = df[df["forecast_horizon"].isin(horizons)]
+    df = df[df["horizon"].isin(horizons)]
 
     # Create figure with subplots for each horizon
     n_horizons = len(horizons)
@@ -296,7 +294,7 @@ def plot_rolling_relative_accuracy(df: pd.DataFrame, variable: str, horizons: li
 
     for i, h in enumerate(horizons):
         ax = axes[i]
-        sub = df[df["forecast_horizon"] == h].copy()
+        sub = df[df["horizon"] == h].copy()
 
         for source in sources:
             source_data = sub[sub["unique_id"] == source].sort_values("window_end")

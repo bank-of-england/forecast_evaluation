@@ -89,3 +89,4 @@
 
 ### Adjustments
 - Specify metric in `add_fer_outturns` to be 'levels'.
+- **Breaking**: analyses now group and report on `horizon`, the calendar distance `target_minus_vintage` from the forecast `vintage_date` to the target `date`, where they used `forecast_horizon`, the information horizon running from the last outturn used for estimation to the target date. A publication lag makes the two differ, so groups once split by information horizon are pooled by calendar horizon and results change. `forecast_horizon` stays a required input column but groups nothing; it only sets the HAC bandwidth, reported in the new `hac_maxlags`.

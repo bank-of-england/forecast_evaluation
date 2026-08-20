@@ -9,6 +9,7 @@ from typing import Any, Literal, Optional, Union
 
 import pandas as pd
 
+from forecast_evaluation._compat import resolve_forecast_horizon_column
 from forecast_evaluation.utils import clean_unique_id, filter_sources, reconstruct_id_cols_from_unique_id
 
 
@@ -44,6 +45,7 @@ class TestResult:
             - parameters : dict - Test parameters (k, same_date_range, etc.)
             - filters : dict - Applied filters (source, variable, etc.)
             - date_range : tuple - (start_date, end_date) of the data
+            - horizon_measure : str - What the ``horizon`` column measures
         """
 
         if id_columns is not None:
@@ -52,6 +54,11 @@ class TestResult:
         self._df = df.copy()
         self._metadata = metadata or {}
         self._id_columns = id_columns or None
+
+        # Results carry a single ``horizon`` column, so record what it measures rather
+        # than leaving readers to infer it. Kept as a metadata field because it is also
+        # the natural place to record a different measure, should one ever be offered.
+        self._metadata.setdefault("horizon_measure", "target_minus_vintage")
 
     def to_df(self) -> pd.DataFrame:
         """
@@ -101,8 +108,12 @@ class TestResult:
         -------
         Any
             Indexed data from the underlying DataFrame
+
+        Notes
+        -----
+        ``forecast_horizon`` is accepted as a deprecated alias for ``horizon``.
         """
-        return self._df[key]
+        return self._df[resolve_forecast_horizon_column(key, self._df.columns)]
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -120,6 +131,10 @@ class TestResult:
         Any
             Attribute from the underlying DataFrame
 
+        Notes
+        -----
+        ``forecast_horizon`` is accepted as a deprecated alias for ``horizon``.
+
         Raises
         ------
         AttributeError
@@ -127,6 +142,11 @@ class TestResult:
         """
         if name.startswith("_"):
             raise AttributeError(f"'TestResult' object has no attribute '{name}'")
+
+        resolved = resolve_forecast_horizon_column(name, self._df.columns)
+        if resolved != name:
+            return self._df[resolved]
+
         try:
             return getattr(self._df, name)
         except AttributeError:
@@ -212,7 +232,8 @@ class TestResult:
         horizon : int or list of int, optional
             Forecast horizon(s) to include
         **kwargs
-            Additional column-based filters
+            Additional column-based filters. ``forecast_horizon`` is accepted as a
+            deprecated alias for ``horizon``.
 
         Returns
         -------
@@ -220,6 +241,18 @@ class TestResult:
             New TestResult object with filtered data
         """
         df_filtered = self._df.copy()
+
+        if horizon is not None and "forecast_horizon" in kwargs:
+            raise TypeError(
+                "filter() received both 'horizon' and the deprecated 'forecast_horizon'. Pass 'horizon' only."
+            )
+
+        # Rename before filtering so that both the filters below and the recorded
+        # metadata refer to the column results actually carry.
+        resolved_kwargs = {}
+        for col, value in kwargs.items():
+            resolved_kwargs[resolve_forecast_horizon_column(col, df_filtered.columns)] = value
+        kwargs = resolved_kwargs
 
         # Apply variable filter
         if variable is not None:
@@ -236,11 +269,11 @@ class TestResult:
 
         # Apply horizon filter
         if horizon is not None:
-            if "forecast_horizon" in df_filtered.columns:
+            if "horizon" in df_filtered.columns:
                 if isinstance(horizon, int):
-                    df_filtered = df_filtered[df_filtered["forecast_horizon"] == horizon]
+                    df_filtered = df_filtered[df_filtered["horizon"] == horizon]
                 else:
-                    df_filtered = df_filtered[df_filtered["forecast_horizon"].isin(horizon)]
+                    df_filtered = df_filtered[df_filtered["horizon"].isin(horizon)]
 
         # Apply additional filters
         for col, value in kwargs.items():
@@ -478,7 +511,7 @@ class TestResult:
                 raise ValueError(f"Multiple metrics found: {unique_metrics}. Please specify 'metric' parameter.")
 
         if horizon is None:
-            horizon = int(min(self._df["forecast_horizon"].unique()))
+            horizon = int(min(self._df["horizon"].unique()))
 
         return plot_correlation_heatmap(
             df=self._df,

@@ -52,8 +52,12 @@ def blanchard_leigh_efficiency_test(
     instrument = ("value_forecast", instrument_variable, j)
     actuals = ("value_outturn", instrument_variable, j)
 
+    # The pivot replaces the horizon columns with column keys, so the information
+    # horizon has to be carried through as a value to set the bandwidth below.
+    information_horizon = ("forecast_horizon", outcome_variable, h)
+
     # Check if required columns exist
-    required_cols = [outcome_var, instrument, actuals]
+    required_cols = [outcome_var, instrument, actuals, information_horizon]
     missing_cols = [col for col in required_cols if col not in df_pivot.columns]
     if missing_cols:
         raise ValueError(f"Missing columns in df_pivot: {missing_cols}")
@@ -76,11 +80,12 @@ def blanchard_leigh_efficiency_test(
     exog = add_constant(analysis_data[instrument])
     equations["instrument"] = {"dependent": flatten_col_name(dependent), "exog": flatten_col_name(exog)}
 
-    # Step 3: Estimate and extract coefficients and standard errors
+    # Step 3: Estimate and extract coefficients and standard errors.
+    # The bandwidth follows the longest information horizon in this group rather than
+    # the calendar horizon, since that is what bounds the serial correlation.
+    bandwidth = min(max(0, int(analysis_data[information_horizon].max())), len(analysis_data) - 1)
     sur_model = SUR(equations)
-    sur_results = sur_model.fit(
-        method="ols", cov_type="kernel", kernel="bartlett", bandwidth=min(h, len(analysis_data) - 1)
-    )
+    sur_results = sur_model.fit(method="ols", cov_type="kernel", kernel="bartlett", bandwidth=bandwidth)
 
     first_coeff = sur_results.params.iloc[1]
     first_se = np.sqrt(sur_results.cov.iloc[1, 1])  # Standard error
@@ -136,6 +141,7 @@ def blanchard_leigh_efficiency_test(
         "outcome_variable": outcome_variable,
         "instrument_variable": instrument_variable,
         "n_observations": len(analysis_data),
+        "hac_bandwidth": bandwidth,
         "first_coefficient": first_coeff,
         "first_se": first_se,
         "second_coefficient": second_coeff,
@@ -229,7 +235,7 @@ def blanchard_leigh_horizon_analysis(
     if data.uses_intra_period_vintages:
         raise ValueError("Blanchard-Leigh efficiency analysis is not supported for nowcasting data. ")
 
-    df = data._main_table.copy()
+    df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
     if frequency is not None:
         warnings.warn(
@@ -268,8 +274,8 @@ def blanchard_leigh_horizon_analysis(
     # Pivot data wider
     df_pivot = df.pivot(
         index=["vintage_date_forecast"],
-        columns=["variable", "forecast_horizon"],
-        values=["value_forecast", "value_outturn", "forecast_error"],
+        columns=["variable", "horizon"],
+        values=["value_forecast", "value_outturn", "forecast_error", "forecast_horizon"],
     ).reset_index()
 
     results = {}

@@ -77,7 +77,7 @@ def correlation_heatmap(input, output, session, data):
             return render.DataTable(pd.DataFrame({"info": ["No correlation data available."]}))
 
         summary = (
-            df.groupby("forecast_horizon")
+            df.groupby("horizon")
             .agg(start_date=("start_date", "min"), end_date=("end_date", "max"), n_obs=("n_observations", "min"))
             .reset_index()
         )
