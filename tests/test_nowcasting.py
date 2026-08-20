@@ -1,3 +1,5 @@
+import functools
+
 import pandas as pd
 import pytest
 
@@ -40,6 +42,31 @@ def _with_forecast_horizon(forecasts: pd.DataFrame, horizon: int = 0) -> pd.Data
     return forecasts.assign(forecast_horizon=horizon)
 
 
+@functools.lru_cache(maxsize=1)
+def _nowcast_fd_extra_ids_template() -> NowcastData:
+    """Build the two-variants-per-source nowcast dataset once per test session.
+
+    Use the ``nowcast_fd_extra_ids`` fixture in tests, which returns a deep copy.
+    """
+    forecasts = create_sample_nowcast_forecasts()
+
+    variant_a = forecasts.copy()
+    variant_a["model"] = "A"
+    variant_b = forecasts.copy()
+    variant_b["model"] = "B"
+    # Make variant B clearly less accurate so pooled and split stats differ.
+    variant_b["value"] = variant_b["value"] * 1.5
+
+    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
+    fd.add_forecasts(
+        pd.concat([variant_a, variant_b], ignore_index=True),
+        extra_ids=["model"],
+        data_check=False,
+    )
+
+    return fd
+
+
 # -----------------------
 # compute_days_in_period Tests
 # -----------------------
@@ -77,10 +104,9 @@ class TestComputeDaysInPeriod:
 class TestDaysInPeriod:
     """Test that days_in_period is no longer injected into extra_ids for nowcasting data."""
 
-    def test_days_in_period_not_in_unique_id(self, nowcast_outturns, nowcast_forecasts):
+    def test_days_in_period_not_in_unique_id(self, nowcast_fd):
         """With NowcastData, unique_id should just be 'source' (no days_in_period)."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         assert fd.id_columns == ["source"]
         # No '+' separator with days_in_period in unique_id
@@ -113,10 +139,9 @@ class TestNowcastingFlow:
         assert not ForecastData(outturn_vintages=False).supports_outturn_revision_analysis
         assert NowcastData(outturns_data=nowcast_outturns).supports_outturn_revision_analysis
 
-    def test_nowcast_data_properties(self, nowcast_outturns, nowcast_forecasts):
+    def test_nowcast_data_properties(self, nowcast_fd, nowcast_forecasts):
         """Nowcast data should preserve row count, vintages, sources, variables, and horizons."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         # Row count preserved
         assert len(fd._raw_forecasts) == len(nowcast_forecasts)
@@ -148,10 +173,9 @@ class TestNowcastingFlow:
         if not fd.df.empty:
             assert fd.df["k"].min() >= -1
 
-    def test_outturns_omit_forecast_horizon(self, nowcast_outturns, nowcast_forecasts):
+    def test_outturns_omit_forecast_horizon(self, nowcast_fd, nowcast_forecasts):
         """Outturns do not carry the forecast-only information horizon."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         assert "forecast_horizon" not in fd._raw_outturns.columns
         assert fd._raw_forecasts["forecast_horizon"].equals(nowcast_forecasts["forecast_horizon"])
@@ -169,12 +193,9 @@ class TestNowcastingFlow:
         assert "mpr2" in sources
         assert "nowcast_dfm" in sources
 
-    def test_k_is_revision_index_unique_outturn_per_date_and_k(self, nowcast_outturns, nowcast_forecasts):
+    def test_k_is_revision_index_unique_outturn_per_date_and_k(self, nowcast_fd):
         """For nowcasting, each (variable, metric, frequency, date, k) should map to one outturn vintage."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
-
-        mt = fd.df.copy()
+        mt = nowcast_fd.df.copy()
         assert not mt.empty
 
         grouped = (
@@ -185,26 +206,23 @@ class TestNowcastingFlow:
 
         assert (grouped["n_vintages"] <= 1).all()
 
-    def test_filter_by_source(self, nowcast_outturns, nowcast_forecasts):
+    def test_filter_by_source(self, nowcast_fd):
         """Filtering by source should work with nowcast data."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         fd.filter(sources="nowcast_dfm")
         assert set(fd.forecasts["source"].unique()) == {"nowcast_dfm"}
 
-    def test_filter_by_variable(self, nowcast_outturns, nowcast_forecasts):
+    def test_filter_by_variable(self, nowcast_fd):
         """Filtering by variable should work with nowcast data."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         fd.filter(variables="gdp")
         assert set(fd.forecasts["variable"].unique()) == {"gdp"}
 
-    def test_clear_filter_preserves_nowcast_k_and_days_to_publication(self, nowcast_outturns, nowcast_forecasts):
+    def test_clear_filter_preserves_nowcast_k_and_days_to_publication(self, nowcast_fd):
         """clear_filter() should restore the nowcast-specific k index and days_to_publication column."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         assert "days_to_publication" in fd.df.columns
         original = fd.df.sort_values(list(fd.df.columns)).reset_index(drop=True)
@@ -859,10 +877,9 @@ class TestIntraPeriodPlot:
         with pytest.raises(ValueError, match="confidence_level must be greater than 0 and less than 100"):
             _z_multiplier(confidence_level)
 
-    def test_plot_rmse_and_mae(self, nowcast_outturns, nowcast_forecasts):
+    def test_plot_rmse_and_mae(self, nowcast_fd):
         """plot_intra_period_accuracy should return (fig, ax) for both RMSE and MAE."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         import matplotlib
 
@@ -896,10 +913,9 @@ class TestIntraPeriodPlot:
         with pytest.raises(ValueError, match="NowcastData"):
             plot_intra_period_accuracy(fd, variable="gdp", return_plot=True)
 
-    def test_plot_no_data_raises(self, nowcast_outturns, nowcast_forecasts):
+    def test_plot_no_data_raises(self, nowcast_fd):
         """Should raise ValueError when no data matches the filters."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
+        fd = nowcast_fd
 
         import matplotlib
 
@@ -1079,22 +1095,34 @@ class TestIntraPeriodKSelection:
         assert result.attrs["k"] == 0
 
     @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
-    def test_intra_period_default_k_resolves_from_nowcast_data(self, compute, nowcast_outturns, nowcast_forecasts):
+    def test_intra_period_default_k_resolves_from_nowcast_data(self, compute, nowcast_fd, nowcast_outturns):
         """When k is not passed explicitly, a NowcastData instance resolves to data.default_k.
 
         Uses a non-zero ``default_k`` so the test cannot pass by coincidence: if
         ``data.default_k`` were ignored, ``k`` would silently fall back to 0 and the
         result would differ from the explicit ``k=2`` call below.
         """
-        fd = NowcastData(outturns_data=nowcast_outturns, default_k=2)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
-        assert fd.default_k == 2
+        # The constructor argument is what populates default_k; check it on a cheap
+        # outturns-only instance, then set the same value on the shared fixture.
+        # ``test_default_k_survives_forecast_ingestion`` covers the remaining step,
+        # that adding forecasts leaves the constructor's value alone.
+        assert NowcastData(outturns_data=nowcast_outturns, default_k=2).default_k == 2
+
+        fd = nowcast_fd
+        fd.default_k = 2
 
         result = compute(fd, variable="gdp", metric="levels", frequency="Q")
         expected = compute(fd, variable="gdp", metric="levels", frequency="Q", k=2)
 
         assert result.attrs["k"] == 2
         pd.testing.assert_frame_equal(result, expected)
+
+    def test_default_k_survives_forecast_ingestion(self):
+        """Adding forecasts must not reset the default_k given to the constructor."""
+        fd = NowcastData(outturns_data=create_sample_outturns(), default_k=2)
+        fd.add_forecasts(_with_forecast_horizon(create_sample_forecasts()), data_check=False)
+
+        assert fd.default_k == 2
 
     @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
     def test_intra_period_no_fallback_flag_when_latest_vintage_all_nat(self, compute):
@@ -1136,22 +1164,13 @@ class TestExtraIdsPreserveForecastIdentity:
     """Forecasts distinguished by ``extra_ids`` must not be pooled by ``source`` alone."""
 
     @pytest.fixture
-    def nowcast_fd_extra_ids(self, nowcast_outturns, nowcast_forecasts):
-        """NowcastData with two variants per source, distinguished by an extra id."""
-        variant_a = nowcast_forecasts.copy()
-        variant_a["model"] = "A"
-        variant_b = nowcast_forecasts.copy()
-        variant_b["model"] = "B"
-        # Make variant B clearly less accurate so pooled and split stats differ.
-        variant_b["value"] = variant_b["value"] * 1.5
+    def nowcast_fd_extra_ids(self):
+        """NowcastData with two variants per source, distinguished by an extra id.
 
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(
-            pd.concat([variant_a, variant_b], ignore_index=True),
-            extra_ids=["model"],
-            data_check=False,
-        )
-        return fd
+        Built once for the session (see ``_nowcast_fd_extra_ids_template``) and deep
+        copied per test, because ingesting the doubled forecast set is slow.
+        """
+        return _nowcast_fd_extra_ids_template().copy()
 
     @pytest.mark.parametrize("compute", [compute_intra_period_accuracy, compute_intra_period_bias])
     def test_statistics_split_by_extra_ids(self, nowcast_fd_extra_ids, compute):
@@ -1208,12 +1227,9 @@ class TestExtraIdsPreserveForecastIdentity:
         }
         assert expected <= labels
 
-    def test_source_only_data_is_unchanged(self, nowcast_outturns, nowcast_forecasts):
+    def test_source_only_data_is_unchanged(self, nowcast_fd):
         """Without extra_ids the grouping stays keyed on source (backwards compatible)."""
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
-
-        result = compute_intra_period_accuracy(fd, variable="gdp", metric="levels", frequency="Q")
+        result = compute_intra_period_accuracy(nowcast_fd, variable="gdp", metric="levels", frequency="Q")
 
         assert "source" in result.columns
         assert (result["unique_id"] == result["source"]).all()
@@ -1224,12 +1240,6 @@ class TestExtraIdsPreserveForecastIdentity:
 # -----------------------
 class TestEfficiencyBlockedForNowcasts:
     """Efficiency analysis functions should raise ValueError for nowcasting data."""
-
-    @pytest.fixture
-    def nowcast_fd(self, nowcast_outturns, nowcast_forecasts):
-        fd = NowcastData(outturns_data=nowcast_outturns)
-        fd.add_forecasts(nowcast_forecasts, data_check=False)
-        return fd
 
     def test_weak_efficiency_raises(self, nowcast_fd):
         with pytest.raises(ValueError, match="not supported for nowcasting"):

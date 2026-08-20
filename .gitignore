@@ -8,6 +8,7 @@ __pycache__/
 
 .vscode/
 plans/
+*copilot-instructions.md
 # Distribution / packaging
 .Python
 build/

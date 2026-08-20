@@ -2,32 +2,11 @@ import matplotlib
 
 matplotlib.use("Agg")  # non-interactive backend; must be set before any figure is created
 
-import pandas as pd
 import pytest
 
-from forecast_evaluation.data.NowcastData import NowcastData
-from forecast_evaluation.data.sample_data import (
-    create_sample_nowcast_forecasts,
-    create_sample_nowcast_outturns,
-)
 from forecast_evaluation.visualisations.radar import plot_radar
 
-
-@pytest.fixture
-def nowcast_outturns() -> pd.DataFrame:
-    return create_sample_nowcast_outturns()
-
-
-@pytest.fixture
-def nowcast_forecasts() -> pd.DataFrame:
-    return create_sample_nowcast_forecasts()
-
-
-@pytest.fixture
-def nowcast_fd(nowcast_outturns, nowcast_forecasts) -> NowcastData:
-    fd = NowcastData(outturns_data=nowcast_outturns)
-    fd.add_forecasts(nowcast_forecasts, data_check=False)
-    return fd
+# ``nowcast_fd`` comes from tests/conftest.py.
 
 
 class TestPlotRadarRejectsUnsupportedNowcastAnalyses:

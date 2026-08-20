@@ -305,8 +305,10 @@ def test_sample_from_density_statistics(sample_outturns, sample_density_forecast
     """Test that samples from density have correct mean and variance."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
 
-    # Generate samples
-    n_samples = 10000
+    # 2,000 draws is ample for the tolerances asserted below (the observed errors are an
+    # order of magnitude inside them) and keeps this test roughly five times faster than
+    # the 10,000 draws it used to take.
+    n_samples = 2000
     samples = dfd.sample_from_density(n_samples=n_samples, random_state=42)
 
     # get the levels

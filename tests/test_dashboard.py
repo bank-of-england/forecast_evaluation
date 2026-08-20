@@ -10,8 +10,6 @@ from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.data.sample_data import (
     create_sample_forecasts,
-    create_sample_nowcast_forecasts,
-    create_sample_nowcast_outturns,
     create_sample_outturns,
 )
 
@@ -47,9 +45,8 @@ def test_run_dashboard_jupyter(sample_outturns, sample_forecasts):
         mock_uvicorn.assert_called_once()
 
 
-def test_create_sidebar_includes_releases_input_for_nowcast_data():
-    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
-    fd.add_forecasts(create_sample_nowcast_forecasts(), data_check=False)
+def test_create_sidebar_includes_releases_input_for_nowcast_data(nowcast_fd: NowcastData):
+    fd = nowcast_fd
 
     sidebar = create_sidebar(fd)
     sidebar_html = str(ui.page_fluid(ui.layout_sidebar(sidebar, ui.div())))
@@ -75,10 +72,9 @@ def test_create_sidebar_releases_hidden_default_for_forecast_data(sample_outturn
     assert 'data-display-if="input.tabs == &apos;Hedgehog&apos;"' not in sidebar_html
 
 
-def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data():
+def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):
     """Correlation/Radar tabs and their handlers are unsupported for nowcast data, so both are skipped."""
-    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
-    fd.add_forecasts(create_sample_nowcast_forecasts(), data_check=False)
+    fd = nowcast_fd
 
     app = dashboard_app(fd)
     page_html = str(app.ui(None))
@@ -165,11 +161,10 @@ def _make_intra_period_input(**overrides):
     return input
 
 
-def test_intra_period_accuracy_download_exports_grouped_result():
+def test_intra_period_accuracy_download_exports_grouped_result(nowcast_fd: NowcastData):
     from forecast_evaluation.dashboard.tabs.intra_period import intra_period_accuracy
 
-    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
-    fd.add_forecasts(create_sample_nowcast_forecasts(), data_check=False)
+    fd = nowcast_fd
     raw_main_table = fd.df
 
     input = _make_intra_period_input(intra_statistic="rmse")
@@ -185,11 +180,10 @@ def test_intra_period_accuracy_download_exports_grouped_result():
     assert "forecast_error" not in exported.columns
 
 
-def test_intra_period_bias_download_exports_grouped_result():
+def test_intra_period_bias_download_exports_grouped_result(nowcast_fd: NowcastData):
     from forecast_evaluation.dashboard.tabs.intra_period import intra_period_bias
 
-    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
-    fd.add_forecasts(create_sample_nowcast_forecasts(), data_check=False)
+    fd = nowcast_fd
     raw_main_table = fd.df
 
     input = _make_intra_period_input()

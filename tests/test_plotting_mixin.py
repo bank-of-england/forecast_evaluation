@@ -8,10 +8,6 @@ matplotlib.use("Agg")  # non-interactive backend; must be set before any figure 
 
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
-from forecast_evaluation.data.sample_data import (
-    create_sample_nowcast_forecasts,
-    create_sample_nowcast_outturns,
-)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,12 +22,7 @@ NOWCAST_SOURCE = "nowcast_dfm"
 NOWCAST_METRIC = "levels"
 
 
-@pytest.fixture
-def nowcast_fd() -> NowcastData:
-    """A NowcastData instance built from the sample nowcast outturns/forecasts."""
-    fd = NowcastData(outturns_data=create_sample_nowcast_outturns())
-    fd.add_forecasts(create_sample_nowcast_forecasts(), data_check=False)
-    return fd
+# ``nowcast_fd`` comes from tests/conftest.py.
 
 
 @pytest.fixture(autouse=True)
