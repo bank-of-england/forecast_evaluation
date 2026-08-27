@@ -258,7 +258,10 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
     if not non_levels_outturns.empty:
         df_outturns = pd.concat([df_outturns, non_levels_outturns], ignore_index=True)
 
-    return df_outturns
+    # Native metrics are authoritative when a derived metric has the same
+    # metadata key. Keep derived values for dates without a native source.
+    metadata_columns = [column for column in df_outturns.columns if column != "value"]
+    return df_outturns.drop_duplicates(subset=metadata_columns, keep="last").reset_index(drop=True)
 
 
 def transform_forecast_to_levels(

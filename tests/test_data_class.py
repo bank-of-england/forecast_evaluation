@@ -1,6 +1,7 @@
 import copy
 from unittest.mock import patch
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -127,6 +128,40 @@ def test_add_data(sample_outturns, sample_forecasts):
     assert not fd.outturns.empty
     assert len(fd._raw_forecasts) == len(sample_forecasts)
     assert not fd.forecasts.empty
+
+
+def test_prepare_outturns_preserves_native_metrics_without_duplicate_keys():
+    dates = pd.date_range("2020-01-31", periods=14, freq="ME")
+    levels = pd.DataFrame(
+        {
+            "date": dates,
+            "variable": "gdp",
+            "vintage_date": pd.Timestamp("2021-01-31"),
+            "frequency": "M",
+            "value": np.arange(100.0, 114.0),
+            "metric": "levels",
+        }
+    )
+    native_pop = levels.iloc[[-1]].assign(metric="pop", value=123.0)
+    native_yoy = levels.iloc[[-1]].assign(metric="yoy", value=456.0)
+
+    fd = ForecastData(
+        outturns_data=pd.concat([levels, native_pop, native_yoy], ignore_index=True),
+        compute_levels=False,
+        data_check=False,
+    )
+    outturns = fd.outturns
+    metadata_columns = [column for column in outturns.columns if column != "value"]
+
+    assert not outturns.duplicated(metadata_columns).any()
+    native = outturns.loc[outturns["date"].eq(dates[-1]) & outturns["metric"].eq("pop"), "value"]
+    assert native.tolist() == [123.0]
+    derived = outturns.loc[outturns["date"].eq(dates[-2]) & outturns["metric"].eq("pop"), "value"]
+    np.testing.assert_allclose(derived.to_numpy(), [1.0 / 111.0])
+    native = outturns.loc[outturns["date"].eq(dates[-1]) & outturns["metric"].eq("yoy"), "value"]
+    assert native.tolist() == [456.0]
+    derived = outturns.loc[outturns["date"].eq(dates[-2]) & outturns["metric"].eq("yoy"), "value"]
+    np.testing.assert_allclose(derived.to_numpy(), [12.0 / 100.0])
 
 
 def test_add_forecasts_duplicate_raises(sample_outturns, sample_forecasts):
