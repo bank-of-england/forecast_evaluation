@@ -11,6 +11,7 @@ from .data import (
     DensityForecastData,
     ForecastData,
     NowcastData,
+    SimulationData,
     create_sample_forecasts,
     create_sample_nowcast_forecasts,
     create_sample_nowcast_outturns,
@@ -67,6 +68,7 @@ __all__ = [
     "add_ar_p_forecasts",
     # Data classes
     "ForecastData",
+    "SimulationData",
     "NowcastData",
     "DensityForecastData",
     # Sample data functions
