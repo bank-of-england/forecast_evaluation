@@ -111,6 +111,7 @@ class ForecastData(PlottingMixin):
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
+        compute_derived_metrics: bool = True,
         data_check: bool = True,
         outturn_vintages: bool = True,
         default_k: Optional[int] = None,
@@ -139,6 +140,9 @@ class ForecastData(PlottingMixin):
             If the transformation fails for specific groups (e.g., due to insufficient
             historical data), those groups will be skipped with a warning message.
             Default is True.
+        compute_derived_metrics : bool, optional
+            Whether to derive period-on-period and year-on-year rows from level
+            outturns and forecasts. Default is True.
         data_check : bool, optional
             Whether to run data checks when adding forecasts. See :meth:`add_forecasts` for details.
             Default is True.
@@ -169,6 +173,7 @@ class ForecastData(PlottingMixin):
         self.default_k = type(self).default_k if default_k is None else default_k
         self.first_forecast_horizon = copy.deepcopy(first_forecast_horizon)
         self._outturn_vintages = outturn_vintages
+        self.compute_derived_metrics = compute_derived_metrics
 
         if load_fer:
             self.add_fer_data()
@@ -245,7 +250,10 @@ class ForecastData(PlottingMixin):
             df_validated_unique = df_validated
 
         # Transform outturns (prepare_outturns handles metric-specific logic)
-        outturns = prepare_outturns(df_validated_unique)
+        outturns = prepare_outturns(
+            df_validated_unique,
+            compute_derived_metrics=self.compute_derived_metrics,
+        )
 
         self._outturns = pd.concat([self._outturns, outturns], ignore_index=True)
         self._raw_outturns = pd.concat([self._raw_outturns, df_validated_unique], ignore_index=True)
@@ -451,6 +459,7 @@ class ForecastData(PlottingMixin):
             self._raw_outturns,
             self._id_columns,
             compute_levels=compute_levels,
+            compute_derived_metrics=self.compute_derived_metrics,
         )
 
         main_table = build_main_table(
@@ -759,8 +768,12 @@ class ForecastData(PlottingMixin):
             self._raw_forecasts,
             self._raw_outturns,
             self._id_columns,
+            compute_derived_metrics=self.compute_derived_metrics,
         )
-        outturns = prepare_outturns(self._raw_outturns)
+        outturns = prepare_outturns(
+            self._raw_outturns,
+            compute_derived_metrics=self.compute_derived_metrics,
+        )
 
         self._forecasts = forecasts
         self._outturns = outturns

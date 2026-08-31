@@ -3,6 +3,26 @@ import pandas as pd
 import forecast_evaluation as fe
 
 
+def test_compute_derived_metrics_false_keeps_only_supplied_metrics(
+    fer_minimal_fd,
+):
+    data = fe.ForecastData(
+        outturns_data=fer_minimal_fd._raw_outturns,
+        forecasts_data=fer_minimal_fd._raw_forecasts,
+        compute_levels=False,
+        compute_derived_metrics=False,
+    )
+
+    assert set(data.outturns["metric"]) == {"levels"}
+    assert set(data.forecasts["metric"]) == {"levels"}
+
+    data.filter(metrics=["levels"])
+    data.clear_filter()
+
+    assert set(data.outturns["metric"]) == {"levels"}
+    assert set(data.forecasts["metric"]) == {"levels"}
+
+
 def test_transformations_levels_to_pop_and_yoy(fer_minimal_fd, snapshot):
     """Check add_forecasts compute transformation correctly."""
     # extract forecasts in levels

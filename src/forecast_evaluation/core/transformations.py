@@ -60,6 +60,7 @@ def prepare_forecasts(
     outturns: pd.DataFrame,
     id_columns: list[str],
     compute_levels: bool = True,
+    compute_derived_metrics: bool = True,
 ) -> pd.DataFrame:
     """Prepare forecast data for evaluation by combining with outturns and applying transformations.
 
@@ -79,6 +80,9 @@ def prepare_forecasts(
         If the transformation fails for specific groups (e.g., due to insufficient
         historical data), those groups will be skipped with a warning message.
         Default is True.
+    compute_derived_metrics : bool, optional
+        Whether to derive period-on-period and year-on-year forecasts from
+        level forecasts. Default is True.
     Returns
     -------
     pd.DataFrame
@@ -109,6 +113,11 @@ def prepare_forecasts(
 
         # add back non-levels forecasts
         forecasts = pd.concat([updated_level_forecasts, non_levels_forecasts], ignore_index=True)
+
+    if not compute_derived_metrics:
+        if "forecast_horizon" in forecasts.columns:
+            forecasts["forecast_horizon"] = forecasts["forecast_horizon"].astype(int)
+        return forecasts
 
     # Split forecasts by metric type
     non_levels_forecasts = forecasts[forecasts["metric"] != "levels"].copy()
@@ -213,19 +222,28 @@ def prepare_forecasts(
     return df_forecasts
 
 
-def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
+def prepare_outturns(
+    outturns: pd.DataFrame,
+    compute_derived_metrics: bool = True,
+) -> pd.DataFrame:
     """Prepare outturn data by applying transformations across different frequencies.
 
     Parameters
     ----------
     outturns : pd.DataFrame
         Validated DataFrame containing outturn data.
+    compute_derived_metrics : bool, optional
+        Whether to derive period-on-period and year-on-year outturns from
+        level outturns. Default is True.
 
     Returns
     -------
     pd.DataFrame
         Prepared outturn data with levels, period-on-period, and year-on-year transformations.
     """
+
+    if not compute_derived_metrics:
+        return outturns.copy()
 
     # Split outturns by metric type
     levels_outturns = outturns[outturns["metric"] == "levels"].copy()
