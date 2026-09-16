@@ -1,0 +1,51 @@
+name: Package quality
+
+# Run quality checks for pull requests, branch pushes, or a manual run.
+on:
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check out"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Tests, package, lint, documentation checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package, development, and documentation dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" build twine
+
+      - name: Build and inspect distribution
+        run: |
+          python -m build
+          python -m twine check dist/*
+
+      - name: Run Ruff linter
+        run: ruff check .
+
+      - name: Check Ruff formatting
+        run: ruff format --check .
+
+      - name: Run tests
+        run: pytest

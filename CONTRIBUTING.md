@@ -35,6 +35,15 @@ These hooks ensure that the code is formatted, tested and documented.
 - **Bug fixes**: `fix/issue-description`
 - **Documentation**: `docs/topic-name`
 
+## Protected Branches and Pull Requests
+
+All contributions must be submitted through a pull request. The `main` branch
+is protected, so contributors cannot push changes directly to it. Create a
+branch from `main`, commit and push your changes there, then open a pull request
+targeting `main`. The required check is the `package-quality` workflow, which
+must pass before the pull request can merge.
+Automated dependency and release changes follow the same pull-request process.
+
 ### Creating a Feature Branch
 
 ```bash
