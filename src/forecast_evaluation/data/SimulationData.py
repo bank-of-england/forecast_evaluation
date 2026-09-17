@@ -1,5 +1,4 @@
 import copy
-import math
 from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Literal, Optional, Union
 
@@ -8,8 +7,7 @@ import pandas as pd
 
 from forecast_evaluation.core.main_table import build_main_table
 from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
-from forecast_evaluation.data.ForecastData import ForecastData
-
+from forecast_evaluation.data.ForecastData import ForecastData, _fix_extra_columns, _validate_records
 
 _RESERVED_SIMULATION_IDS = {
     "date",
@@ -18,24 +16,38 @@ _RESERVED_SIMULATION_IDS = {
     "frequency",
     "value",
     "source",
+    "horizon",
     "forecast_horizon",
     "metric",
     "unique_id",
     "target_minus_vintage",
+    "vintage_date_forecast",
+    "vintage_date_outturn",
+    "value_forecast",
+    "value_outturn",
+    "k",
+    "latest_vintage",
+    "forecast_error",
 }
-_AGGREGATABLE_RESULT_COLUMNS = {
-    "mse",
-    "rmse",
-    "mean_abs_error",
-    "rmedse",
-    "bias",
-    "coefficient",
-    "estimate",
-    "correlation",
-    "slope",
-    "intercept",
-    "statistic",
-    "score",
+_RESULT_DIMENSIONS = ["unique_id", "variable", "metric", "frequency", "horizon"]
+_RESULT_CONTRACTS = {
+    "compute_accuracy_statistics": {
+        "statistics": ["mse", "rmse", "mean_abs_error", "rmedse"],
+        "metadata": {"n_observations": "int64", "start_date": "datetime64[ns]", "end_date": "datetime64[ns]"},
+    },
+    "bias_analysis": {
+        "statistics": ["bias_estimate"],
+        "metadata": {
+            "std_error": "float64",
+            "t_statistic": "float64",
+            "p_value": "float64",
+            "bias_conclusion": "object",
+            "n_observations": "float64",
+            "hac_maxlags": "int64",
+            "ci_lower": "float64",
+            "ci_upper": "float64",
+        },
+    },
 }
 _UNSET = object()
 
@@ -137,6 +149,8 @@ class SimulationData:
         missing = [identifier for identifier in self._simulation_ids if identifier not in df.columns]
         if missing:
             raise ValueError(f"Simulation data is missing required identifier columns: {missing}.")
+        if forecast and "forecast_horizon" not in df:
+            raise ValueError("Simulation forecasts require 'forecast_horizon'.")
 
         result = df.copy()
         result["draw"] = self._normalise_draws(result["draw"])
@@ -151,28 +165,45 @@ class SimulationData:
                 raise ValueError(f"Simulation identifier '{identifier}' cannot contain empty values.")
             result[identifier] = values
 
-        identity_columns = [column for column in result.columns if column != "value"]
-        duplicate_mask = result.duplicated(identity_columns, keep=False)
-        if duplicate_mask.any():
-            duplicates = result.loc[duplicate_mask]
-            if duplicates.groupby(identity_columns, dropna=False)["value"].nunique(dropna=False).gt(1).any():
-                kind = "forecast" if forecast else "outturn"
-                raise ValueError(f"Duplicate {kind} records found with different values.")
-            result = result.drop_duplicates().reset_index(drop=True)
         return result
+
+    def _validate_panel_records(self, frame, panel, *, forecast, metric="levels", extra_ids=None):
+        frame = frame.copy()
+        frame["metric"] = frame["metric"].fillna(metric) if "metric" in frame else metric
+        if not forecast and not self._outturn_vintages and "vintage_date" not in frame:
+            frame["vintage_date"] = pd.NaT
+        optional = ["metric"]
+        if forecast and extra_ids:
+            frame, extra_ids = _fix_extra_columns(frame, extra_ids)
+            if len(extra_ids) != len(set(extra_ids)) or set(extra_ids) & (
+                _RESERVED_SIMULATION_IDS | set(self._simulation_ids)
+            ):
+                raise ValueError(
+                    "Forecast extra_ids must be distinct from core and simulation columns after normalisation."
+                )
+            optional += extra_ids
+        validated = _validate_records(
+            frame,
+            forecast=forecast,
+            optional_columns=optional,
+            nullable_vintage=not forecast and not self._outturn_vintages,
+        )
+        stored = panel._raw_forecasts if forecast else panel._raw_outturns
+        if not stored.empty:
+            _validate_records(
+                pd.concat([stored.reindex(columns=validated.columns), validated], ignore_index=True),
+                forecast=forecast,
+                optional_columns=optional,
+                nullable_vintage=not forecast and not self._outturn_vintages,
+            )
+        return validated
 
     @staticmethod
     def _normalise_draws(values: pd.Series) -> pd.Series:
         if values.isna().any() or values.map(lambda value: isinstance(value, bool)).any():
             raise ValueError("Simulation identifier 'draw' must contain non-negative integers.")
         numeric = pd.to_numeric(values, errors="coerce")
-        valid = (
-            numeric.notna()
-            & np.isfinite(numeric)
-            & (numeric >= 0)
-            & (numeric < 2**63)
-            & (numeric % 1 == 0)
-        )
+        valid = numeric.notna() & np.isfinite(numeric) & (numeric >= 0) & (numeric < 2**63) & (numeric % 1 == 0)
         if not valid.all():
             raise ValueError("Simulation identifier 'draw' must contain non-negative integers.")
         return numeric.astype("int64")
@@ -197,9 +228,9 @@ class SimulationData:
         panels = {key: panel.copy() for key, panel in self._panels.items()}
         for key, panel_df in self._partition(normalised):
             panel = panels.setdefault(key, self._new_panel())
+            panel_df = self._validate_panel_records(panel_df, panel, forecast=False, metric=metric)
             panel.add_outturns(panel_df, metric=metric)
-            if not panel._forecasts.empty:
-                self._rebuild_panel(panel)
+            self._rebuild_panel(panel)
         self._panels = panels
 
     def add_forecasts(
@@ -208,19 +239,29 @@ class SimulationData:
         *,
         extra_ids: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
-        compute_levels: bool = True,
+        compute_levels: Optional[bool] = None,
         data_check: bool = True,
         first_forecast_horizon: Union[Optional[int], dict[str, int], object] = _UNSET,
     ) -> None:
-        """Validate, partition, and add simulation forecasts."""
+        """Add forecasts using the collection's transformation policy and identity schema.
+
+        Omitted ``compute_levels`` inherits the constructor setting; explicit values
+        must match it. The first non-empty addition establishes the ordered,
+        normalised ``extra_ids``. Later additions inherit these IDs when omitted.
+        """
+        if compute_levels is None:
+            compute_levels = self._compute_levels
+        elif compute_levels != self._compute_levels:
+            raise ValueError("compute_levels must match the SimulationData constructor setting.")
         normalised = self._normalise_frame(df, forecast=True)
-        next_extra_ids = self._extra_ids
         if extra_ids is not None:
             if set(extra_ids) & set(self._simulation_ids):
                 raise ValueError("Forecast extra_ids cannot contain simulation identifiers.")
-            next_extra_ids = extra_ids.copy()
-        elif self._extra_ids is not None:
-            extra_ids = self._extra_ids.copy()
+            normalised, extra_ids = _fix_extra_columns(normalised, extra_ids)
+        else:
+            extra_ids = list(self._extra_ids or [])
+        if self._extra_ids is not None and extra_ids != self._extra_ids:
+            raise ValueError("Forecast extra_ids must match the existing simulation forecast identity columns.")
 
         keys = list(self._partition(normalised))
         unknown = [key for key, _ in keys if key not in self._panels]
@@ -230,6 +271,13 @@ class SimulationData:
 
         panels = {key: panel.copy() for key, panel in self._panels.items()}
         for key, panel_df in keys:
+            panel_df = self._validate_panel_records(
+                panel_df,
+                panels[key],
+                forecast=True,
+                metric=metric,
+                extra_ids=extra_ids,
+            )
             forecast_options = {
                 "extra_ids": extra_ids,
                 "metric": metric,
@@ -239,8 +287,8 @@ class SimulationData:
             if first_forecast_horizon is not _UNSET:
                 forecast_options["first_forecast_horizon"] = first_forecast_horizon
             panels[key].add_forecasts(panel_df, **forecast_options)
-        self._extra_ids = next_extra_ids
-        self._compute_levels = compute_levels
+        if keys:
+            self._extra_ids = extra_ids.copy()
         self._panels = panels
 
     def iter_panels(self):
@@ -281,26 +329,65 @@ class SimulationData:
         from forecast_evaluation.tests.results import TestResult
 
         results = []
-        result_type = None
-        for key, panel in self._panels.items():
-            result = analysis(panel, **kwargs)
-            result_type = type(result)
+        template = None
+        path_metadata = []
+        for key, panel in self.iter_panels():
+            try:
+                result = analysis(panel, **kwargs)
+            except Exception as error:
+                path = dict(zip(self._simulation_ids, key))
+                raise RuntimeError(f"Analysis failed for simulation path {path}: {error}") from error
+            if not isinstance(result, (TestResult, pd.DataFrame)):
+                raise TypeError(f"Analysis must return a TestResult or DataFrame; path: {key}.")
             frame = result.to_df() if isinstance(result, TestResult) else result.copy()
-            tagged = self._tag(frame, key)
+            results.append(self._tag(frame, key))
             if isinstance(result, TestResult):
-                tagged_result = copy.deepcopy(result)
-                tagged_result._df = tagged
-                results.append(tagged_result)
-            else:
-                results.append(tagged)
+                template = result
+                path_metadata.append({"path": dict(zip(self._simulation_ids, key)), **copy.deepcopy(result._metadata)})
 
         if not results:
-            return pd.DataFrame(columns=self._simulation_ids)
-        if result_type is not None and issubclass(result_type, TestResult):
-            combined = copy.deepcopy(results[0])
-            combined._df = pd.concat([result._df for result in results], ignore_index=True)
-            return combined
-        return pd.concat(results, ignore_index=True)
+            return self._empty_evaluation(analysis, kwargs)
+        combined = pd.concat(results, ignore_index=True)
+        metadata = {
+            "simulation_ids": self.simulation_ids,
+            "path_metadata": path_metadata,
+            "evaluation": "independent paths",
+        }
+        combined.attrs.update(metadata)
+        if template is not None:
+            wrapped = copy.deepcopy(template)
+            wrapped._df = combined
+            wrapped._metadata.pop("date_range", None)
+            wrapped._metadata.update(metadata)
+            return wrapped
+        return combined
+
+    def _empty_evaluation(self, analysis: Callable[..., Any], parameters: dict) -> Any:
+        from forecast_evaluation.tests.accuracy import compute_accuracy_statistics
+        from forecast_evaluation.tests.bias import bias_analysis
+        from forecast_evaluation.tests.results import TestResult
+
+        schema = {identifier: "int64" if identifier == "draw" else "object" for identifier in self._simulation_ids}
+        if analysis not in (compute_accuracy_statistics, bias_analysis):
+            return pd.DataFrame({column: pd.Series(dtype=dtype) for column, dtype in schema.items()})
+        contract = _RESULT_CONTRACTS[analysis.__name__]
+        schema.update({column: "int64" if column == "horizon" else "object" for column in _RESULT_DIMENSIONS})
+        schema.update({column: "object" for column in self.id_columns or ["source"]})
+        schema.update({column: "float64" for column in contract["statistics"]})
+        schema.update(contract["metadata"])
+        frame = pd.DataFrame({column: pd.Series(dtype=dtype) for column, dtype in schema.items()})
+        result = TestResult(
+            frame,
+            metadata={
+                "test_name": analysis.__name__,
+                "parameters": parameters,
+                "simulation_ids": self.simulation_ids,
+                "path_metadata": [],
+                "evaluation": "independent paths",
+            },
+        )
+        result._id_columns = self.id_columns
+        return result
 
     def evaluate_accuracy(self, **kwargs: Any) -> Any:
         """Run ``compute_accuracy_statistics`` independently for every path."""
@@ -310,13 +397,37 @@ class SimulationData:
 
     def aggregate_accuracy(self, result: Any, *, across: Iterable[str] = ("draw",)) -> Any:
         """Aggregate draw-level accuracy statistics across configured IDs."""
-        return self.aggregate_results(result, across=across)
+        return self._aggregate(result, across=across, contract_name="compute_accuracy_statistics")
 
-    def aggregate_results(self, result: Any, *, across: Iterable[str] = ("draw",)) -> Any:
-        """Summarise numeric path-level result statistics across simulation IDs."""
+    def aggregate_results(
+        self,
+        result: Any,
+        *,
+        across: Iterable[str] = ("draw",),
+        statistics: Optional[Sequence[str]] = None,
+        group_by: Optional[Sequence[str]] = None,
+    ) -> Any:
+        """Summarise supported estimates or an explicit estimate/dimension contract.
+
+        Paths receive equal weight. Monte Carlo standard errors assume independent
+        draws and are available only when removing ``draw`` alone. Explicit frames
+        must contain only simulation IDs, declared dimensions and estimates.
+        """
         from forecast_evaluation.tests.results import TestResult
 
+        contract_name = result._metadata.get("test_name") if isinstance(result, TestResult) else None
+        return self._aggregate(
+            result, across=across, contract_name=contract_name, statistics=statistics, group_by=group_by
+        )
+
+    def _aggregate(self, result, *, across, contract_name, statistics=None, group_by=None):
+        from forecast_evaluation.tests.results import TestResult
+
+        if not isinstance(result, (TestResult, pd.DataFrame)):
+            raise TypeError("Results must be a TestResult or DataFrame.")
         frame = result.to_df() if isinstance(result, TestResult) else result.copy()
+        if isinstance(across, str):
+            raise ValueError("across must be a sequence of simulation identifiers, not a string.")
         across_ids = list(across)
         unknown = [identifier for identifier in across_ids if identifier not in self._simulation_ids]
         if unknown:
@@ -326,72 +437,123 @@ class SimulationData:
         if len(across_ids) != len(set(across_ids)):
             raise ValueError("across must contain unique simulation identifiers.")
         missing = [identifier for identifier in self._simulation_ids if identifier not in frame.columns]
-        if missing and not frame.empty:
+        if missing:
             raise ValueError(f"Result is missing simulation identifier columns: {missing}.")
+        if not frame.columns.is_unique:
+            raise ValueError("Result column names must be unique.")
+        if statistics is not None or group_by is not None:
+            if statistics is None or group_by is None:
+                raise ValueError("Explicit contracts require both statistics and group_by.")
+            statistics = self._column_names(statistics, "statistics", allow_empty=False)
+            dimensions = self._column_names(group_by, "group_by", allow_empty=True)
+            contract_name = "explicit"
+            metadata_columns = []
+        else:
+            if contract_name not in _RESULT_CONTRACTS:
+                raise ValueError("Unknown automatic result contract; supply statistics and group_by.")
+            contract = _RESULT_CONTRACTS[contract_name]
+            statistics = contract["statistics"]
+            identity_columns = result._id_columns if isinstance(result, TestResult) else self.id_columns
+            dimensions = list(dict.fromkeys(_RESULT_DIMENSIONS + (identity_columns or ["source"])))
+            metadata_columns = list(contract["metadata"])
+        declared = self._simulation_ids + dimensions + statistics + metadata_columns
+        if len(declared) != len(set(declared)):
+            raise ValueError("Simulation IDs, dimensions, estimates and metadata must not overlap.")
+        missing = [column for column in declared if column not in frame]
+        if missing:
+            raise ValueError(f"Result is missing required columns: {missing}.")
+        undeclared = [column for column in frame if column not in declared]
+        if undeclared:
+            raise ValueError(f"Result contains undeclared columns: {undeclared}.")
+        frame["draw"] = self._normalise_draws(frame["draw"])
+        for identifier in self._simulation_ids:
+            if identifier != "draw":
+                if frame[identifier].isna().any() or frame[identifier].astype(str).str.strip().eq("").any():
+                    raise ValueError(f"Invalid simulation identifier '{identifier}'.")
+                frame[identifier] = frame[identifier].astype(str)
+        if frame.duplicated(self._simulation_ids + dimensions).any():
+            raise ValueError("Duplicate result rows for a simulation path and analysis combination.")
+        for statistic in statistics:
+            frame[statistic] = pd.to_numeric(frame[statistic], errors="raise").astype("float64")
+            if np.isinf(frame[statistic]).any():
+                raise ValueError(f"Statistic '{statistic}' contains infinite values.")
 
-        if frame.empty:
-            empty = frame.copy()
-            return self._wrap_aggregate_result(result, empty)
-
-        numeric_exclusions = set(self._simulation_ids) | {
-            "horizon",
-            "forecast_horizon",
-            "n_observations",
-            "p_value",
-            "pvalue",
-            "p_value_corrected",
-        }
-        numeric_columns = [
-            column
-            for column in frame.select_dtypes(include=np.number).columns
-            if column not in numeric_exclusions and column in _AGGREGATABLE_RESULT_COLUMNS
-        ]
-        date_columns = [
-            column
-            for column in frame.columns
-            if column in {"start_date", "end_date"}
-            and pd.api.types.is_datetime64_any_dtype(frame[column])
-        ]
-        group_columns = [
-            column
-            for column in frame.columns
-            if column not in numeric_columns + date_columns + list(set(across_ids)) and column != "n_observations"
-        ]
+        group_columns = [identifier for identifier in self._simulation_ids if identifier not in across_ids] + dimensions
         grouped = frame.groupby(group_columns, dropna=False, sort=False) if group_columns else [((), frame)]
+        independent_draws = across_ids == ["draw"]
+        schema = {"n_paths": "int64", "n_draws": "int64"}
+        for statistic in statistics:
+            schema.update(
+                {f"{statistic}_{suffix}": "float64" for suffix in ["mean", "se", "sd", "p05", "median", "p95"]}
+            )
+            schema.update({f"{statistic}_n": "int64", f"{statistic}_n_missing": "int64"})
+        coverage = "n_observations" in metadata_columns
+        dates = [column for column in ("start_date", "end_date") if column in metadata_columns]
+        if coverage:
+            schema.update({f"n_observations_{suffix}": "float64" for suffix in ("total", "min", "max")})
+        schema.update({column: "datetime64[ns]" for column in dates})
+        collisions = sorted(set(group_columns) & schema.keys())
+        if collisions:
+            raise ValueError(f"Grouping columns conflict with generated summary columns: {collisions}.")
+        group_schema = {column: frame[column].dtype for column in group_columns}
+        if contract_name != "explicit":
+            group_schema.update({column: "int64" if column == "horizon" else "object" for column in dimensions})
+        schema = {**group_schema, **schema}
         rows = []
         for group_key, group in grouped:
+            if group.empty:
+                continue
             if not isinstance(group_key, tuple):
                 group_key = (group_key,)
             row = dict(zip(group_columns, group_key))
-            path_count = group[across_ids].drop_duplicates().shape[0]
-            row["n_draws"] = path_count
-            for column in numeric_columns:
+            row["n_paths"] = group[self._simulation_ids].drop_duplicates().shape[0]
+            row["n_draws"] = group["draw"].nunique()
+            for column in statistics:
                 values = group[column].dropna().to_numpy(dtype=float)
-                if len(values) == 0:
-                    row[f"{column}_mean"] = np.nan
-                    row[f"{column}_se"] = np.nan
-                    row[f"{column}_sd"] = np.nan
-                    row[f"{column}_p05"] = np.nan
-                    row[f"{column}_median"] = np.nan
-                    row[f"{column}_p95"] = np.nan
-                    continue
-                row[f"{column}_mean"] = np.mean(values)
-                row[f"{column}_se"] = np.std(values, ddof=1) / math.sqrt(len(values)) if len(values) > 1 else np.nan
-                row[f"{column}_sd"] = np.std(values, ddof=1) if len(values) > 1 else np.nan
-                row[f"{column}_p05"] = np.percentile(values, 5)
-                row[f"{column}_median"] = np.median(values)
-                row[f"{column}_p95"] = np.percentile(values, 95)
-            if "n_observations" in group:
-                row["n_observations"] = group["n_observations"].sum()
-            for column in date_columns:
-                row[column] = group[column].min() if column == "start_date" else group[column].max()
+                count = len(values)
+                deviation = np.std(values, ddof=1) if count > 1 else np.nan
+                row[f"{column}_mean"] = np.mean(values) if count else np.nan
+                row[f"{column}_se"] = deviation / np.sqrt(count) if independent_draws and count > 1 else np.nan
+                row[f"{column}_sd"] = deviation
+                for suffix, percentile in [("p05", 5), ("median", 50), ("p95", 95)]:
+                    row[f"{column}_{suffix}"] = np.percentile(values, percentile) if count else np.nan
+                row[f"{column}_n"] = count
+                row[f"{column}_n_missing"] = len(group) - count
+            if coverage:
+                counts = pd.to_numeric(group["n_observations"], errors="raise")
+                row["n_observations_total"] = counts.sum(min_count=1)
+                row["n_observations_min"] = counts.min()
+                row["n_observations_max"] = counts.max()
+            for column in dates:
+                values = pd.to_datetime(group[column])
+                row[column] = values.min() if column == "start_date" else values.max()
             rows.append(row)
 
-        aggregated = pd.DataFrame(rows)
-        ordered_columns = [column for column in group_columns if column in aggregated] + [
-            column for column in aggregated.columns if column not in group_columns
-        ]
-        return self._wrap_aggregate_result(result, aggregated[ordered_columns])
+        aggregated = pd.DataFrame(rows, columns=list(schema)).astype(schema)
+        aggregated.attrs = {
+            "contract": contract_name,
+            "across": across_ids,
+            "statistics": list(statistics),
+            "group_by": group_columns,
+            "weighting": "equal paths",
+            "se_assumption": "independent draws"
+            if independent_draws
+            else "descriptive only; independence not established",
+            "coverage": "represented paths only; dates describe a coverage envelope",
+            "simulation_ids": self.simulation_ids,
+        }
+        return self._wrap_aggregate_result(result, aggregated)
+
+    @staticmethod
+    def _column_names(columns, argument, *, allow_empty):
+        if isinstance(columns, str) or not isinstance(columns, Sequence):
+            raise ValueError(f"{argument} must be a sequence of column names.")
+        names = list(columns)
+        if (not names and not allow_empty) or any(not isinstance(name, str) or not name for name in names):
+            raise ValueError(f"{argument} must contain column names.")
+        if len(names) != len(set(names)):
+            raise ValueError(f"{argument} must contain unique column names.")
+        return names
 
     @staticmethod
     def _wrap_aggregate_result(original: Any, frame: pd.DataFrame) -> Any:
@@ -400,6 +562,8 @@ class SimulationData:
         if isinstance(original, TestResult):
             wrapped = copy.deepcopy(original)
             wrapped._df = frame
+            wrapped._metadata.pop("date_range", None)
+            wrapped._metadata.update(frame.attrs)
             return wrapped
         return frame
 
@@ -474,13 +638,17 @@ class SimulationData:
             panel.create_pseudo_vintages(*args, **kwargs)
 
     def merge(self, other: "SimulationData") -> None:
-        """Merge another simulation collection with matching ID configuration."""
+        """Merge a collection with matching simulation IDs, settings and forecast identity columns."""
         if not isinstance(other, SimulationData):
             raise TypeError("Can only merge another SimulationData instance.")
         if self._simulation_ids != other._simulation_ids:
             raise ValueError("Cannot merge SimulationData instances with different simulation IDs.")
         if self._outturn_vintages != other._outturn_vintages:
             raise ValueError("Cannot merge SimulationData instances with different outturn_vintages settings.")
+        if self._compute_levels != other._compute_levels:
+            raise ValueError("Cannot merge SimulationData instances with different compute_levels settings.")
+        if self.default_k != other.default_k:
+            raise ValueError("Cannot merge SimulationData instances with different default_k settings.")
         if self._extra_ids is not None and other._extra_ids is not None and self._extra_ids != other._extra_ids:
             raise ValueError("Cannot merge SimulationData instances with different forecast extra_ids.")
         next_extra_ids = self._extra_ids
@@ -491,7 +659,15 @@ class SimulationData:
             if key not in panels:
                 panels[key] = panel.copy()
             else:
-                panels[key].merge(panel)
+                self._validate_panel_records(panel._raw_outturns, panels[key], forecast=False)
+                if not panel._raw_forecasts.empty:
+                    self._validate_panel_records(
+                        panel._raw_forecasts,
+                        panels[key],
+                        forecast=True,
+                        extra_ids=other._extra_ids,
+                    )
+                panels[key].merge(panel, compute_levels=self._compute_levels)
                 self._rebuild_panel(panels[key])
         self._extra_ids = next_extra_ids
         self._panels = panels
