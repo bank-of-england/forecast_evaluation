@@ -59,7 +59,10 @@ def plot_vintage(
             stacklevel=2,
         )
 
-    frequency = data._forecasts["frequency"].iloc[0]
+    frequencies = data._forecasts.loc[data._forecasts["variable"] == variable, "frequency"].unique()
+    if len(frequencies) != 1:
+        raise ValueError(f"Expected one frequency for variable '{variable}', found {list(frequencies)}.")
+    frequency = frequencies[0]
 
     # add a check here
     vintage_date = pd.to_datetime(vintage_date)
@@ -109,9 +112,9 @@ def plot_vintage(
         # Use -(k+1) if it exists, otherwise use the furthest available vintage.
         post_outturns = outturns.copy()
 
-        post_outturns["max_feasible_distance"] = post_outturns.groupby("date")["target_minus_vintage"].transform(
-            lambda x: -(k + 1) if -(k + 1) in x.values else x.min()
-        )
+        post_outturns["max_feasible_distance"] = post_outturns.groupby(["variable", "frequency", "metric", "date"])[
+            "target_minus_vintage"
+        ].transform(lambda x: -(k + 1) if -(k + 1) in x.values else x.min())
 
         post_outturns = (
             outturns[

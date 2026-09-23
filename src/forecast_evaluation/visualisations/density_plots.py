@@ -57,10 +57,10 @@ def plot_density_vintage(
         return None
 
     if frequency is None:
-        inferred = data._raw_outturns["frequency"].unique()
+        inferred = data._density_forecasts.loc[data._density_forecasts["variable"] == variable, "frequency"].unique()
         if len(inferred) != 1:
             raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
+                f"Could not infer a unique frequency for variable '{variable}'; found: {list(inferred)}. "
                 "Please specify the 'frequency' argument explicitly."
             )
         frequency = inferred[0]

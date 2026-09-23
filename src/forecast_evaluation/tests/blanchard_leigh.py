@@ -10,7 +10,7 @@ from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
-from forecast_evaluation.utils import filter_k, flatten_col_name
+from forecast_evaluation.utils import filter_k, flatten_col_name, require_single_frequency
 
 
 def blanchard_leigh_efficiency_test(
@@ -244,27 +244,24 @@ def blanchard_leigh_horizon_analysis(
             stacklevel=2,
         )
 
-    frequency = df["frequency"].iloc[0]
-
     # Ensure horizons is a NumPy array
     horizons = np.array(horizons)
 
-    # Filter the table for a particular k
-    df = filter_k(df, k)
+    selected = df[
+        (
+            ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
+            | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
+        )
+        & (df["unique_id"] == source)
+    ].copy()
+    if selected.empty:
+        raise ValueError(
+            f"No data available for variables '{outcome_variable}' with metric '{outcome_metric}',"
+            f"'{instrument_variable}' with metric '{instrument_metric}' and source '{source}'."
+        )
+    frequency = require_single_frequency(selected, "Blanchard-Leigh analysis", (outcome_variable, instrument_variable))
 
-    # Filter variables and sources
-    df = (
-        df[
-            (
-                ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
-                | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
-            )
-            & (df["unique_id"] == source)
-        ]
-        .reset_index(drop=True)
-        .drop(columns=["unique_id", "metric", "frequency"])
-    )
-
+    df = filter_k(selected, k).reset_index(drop=True).drop(columns=["unique_id", "metric", "frequency"])
     if df.empty:
         raise ValueError(
             f"No data available for variables '{outcome_variable}' with metric '{outcome_metric}',"

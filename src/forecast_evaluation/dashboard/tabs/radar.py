@@ -6,7 +6,7 @@ from shiny import reactive, render, ui
 
 import forecast_evaluation as fe
 from forecast_evaluation.dashboard.ui import get_selector_info
-from forecast_evaluation.dashboard.utils import render_legend, remove_legend
+from forecast_evaluation.dashboard.utils import remove_legend, render_legend
 
 
 def radar(input, output, session, data):
@@ -57,6 +57,7 @@ def radar(input, output, session, data):
 
         kwargs = dict(
             mode=mode,
+            frequency=input.radar_frequency(),
             statistic=input.stat(),
             normalise=input.radar_normalise(),
             individual_scales=input.radar_individual_scales() if not input.radar_normalise() else False,
@@ -115,7 +116,6 @@ def radar(input, output, session, data):
         mode = input.radar_mode()
         if mode == "tests":
             # export the underlying main table slice
-            import pandas as pd
 
             main = get_filtered_data()._main_table
             csv_bytes = main.to_csv(index=False)

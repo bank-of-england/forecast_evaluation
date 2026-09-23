@@ -65,6 +65,15 @@ Forecasts must include the standard identification columns together with a value
 Outturns use the same ``date``, ``vintage_date``, ``variable``, ``frequency``, and ``value`` columns,
 but do not require ``source`` or ``forecast_horizon``.
 
+Frequency is assigned per variable, not per ``ForecastData`` instance. One instance can store quarterly and
+monthly variables together, but each variable must use a single frequency in its outturns and forecasts. If an
+outturn series is present, forecasts for that variable must use its frequency. A mismatch raises a ``ValueError``.
+
+Analyses that combine different variables require those variables to have the same frequency. For example,
+strong-efficiency and Blanchard-Leigh tests compare an outcome with an instrument and reject a frequency mismatch.
+Analyses that report results separately by variable and frequency can process both frequencies in one instance.
+Use ``filter(frequencies=...)`` to select one frequency before a joint analysis.
+
 An example forecast table looks like this:
 
 .. code-block:: text

@@ -72,6 +72,32 @@ def test_create_sidebar_releases_hidden_default_for_forecast_data(sample_outturn
     assert 'data-display-if="input.tabs == &apos;Hedgehog&apos;"' not in sidebar_html
 
 
+def test_create_sidebar_exposes_radar_frequency_for_mixed_data(sample_outturns, sample_forecasts):
+    outturns = pd.concat(
+        [
+            sample_outturns.assign(variable="quarterly", frequency="Q"),
+            sample_outturns.assign(variable="monthly", frequency="M"),
+        ],
+        ignore_index=True,
+    )
+    forecasts = pd.concat(
+        [
+            sample_forecasts.assign(variable="quarterly", frequency="Q"),
+            sample_forecasts.assign(variable="monthly", frequency="M"),
+        ],
+        ignore_index=True,
+    )
+    fd = ForecastData(outturns_data=outturns, forecasts_data=forecasts, compute_levels=False)
+
+    sidebar = create_sidebar(fd)
+    sidebar_html = str(ui.page_fluid(ui.layout_sidebar(sidebar, ui.div())))
+
+    assert 'id="radar_frequency"' in sidebar_html
+    assert "Quarterly" in sidebar_html
+    assert "Monthly" in sidebar_html
+    assert "Data vintage (periods after first release)" in sidebar_html
+
+
 def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):
     """Correlation/Radar tabs and their handlers are unsupported for nowcast data, so both are skipped."""
     fd = nowcast_fd

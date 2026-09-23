@@ -9,7 +9,7 @@ from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import filter_k, require_single_frequency
 
 
 def strong_efficiency_test(
@@ -220,24 +220,20 @@ def strong_efficiency_analysis(
 
     df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
-    frequency = df["frequency"].iloc[0]
-
-    # We first align the main table with what is used in this function
-    df = filter_k(df, k)
-
-    # Filter variables and sources
-    df = (
-        df[
-            (
-                ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
-                | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
-            )
-            & (df["unique_id"] == source)
-        ]
-        .reset_index(drop=True)
-        .drop(columns=["unique_id", "metric", "frequency"])
+    selected = df[
+        (
+            ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
+            | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
+        )
+        & (df["unique_id"] == source)
+    ].copy()
+    if selected.empty:
+        raise ValueError(f"No data available for source '{source}'")
+    frequency = require_single_frequency(
+        selected, "Strong efficiency analysis", (outcome_variable, instrument_variable)
     )
 
+    df = filter_k(selected, k).reset_index(drop=True).drop(columns=["unique_id", "metric", "frequency"])
     if df.empty:
         raise ValueError(f"No data available for source '{source}'")
 

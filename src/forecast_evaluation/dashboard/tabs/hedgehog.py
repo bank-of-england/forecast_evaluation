@@ -39,7 +39,11 @@ def hedgehog(input, output, session, data):
         releases_kwargs = {}
         if data_filtered.uses_intra_period_vintages:
             selected_releases = input.releases()
-            max_release_rank = int(data_filtered.forecasts.groupby("date")["vintage_date"].rank(method="dense").max())
+            max_release_rank = int(
+                data_filtered.forecasts.groupby(["variable", "frequency", "date"])["vintage_date"]
+                .rank(method="dense")
+                .max()
+            )
             all_releases = {str(rank) for rank in range(1, max_release_rank + 1)}
             if set(selected_releases) != all_releases:
                 releases_kwargs["releases"] = [int(r) for r in selected_releases]
