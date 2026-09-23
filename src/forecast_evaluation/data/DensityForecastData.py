@@ -27,36 +27,22 @@ class DensityForecastData(ForecastData):
     outturns_data : pd.DataFrame, optional
         DataFrame containing outturn (actual) data.
     forecasts_data : pd.DataFrame, optional
-        DataFrame containing point forecast records.
-    density_forecasts_data : pd.DataFrame, optional
-        DataFrame containing density forecast records. Must include 'quantile' column.
-    point_estimator : str, optional
-        Estimator for point forecasts; can be 'median', 'mean' or 'mode'.
-        Default is 'median'.
+        DataFrame containing density forecast records. Must include a 'quantile' column.
     load_fer : bool, optional
         Whether to load FER (Forecast Evaluation Report) data. Default is False.
     extra_ids : list of str, optional
-        Additional identification columns beyond 'source' and 'quantile'.
+        Additional identification columns beyond 'source'. Quantile distinguishes
+        observations within a density, not separate forecasts.
 
     Examples
     --------
-    >>> import pandas as pd
     >>> from forecast_evaluation.data import DensityForecastData
-    >>>
-    >>> # Create sample density forecasts
-    >>> df = pd.DataFrame({
-    ...     'date': pd.date_range('2023-01-01', periods=4, freq='QE'),
-    ...     'vintage_date': pd.Timestamp('2023-01-01'),
-    ...     'variable': 'gdp',
-    ...     'frequency': 'Q',
-    ...     'forecast_horizon': [1, 2, 3, 4],
-    ...     'source': 'model_1',
-    ...     'quantile': 0.5,
-    ...     'value': [100, 101, 102, 103]
-    ... })
-    >>>
-    >>> density_data = DensityForecastData(forecasts_data=df)
-    >>> median = density_data.get_median_forecast()
+    >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+    >>> density_data = DensityForecastData(
+    ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+    ... )
+    >>> density_data.density_forecasts["quantile"].nunique()
+    50
     """
 
     _forecast_tables = (*ForecastData._forecast_tables, "_density_df", "_density_forecasts")
@@ -71,9 +57,8 @@ class DensityForecastData(ForecastData):
     ):
         """Initialise DensityForecastData.
 
-        Initialises the density forecast data object. If forecasts_data is provided,
-        it will be validated and added. The 'quantile' column is automatically
-        included as an identification column.
+        Initialises the density forecast data object. Outturns must be available
+        before density forecasts are added. Quantiles share the source's forecast ID.
         """
         self._density_forecasts = pd.DataFrame()
         self._density_df = pd.DataFrame()
@@ -96,7 +81,8 @@ class DensityForecastData(ForecastData):
             DataFrame containing density forecast records. Must include 'quantile' column
             with values between 0 and 1.
         extra_ids : list of str, optional
-            Additional identification columns beyond 'source' and 'quantile'.
+            Additional identification columns beyond 'source'. The 'quantile'
+            column is validated separately and never identifies a forecast.
 
         Raises
         ------
@@ -105,18 +91,11 @@ class DensityForecastData(ForecastData):
 
         Examples
         --------
-        >>> density_data = DensityForecastData()
-        >>> df = pd.DataFrame({
-        ...     'date': ['2023-01-01'],
-        ...     'vintage_date': ['2023-01-01'],
-        ...     'variable': ['gdp'],
-        ...     'frequency': ['Q'],
-        ...     'forecast_horizon': [1],
-        ...     'source': ['model_1'],
-        ...     'quantile': [0.5],
-        ...     'value': [100]
-        ... })
-        >>> density_data.add_density_forecasts(df)
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(outturns_data=create_sample_outturns())
+        >>> density_data.add_density_forecasts(create_sample_density_forecasts())
+        >>> density_data.density_forecasts["quantile"].nunique()
+        50
         """
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
@@ -124,6 +103,7 @@ class DensityForecastData(ForecastData):
         if "metric" not in df.columns:
             df = df.assign(metric="levels")
 
+        extra_ids = [column for column in extra_ids or [] if column != "quantile"]
         with _atomic_state(self, *self._forecast_state):
             # Pass the backing table name because validation may align its id columns.
             df = self._validate_new_forecasts(df, stored="_density_df", extra_ids=extra_ids, extra_columns=["quantile"])
@@ -247,7 +227,11 @@ class DensityForecastData(ForecastData):
 
         Examples
         --------
-        >>> samples = density_data.sample_from_density(n_samples=10000, random_state=42)
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> samples = density_data.sample_from_density(n_samples=10, random_state=42)
         >>> mean = samples.groupby(['date', 'variable'])['value'].mean()
         """
         # Group by all columns except 'quantile' and 'value'
@@ -277,32 +261,31 @@ class DensityForecastData(ForecastData):
 
         return pd.concat(sampled_groups, ignore_index=True)
 
-    def to_point_forecast(self, method: str = "median") -> ForecastData:
-        """Convert density forecasts to point forecasts.
+    def to_point_forecast(self, method: str = "median") -> None:
+        """Add a selected quantile to this object's point forecasts.
 
         Parameters
         ----------
         method : str, optional
             Method to extract point forecast:
             - 'median': Use 0.5 quantile (default, most robust)
-            - 'mean': Average via sampling from distribution
+            - 'mean': Not implemented
             - specific quantile: e.g., '0.5', '0.75'
 
         Returns
         -------
-        ForecastData
-            Point forecast data object.
+        None
+            The point forecasts are stored on this object.
 
         Examples
         --------
-        >>> # Convert using median
-        >>> point_data = density_data.to_point_forecast('median')
-        >>>
-        >>> # Convert using mean via sampling
-        >>> point_data = density_data.to_point_forecast('mean')
-        >>>
-        >>> # Convert using specific quantile
-        >>> point_data = density_data.to_point_forecast('0.75')
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> density_data.to_point_forecast(str(density_data.density_forecasts["quantile"].iloc[0]))
+        >>> density_data.forecasts.empty
+        False
         """
         import warnings
 
