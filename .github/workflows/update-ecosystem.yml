@@ -54,6 +54,23 @@ jobs:
               output.write(f"version={match.group(1)}\n")
           PY
 
+      - name: Wait for PyPI availability
+        env:
+          MODULE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          for attempt in {1..30}; do
+            if python -m pip download --no-deps --dest "$RUNNER_TEMP/pypi" \
+              "${MODULE_PIN}==${MODULE_VERSION}"; then
+              exit 0
+            fi
+            if [[ "$attempt" == 30 ]]; then
+              echo "Timed out waiting for ${MODULE_PIN}==${MODULE_VERSION} on PyPI"
+              exit 1
+            fi
+            echo "Package not available yet; retrying in 10 seconds"
+            sleep 10
+          done
+
       - name: Check out opera-eco
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
         with:
