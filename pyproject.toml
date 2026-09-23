@@ -33,7 +33,7 @@ dependencies = [
     "pandera>=0.24.0",
     "numpy>=1.24.0",
     "shiny[theme]>=0.6.0",
-    "statsmodels>=0.14.0",
+    "statsmodels>=0.14.6",
     "scipy>=1.10.0",
     "linearmodels>=6.0",
 ]
