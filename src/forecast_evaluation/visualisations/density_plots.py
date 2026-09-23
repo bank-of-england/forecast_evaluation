@@ -82,6 +82,11 @@ def plot_density_vintage(
         filter_density_forecasts=True,
     )
     forecasts_filtered = forecasts_filtered.density_forecasts.copy()
+    if forecasts_filtered.empty:
+        raise ValueError(
+            f"No density forecasts found for variable='{variable}', metric='{metric}', "
+            f"vintage_date='{vintage_date:%Y-%m-%d}', frequency='{frequency}'."
+        )
 
     # filter outturns (they are not filtered with filter())(we select the last vintage only)
     outturns = data._outturns.copy()

@@ -2,7 +2,7 @@ from typing import Literal, Optional, Union
 
 import pandas as pd
 
-from forecast_evaluation.data.ForecastData import _FORECAST_STATE, ForecastData, _atomic_state
+from forecast_evaluation.data.ForecastData import ForecastData, _atomic_state
 from forecast_evaluation.data.utils import compute_target_minus_vintage
 
 
@@ -111,7 +111,7 @@ class NowcastData(ForecastData):
         Alignment mutates the outturns before the parent validates the input, so the
         rollback discards those snapshots if the forecasts are rejected.
         """
-        with _atomic_state(self, *_FORECAST_STATE, "_raw_outturns", "_outturns"):
+        with _atomic_state(self, *self._forecast_state, "_raw_outturns", "_outturns"):
             self._align_outturn_vintages(df)
             super().add_forecasts(df, **kwargs)
             self._set_revision_index_k()

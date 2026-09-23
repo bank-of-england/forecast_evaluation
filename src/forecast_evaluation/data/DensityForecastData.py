@@ -7,19 +7,10 @@ import pandas as pd
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-from forecast_evaluation.core.transformations import prepare_forecasts
-from forecast_evaluation.data.ForecastData import (
-    ForecastData,
-    _atomic_state,
-    _check_duplicates,
-    _check_missing_outturns,
-    _fix_extra_columns,
-    _validate_records,
-)
+from forecast_evaluation.data.ForecastData import ForecastData, _atomic_state
 from forecast_evaluation.data.sample_data import (
     create_sample_density_forecasts,
 )
-from forecast_evaluation.data.utils import compute_target_minus_vintage, construct_unique_id
 
 
 class DensityForecastData(ForecastData):
@@ -68,6 +59,8 @@ class DensityForecastData(ForecastData):
     >>> median = density_data.get_median_forecast()
     """
 
+    _forecast_tables = (*ForecastData._forecast_tables, "_density_df", "_density_forecasts")
+
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
@@ -82,14 +75,13 @@ class DensityForecastData(ForecastData):
         it will be validated and added. The 'quantile' column is automatically
         included as an identification column.
         """
+        self._density_forecasts = pd.DataFrame()
+        self._density_df = pd.DataFrame()
+
         # Initialise parent class without forecasts
         super().__init__(
             outturns_data=outturns_data, load_fer=load_fer, extra_ids=extra_ids, compute_levels=compute_levels
         )
-
-        # Add density-specific attribute
-        self._density_forecasts = pd.DataFrame()
-        self._density_df = pd.DataFrame()
 
         # Add forecasts if provided (using density-specific method)
         if forecasts_data is not None:
@@ -126,92 +118,18 @@ class DensityForecastData(ForecastData):
         ... })
         >>> density_data.add_density_forecasts(df)
         """
-        with _atomic_state(
-            self,
-            "_id_columns",
-            "_raw_forecasts",
-            "_forecasts",
-            "_density_df",
-            "_density_forecasts",
-        ):
-            self._add_density_forecasts(df, extra_ids=extra_ids)
-
-    def _add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
-        """Add density forecasts without discarding valid calendar backcasts."""
-        # Check for quantile column
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
 
-        # Add 'quantile' to extra_ids if not already there
-        if extra_ids is None:
-            extra_ids = ["quantile"]
-        elif "quantile" not in extra_ids:
-            extra_ids = ["quantile"] + list(extra_ids)
+        if "metric" not in df.columns:
+            df = df.assign(metric="levels")
 
-        # Convert extra col names to contain only letters, numbers, and underscores
-        if extra_ids is not None:
-            df, extra_ids = _fix_extra_columns(df, extra_ids)
+        with _atomic_state(self, *self._forecast_state):
+            # Pass the backing table name because validation may align its id columns.
+            df = self._validate_new_forecasts(df, stored="_density_df", extra_ids=extra_ids, extra_columns=["quantile"])
 
-        # Validate records using the ForecastRecord model
-        df = _validate_records(df, forecast=True, optional_columns=extra_ids)
-        df = compute_target_minus_vintage(df)
-
-        # ID columns
-        id_cols = ["source"] if extra_ids is None else ["source"] + extra_ids
-        if self._id_columns is None:
-            self._id_columns = id_cols
-        else:
-            # re-add "quantile" to id columns if missing
-            if "quantile" not in self._id_columns:
-                self._id_columns = self._id_columns + ["quantile"]
-            # check that the id columns of the new forecasts match the existing ones
-            # and if not adjust the datasets
-            if set(self._id_columns) != set(id_cols):
-                all_id_cols = list(set(self._id_columns).union(set(id_cols)))
-                for col in all_id_cols:
-                    if col not in self._id_columns:
-                        # add missing columns to existing data
-                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
-                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
-                        self._density_df = self._density_df.assign(**{col: pd.NA})
-                        self._density_forecasts = self._density_forecasts.assign(**{col: pd.NA})
-                        self._id_columns = self._id_columns + [col]
-                    if col not in id_cols:
-                        # add missing columns to new data
-                        df[col] = pd.NA
-
-        # Check for duplicates if there are already some records stored
-        if not self._density_forecasts.empty:
-            df = _check_duplicates(df, self._density_forecasts)
-
-        # Check if forecasts have corresponding outturns
-        _check_missing_outturns(df, self._outturns)
-
-        # create a unique identifier for forecasts
-        df["unique_id"] = construct_unique_id(df, self._id_columns)
-
-        # Transform density forecasts
-        # Unlike point forecasts, we don't match the data with outturns
-        # It doesnt make sense to match the quantile 0.1 with the outturn
-        # and take yoy, for instance
-        forecasts_levels = df.copy()
-        forecasts_levels["metric"] = "levels"
-        forecasts_yoy = _prepare_density_forecasts(df, "yoy")
-        forecasts_pop = _prepare_density_forecasts(df, "pop")
-        forecasts = pd.concat([forecasts_levels, forecasts_yoy, forecasts_pop], ignore_index=True)
-
-        # Ensure quantile remains float in forecasts
-        df["quantile"] = df["quantile"].astype(float)
-        forecasts["quantile"] = forecasts["quantile"].astype(float)
-
-        # reconstruct id without quantiles
-        self._id_columns = [col for col in self._id_columns if col != "quantile"]
-        df["unique_id"] = construct_unique_id(df, self._id_columns)
-        forecasts["unique_id"] = construct_unique_id(forecasts, self._id_columns)
-
-        # Add to existing density-specific data
-        self._density_df = pd.concat([self._density_df, df], ignore_index=True)
-        self._density_forecasts = pd.concat([self._density_forecasts, forecasts], ignore_index=True)
+            self._density_df = pd.concat([self._density_df, df], ignore_index=True)
+            self._density_forecasts = pd.concat([self._density_forecasts, df], ignore_index=True)
 
     @property
     def density_forecasts(self) -> pd.DataFrame:
@@ -302,8 +220,7 @@ class DensityForecastData(ForecastData):
 
         # Also reset density forecasts (only if they exist)
         if not self._density_df.empty:
-            forecasts = prepare_forecasts(self._density_df, self._outturns, self._id_columns)
-            self._density_forecasts = forecasts
+            self._density_forecasts = self._density_df.copy()
 
     def sample_from_density(self, n_samples: int = 10000, random_state: Optional[int] = None) -> pd.DataFrame:
         """Generate samples from the empirical distribution defined by quantiles.
@@ -442,7 +359,7 @@ class DensityForecastData(ForecastData):
 
         if isinstance(other, DensityForecastData):
             if not other._density_df.empty:
-                self.add_density_forecasts(other._density_df, extra_ids=other._id_columns)
+                self.add_density_forecasts(other._density_df, extra_ids=other._extra_ids)
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""
@@ -485,33 +402,6 @@ class DensityForecastData(ForecastData):
             return_plot=return_plot,
             **kwargs,
         )
-
-
-def _prepare_density_forecasts(df: pd.DataFrame, transform: str) -> pd.DataFrame:
-    df_transformed = []
-
-    for frequency in df["frequency"].unique():
-        df_freq = df[df["frequency"] == frequency].copy()
-
-        # the sorting_cols are all cols but value and date
-        grouping_cols = [
-            col for col in df_freq.columns if col not in ["value", "date", "forecast_horizon", "target_minus_vintage"]
-        ]
-        sorting_cols = grouping_cols + ["date"]
-        df_freq = df_freq.sort_values(sorting_cols)
-
-        if transform == "pop":
-            df_freq["value"] = df_freq.groupby(grouping_cols)["value"].pct_change(periods=1)
-            df_freq["metric"] = "pop"
-        elif transform == "yoy":
-            n_periods = {"Q": 4, "M": 12}[frequency]
-            df_freq["value"] = df_freq.groupby(grouping_cols)["value"].pct_change(periods=n_periods)
-            df_freq["metric"] = "yoy"
-
-        df_freq = df_freq[df_freq["value"].notna()]
-        df_transformed.append(df_freq)
-
-    return pd.concat(df_transformed, ignore_index=True)
 
 
 def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
