@@ -98,6 +98,22 @@ def test_init_with_extra_ids(sample_outturns, sample_density_forecasts):
     assert "region" in dfd.id_columns
 
 
+@pytest.mark.parametrize("on_init", [True, False])
+def test_quantile_is_not_an_id(sample_outturns, sample_density_forecasts, on_init):
+    """Explicit quantile labels must still form one density per source."""
+    dfd = DensityForecastData(
+        outturns_data=sample_outturns,
+        forecasts_data=sample_density_forecasts if on_init else None,
+        extra_ids=["quantile"] if on_init else None,
+    )
+    if not on_init:
+        dfd.add_density_forecasts(sample_density_forecasts, extra_ids=["quantile"])
+
+    assert dfd.id_columns == ["source"]
+    assert dfd.density_forecasts["unique_id"].nunique() == 1
+    assert dfd.density_forecasts.groupby(["date", "unique_id"])["quantile"].nunique().max() == 50
+
+
 # -----------------------
 # Add Forecasts Tests
 # -----------------------

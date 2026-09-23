@@ -244,19 +244,19 @@ def create_sample_density_forecasts() -> pd.DataFrame:
     """Create sample density forecasts DataFrame with multiple quantiles.
 
     Generates forecasts by sampling from a normal distribution for each horizon,
-    then extracts 100 quantiles from the samples. This ensures quantiles don't cross.
+    then extracts 50 quantiles from the samples. This ensures quantiles don't cross.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with density forecast data including a 'quantile' column.
-        Contains forecasts for 100 quantiles from 0.01 to 0.99.
+        Contains forecasts for 50 quantiles from 0.01 to 0.99.
 
     Examples
     --------
     >>> df = create_sample_density_forecasts()
     >>> len(df['quantile'].unique())
-    100
+    50
     >>> # Verify quantiles don't cross for a given date
     >>> sample = df[df['date'] == df['date'].iloc[0]].sort_values('quantile')
     >>> assert all(sample['value'].diff().dropna() > 0)  # Values strictly increasing
@@ -264,7 +264,6 @@ def create_sample_density_forecasts() -> pd.DataFrame:
     # Set random seed for reproducibility
     np.random.seed(42)
 
-    # Define 100 quantiles from 0.01 to 0.99
     quantiles = np.linspace(0.01, 0.99, 50)
 
     # Create base structure
