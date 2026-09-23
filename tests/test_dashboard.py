@@ -5,10 +5,12 @@ import pytest
 from shiny import reactive, ui
 
 from forecast_evaluation.dashboard.create_app import dashboard_app
-from forecast_evaluation.dashboard.ui import create_sidebar
+from forecast_evaluation.dashboard.ui import create_sidebar, radar_variables_for_frequency
+from forecast_evaluation.data.DensityForecastData import DensityForecastData
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.data.sample_data import (
+    create_sample_density_forecasts,
     create_sample_forecasts,
     create_sample_outturns,
 )
@@ -93,9 +95,24 @@ def test_create_sidebar_exposes_radar_frequency_for_mixed_data(sample_outturns, 
     sidebar_html = str(ui.page_fluid(ui.layout_sidebar(sidebar, ui.div())))
 
     assert 'id="radar_frequency"' in sidebar_html
+    assert 'id="radar_variable"' in sidebar_html
+    radar_variable_options = sidebar_html.split('id="radar_variable"', 1)[1].split("</select>", 1)[0]
+    assert 'value="monthly"' in radar_variable_options
+    assert 'value="quarterly"' not in radar_variable_options
+    assert radar_variables_for_frequency(fd, "M") == ["monthly"]
+    assert radar_variables_for_frequency(fd, "Q") == ["quarterly"]
     assert "Quarterly" in sidebar_html
     assert "Monthly" in sidebar_html
     assert "Data vintage (periods after first release)" in sidebar_html
+
+
+def test_create_sidebar_with_density_only_forecasts(sample_outturns):
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=create_sample_density_forecasts())
+
+    sidebar_html = str(ui.page_fluid(ui.layout_sidebar(create_sidebar(data), ui.div())))
+
+    assert 'id="radar_frequency"' in sidebar_html
+    assert radar_variables_for_frequency(data, "Q") == []
 
 
 def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):

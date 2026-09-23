@@ -5,12 +5,21 @@ import io
 from shiny import reactive, render, ui
 
 import forecast_evaluation as fe
-from forecast_evaluation.dashboard.ui import get_selector_info
+from forecast_evaluation.dashboard.ui import get_selector_info, radar_variables_for_frequency
 from forecast_evaluation.dashboard.utils import remove_legend, render_legend
 
 
 def radar(input, output, session, data):
     """Server handler for the Radar tab."""
+
+    @reactive.effect
+    @reactive.event(input.radar_frequency)
+    def update_radar_variables():
+        variables = radar_variables_for_frequency(data, input.radar_frequency())
+        ui.update_selectize(
+            "radar_variable", choices=variables, selected=variables[0] if variables else None, session=session
+        )
+        ui.update_selectize("radar_variables", choices=variables, selected=variables, session=session)
 
     @reactive.calc
     @reactive.event(input.update)
@@ -65,7 +74,7 @@ def radar(input, output, session, data):
         )
 
         if mode == "metrics":
-            kwargs["variable"] = input.variable()
+            kwargs["variable"] = input.radar_variable()
             kwargs["horizon"] = int(input.radar_horizon())
         elif mode == "variables":
             kwargs["metric"] = input.transform()
@@ -80,7 +89,7 @@ def radar(input, output, session, data):
             elif input.radar_test_type() == "correlation":
                 kwargs["anchor_source"] = input.radar_anchor()
         elif mode == "tests":
-            kwargs["variable"] = input.variable()
+            kwargs["variable"] = input.radar_variable()
             kwargs["metric"] = input.transform()
             kwargs["horizon"] = int(input.radar_horizon())
             kwargs["k"] = int(input.k())

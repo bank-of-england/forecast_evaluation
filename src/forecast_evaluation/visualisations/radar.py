@@ -157,12 +157,14 @@ def plot_radar(
 
     if frequency is None:
         if hasattr(df, "_main_table") and df._main_table is not None:
-            _freq_col = df._main_table["frequency"]
+            frequency_data = df._main_table
         elif hasattr(df, "to_df"):
-            _freq_col = df.to_df()["frequency"]
+            frequency_data = df.to_df()
         else:
-            _freq_col = df["frequency"]
-        inferred = _freq_col.unique()
+            frequency_data = df
+        if mode in ("metrics", "tests") and variable is not None:
+            frequency_data = frequency_data[frequency_data["variable"] == variable]
+        inferred = frequency_data["frequency"].unique()
         if len(inferred) != 1:
             raise ValueError(
                 f"Could not infer a unique frequency from data; found: {list(inferred)}. "

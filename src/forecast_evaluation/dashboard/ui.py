@@ -18,6 +18,13 @@ def get_selector_info(col, data):
     return col_choices, id_single, id_multi
 
 
+def radar_variables_for_frequency(data, frequency):
+    forecasts = data.forecasts
+    if forecasts.empty:
+        return []
+    return sorted(forecasts.loc[forecasts["frequency"] == frequency, "variable"].unique())
+
+
 def create_sidebar(data):
     """Create the sidebar with all conditional inputs"""
 
@@ -55,11 +62,14 @@ def create_sidebar(data):
         horizons.update(int(h) for h in data._density_forecasts["target_minus_vintage"].dropna().unique())
 
     period_label = frequency_labels.get(next(iter(frequencies)), "periods") if len(frequencies) == 1 else "periods"
+    point_frequencies = sorted(data.forecasts["frequency"].dropna().unique()) if not data.forecasts.empty else []
     radar_frequency_choices = {
-        frequency: "Quarterly" if frequency == "Q" else "Monthly" for frequency in sorted(frequencies)
+        frequency: "Quarterly" if frequency == "Q" else "Monthly" for frequency in point_frequencies
     }
     if not radar_frequency_choices:
         radar_frequency_choices = {"Q": "Quarterly"}
+    initial_radar_frequency = next(iter(radar_frequency_choices))
+    radar_variables = radar_variables_for_frequency(data, initial_radar_frequency)
 
     vintages = sorted(list(vintages_set))
     outturn_vintages = sorted(
@@ -353,19 +363,30 @@ def create_sidebar(data):
                 open=False,  # Set to False if you want it collapsed by default
             ),
         ),
-        # Variables (single select – hidden when Radar tab is in variables mode)
+        # Variables shared by tabs other than Radar
         ui.panel_conditional(
             (
                 "input.tabs != 'About' && "
-                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && "
-                "!(input.tabs == 'Radar' && input.radar_mode == 'variables')"
+                "input.tabs != 'Radar' && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh')"
             ),
             ui.input_selectize("variable", "Variable:", choices=variable, multiple=False, selected=variable[0]),
+        ),
+        ui.panel_conditional(
+            radar_tab + " && input.radar_mode != 'variables'",
+            ui.input_selectize(
+                "radar_variable",
+                "Variable:",
+                choices=radar_variables,
+                selected=radar_variables[0] if radar_variables else None,
+            ),
         ),
         # Variables (multi select – only for Radar variables mode)
         ui.panel_conditional(
             radar_tab + " && input.radar_mode == 'variables'",
-            ui.input_selectize("radar_variables", "Variables:", choices=variable, multiple=True, selected=variable),
+            ui.input_selectize(
+                "radar_variables", "Variables:", choices=radar_variables, multiple=True, selected=radar_variables
+            ),
         ),
         # Error for rolling accuracy
         ui.panel_conditional(
@@ -379,7 +400,7 @@ def create_sidebar(data):
                 "radar_frequency",
                 "Frequency:",
                 choices=radar_frequency_choices,
-                selected=next(iter(radar_frequency_choices)),
+                selected=initial_radar_frequency,
             ),
         ),
         ui.panel_conditional(
