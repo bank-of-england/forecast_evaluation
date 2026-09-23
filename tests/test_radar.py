@@ -31,6 +31,18 @@ def test_metrics_infers_frequency_from_selected_variable():
     plt.close(fig)
 
 
+def test_metrics_reports_missing_variable_when_inferring_frequency():
+    accuracy = pd.DataFrame(
+        {
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="No data found for variable 'missing'"):
+        plot_radar(accuracy, mode="metrics", variable="missing", horizon=1)
+
+
 class TestPlotRadarRejectsUnsupportedNowcastAnalyses:
     """`plot_radar()` should raise early, mode-specific errors for NowcastData."""
 

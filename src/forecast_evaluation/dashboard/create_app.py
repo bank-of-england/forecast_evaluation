@@ -2,24 +2,25 @@
 
 from shiny import App, ui
 
+from .tabs.about import about
 from .tabs.accuracy import (
     average_accuracy,
+    diebold_mariano,
+    error_distribution,
     relative_accuracy,
     rolling_accuracy,
     rolling_relative_accuracy,
-    diebold_mariano,
-    error_distribution,
 )
-from .tabs.about import about
-from .tabs.bias import errors, rolling_errors, bias, rolling_bias
+from .tabs.bias import bias, errors, rolling_bias, rolling_errors
 from .tabs.correlation import correlation_heatmap, rolling_correlation
-from .tabs.efficiency import blanchard_leigh, revisions_predictability, weak_efficiency, revisions_errors_correlation
+from .tabs.efficiency import blanchard_leigh, revisions_errors_correlation, revisions_predictability, weak_efficiency
 from .tabs.hedgehog import hedgehog
 from .tabs.intra_period import intra_period_accuracy, intra_period_bias
 from .tabs.outturn_revisions import outturn_revisions, outturns
+from .tabs.quantile_time_machine import quantile_time_machine
 from .tabs.radar import radar
 from .tabs.time_machine import time_machine
-from .tabs.quantile_time_machine import quantile_time_machine
+from .theme.brand import brand as _brand
 from .ui import (
     create_accuracy_tab,
     create_bias_tab,
@@ -27,12 +28,11 @@ from .ui import (
     create_efficiency_tab,
     create_hedgehog_tab,
     create_outturn_revisions_tab,
+    create_quantile_time_machine_tab,
     create_radar_tab,
     create_sidebar,
     create_time_machine_tab,
-    create_quantile_time_machine_tab,
 )
-from .theme.brand import brand as _brand
 from .utils import patch_render_plot
 
 # Apply global error handling
@@ -62,7 +62,9 @@ def dashboard_app(data) -> App:
         # Correlation and radar analyses are not supported for nowcasting
         # data, so do not expose tabs whose handlers cannot be used.
         if not is_nowcast:
-            tabs.extend([create_correlation_tab(), create_radar_tab()])
+            tabs.append(create_correlation_tab())
+            if not data.forecasts.empty:
+                tabs.append(create_radar_tab())
 
         if data.supports_outturn_revision_analysis:
             tabs.append(create_outturn_revisions_tab())
@@ -115,7 +117,7 @@ def dashboard_app(data) -> App:
         if data.supports_outturn_revision_analysis:
             outturn_revisions(input, output, session, data)
             outturns(input, output, session, data)
-        if not data.uses_intra_period_vintages:
+        if not data.uses_intra_period_vintages and not data.forecasts.empty:
             radar(input, output, session, data)
         time_machine(input, output, session, data)
 

@@ -66,6 +66,23 @@ def test_blanchard_leigh_requires_a_common_frequency():
         )
 
 
+@pytest.mark.parametrize("analysis", [strong_efficiency_analysis, blanchard_leigh_horizon_analysis])
+def test_joint_analysis_requires_both_variables(analysis):
+    data = _mixed_frequency_data()
+
+    with pytest.raises(ValueError, match="missing \['missing_instrument'\]"):
+        analysis(
+            data,
+            source="model",
+            outcome_variable="quarterly_outcome",
+            outcome_metric="levels",
+            instrument_variable="missing_instrument",
+            instrument_metric="levels",
+            horizons=np.array([0]),
+            j=0,
+        )
+
+
 def test_random_walk_benchmark_builds_forecasts_for_mixed_frequency_variables():
     quarterly_dates = pd.date_range("2017-03-31", periods=24, freq="QE")
     monthly_dates = pd.date_range("2017-01-31", periods=72, freq="ME")

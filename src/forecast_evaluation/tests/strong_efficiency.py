@@ -226,16 +226,18 @@ def strong_efficiency_analysis(
             | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
         )
         & (df["unique_id"] == source)
-    ].copy()
-    if selected.empty:
-        raise ValueError(f"No data available for source '{source}'")
-    frequency = require_single_frequency(
-        selected, "Strong efficiency analysis", (outcome_variable, instrument_variable)
-    )
+    ]
 
-    df = filter_k(selected, k).reset_index(drop=True).drop(columns=["unique_id", "metric", "frequency"])
+    df = filter_k(selected, k)
     if df.empty:
         raise ValueError(f"No data available for source '{source}'")
+    missing_variables = sorted({outcome_variable, instrument_variable} - set(df["variable"]))
+    if missing_variables:
+        raise ValueError(
+            f"Strong efficiency analysis requires data for each selected variable; missing {missing_variables}."
+        )
+    frequency = require_single_frequency(df, "Strong efficiency analysis")
+    df = df.reset_index(drop=True).drop(columns=["unique_id", "metric", "frequency"])
 
     # Pivot data wider
     df_pivot = df.pivot(

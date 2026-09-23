@@ -115,6 +115,18 @@ def test_create_sidebar_with_density_only_forecasts(sample_outturns):
     assert radar_variables_for_frequency(data, "Q") == []
 
 
+def test_dashboard_hides_radar_for_density_only_forecasts(sample_outturns):
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=create_sample_density_forecasts())
+    app = dashboard_app(data)
+
+    assert 'data-value="Radar"' not in str(app.ui(None))
+
+    with patch("forecast_evaluation.dashboard.create_app.radar") as mock_radar:
+        app.server(MagicMock(), MagicMock(), MagicMock())
+
+    mock_radar.assert_not_called()
+
+
 def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):
     """Correlation/Radar tabs and their handlers are unsupported for nowcast data, so both are skipped."""
     fd = nowcast_fd

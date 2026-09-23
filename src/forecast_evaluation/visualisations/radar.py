@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from forecast_evaluation.utils import clean_unique_id
+from forecast_evaluation.utils import clean_unique_id, require_single_frequency
 from forecast_evaluation.visualisations.theme import THEME
 
 if TYPE_CHECKING:
@@ -164,13 +164,9 @@ def plot_radar(
             frequency_data = df
         if mode in ("metrics", "tests") and variable is not None:
             frequency_data = frequency_data[frequency_data["variable"] == variable]
-        inferred = frequency_data["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+            if frequency_data.empty:
+                raise ValueError(f"No data found for variable '{variable}'.")
+        frequency = require_single_frequency(frequency_data, "Radar plot")
 
     # ------------------------------------------------------------------
     # Build pivot table depending on mode

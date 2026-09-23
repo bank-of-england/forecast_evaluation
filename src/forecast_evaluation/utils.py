@@ -34,13 +34,8 @@ def clean_unique_id(obj: pd.DataFrame | str) -> pd.DataFrame | str:
     return _strip(obj)
 
 
-def require_single_frequency(df: pd.DataFrame, context: str, expected_variables: tuple[str, ...] | None = None) -> str:
+def require_single_frequency(df: pd.DataFrame, context: str) -> str:
     """Return the shared frequency or reject a selection containing mixed frequencies."""
-    if expected_variables is not None:
-        missing_variables = sorted(set(expected_variables) - set(df["variable"].unique()))
-        if missing_variables:
-            raise ValueError(f"{context} requires data for each selected variable; missing {missing_variables}.")
-
     frequencies = sorted(df["frequency"].dropna().unique().tolist())
     if len(frequencies) != 1:
         raise ValueError(

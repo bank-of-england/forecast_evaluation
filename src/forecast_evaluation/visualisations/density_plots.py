@@ -9,7 +9,7 @@ import pandas as pd
 
 from forecast_evaluation.data import DensityForecastData
 from forecast_evaluation.data.utils import compute_target_minus_vintage
-from forecast_evaluation.utils import clean_unique_id
+from forecast_evaluation.utils import clean_unique_id, require_single_frequency
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -57,13 +57,10 @@ def plot_density_vintage(
         return None
 
     if frequency is None:
-        inferred = data._density_forecasts.loc[data._density_forecasts["variable"] == variable, "frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency for variable '{variable}'; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+        selected = data._density_forecasts.loc[data._density_forecasts["variable"] == variable]
+        if selected.empty:
+            raise ValueError(f"No density forecasts found for variable '{variable}'.")
+        frequency = require_single_frequency(selected, f"Density vintage plot for variable '{variable}'")
 
     # add a check here
     vintage_date = pd.to_datetime(vintage_date)
