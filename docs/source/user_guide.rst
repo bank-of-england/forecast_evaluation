@@ -632,21 +632,34 @@ For probabilistic forecasts with quantiles, use
 ``ForecastData``.
 
 Density forecast input must include a ``quantile`` column with values between 0 and 1.
+Add outturns before density forecasts. The sample density generator is available
+from ``forecast_evaluation.data.sample_data``:
 
 .. code-block:: python
 
-   density_df = fe.create_sample_density_forecasts()
-   density_data = fe.DensityForecastData(forecasts_data=density_df)
+   from forecast_evaluation.data.sample_data import create_sample_density_forecasts
+
+   density_df = create_sample_density_forecasts()
+   density_data = fe.DensityForecastData(
+       outturns_data=fe.create_sample_outturns(),
+       forecasts_data=density_df,
+   )
 
 You can also add density forecasts to an existing object:
 
 .. code-block:: python
 
-   density_data = fe.DensityForecastData()
+   density_data = fe.DensityForecastData(outturns_data=fe.create_sample_outturns())
    density_data.add_density_forecasts(density_df)
 
 Density forecast objects retain the standard forecast and outturn workflow while also
-exposing a ``density_forecasts`` table for quantile-level analysis.
+exposing a ``density_forecasts`` table for density analysis.
+
+.. code-block:: python
+
+   fig, ax = density_data.plot_density_vintage(
+       variable="gdpkp", vintage_date="2025-12-31", return_plot=True
+   )
 
 Dashboard
 ---------

@@ -1,9 +1,11 @@
 """Tests for DensityForecastData class."""
 
+import warnings
+
 import pandas as pd
 import pytest
 
-from forecast_evaluation.data import DensityForecastData
+from forecast_evaluation.data import DensityForecastData, ForecastData
 from forecast_evaluation.data.sample_data import (
     create_sample_density_forecasts,
     create_sample_forecasts,
@@ -55,6 +57,20 @@ def test_init_with_density_data(sample_outturns, sample_density_forecasts):
     assert dfd.forecasts.empty
 
 
+def test_init_with_fer_load(monkeypatch, sample_outturns):
+    """Load point forecasts during parent initialisation without resetting density tables."""
+
+    def add_fer_data(self):
+        self.add_outturns(sample_outturns)
+        self.add_forecasts(create_sample_forecasts(), data_check=False)
+
+    monkeypatch.setattr(ForecastData, "add_fer_data", add_fer_data)
+    dfd = DensityForecastData(load_fer=True)
+
+    assert not dfd.forecasts.empty
+    assert dfd.density_forecasts.empty
+
+
 def test_init_with_single_quantile(sample_outturns, sample_density_forecasts_single_quantile):
     """Test initialisation with single quantile (median) data."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts_single_quantile)
@@ -82,6 +98,22 @@ def test_init_with_extra_ids(sample_outturns, sample_density_forecasts):
     assert "region" in dfd.id_columns
 
 
+@pytest.mark.parametrize("on_init", [True, False])
+def test_quantile_is_not_an_id(sample_outturns, sample_density_forecasts, on_init):
+    """Explicit quantile labels must still form one density per source."""
+    dfd = DensityForecastData(
+        outturns_data=sample_outturns,
+        forecasts_data=sample_density_forecasts if on_init else None,
+        extra_ids=["quantile"] if on_init else None,
+    )
+    if not on_init:
+        dfd.add_density_forecasts(sample_density_forecasts, extra_ids=["quantile"])
+
+    assert dfd.id_columns == ["source"]
+    assert dfd.density_forecasts["unique_id"].nunique() == 1
+    assert dfd.density_forecasts.groupby(["date", "unique_id"])["quantile"].nunique().max() == 50
+
+
 # -----------------------
 # Add Forecasts Tests
 # -----------------------
@@ -102,6 +134,74 @@ def test_add_density_forecasts_without_quantile_raises(sample_outturns):
 
     with pytest.raises(ValueError, match="Density forecasts must include a 'quantile' column"):
         dfd.add_density_forecasts(forecasts_without_quantile)
+
+
+def test_density_forecasts_preserve_provided_metrics(sample_outturns):
+    """Keep supplied pop and yoy quantiles without deriving other metrics."""
+    forecasts = create_sample_forecasts()
+    forecasts["quantile"] = 0.5
+    forecasts = pd.concat(
+        [forecasts.assign(metric=metric) for metric in ("pop", "yoy")],
+        ignore_index=True,
+    )
+
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts)
+
+    actual = dfd.density_forecasts.sort_values(["metric", "date"]).reset_index(drop=True)
+    expected = forecasts.sort_values(["metric", "date"]).reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        actual[["date", "metric", "quantile", "value"]],
+        expected[["date", "metric", "quantile", "value"]],
+        check_dtype=False,
+    )
+
+
+def test_density_forecasts_default_to_levels(sample_outturns, sample_density_forecasts):
+    """Default density forecasts without a metric to levels without warning."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        dfd = DensityForecastData(
+            outturns_data=sample_outturns.assign(metric="levels"), forecasts_data=sample_density_forecasts
+        )
+
+    assert dfd.density_forecasts["metric"].eq("levels").all()
+    assert not caught
+
+
+def test_density_plot_missing_metric_raises_clear_error(sample_outturns, sample_density_forecasts):
+    """Explain when the requested metric has no density forecasts."""
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+
+    with pytest.raises(ValueError, match="No density forecasts found.*metric='pop'"):
+        dfd.plot_density_vintage(variable="gdpkp", vintage_date="2025-12-31", metric="pop")
+
+
+@pytest.mark.parametrize("density_first", [True, False])
+def test_point_and_density_forecasts_must_share_frequency(sample_outturns, sample_density_forecasts, density_first):
+    """Reject point and density forecast tables with different frequencies."""
+    dfd = DensityForecastData(outturns_data=sample_outturns)
+    monthly_forecasts = create_sample_forecasts().assign(frequency="M")
+
+    if density_first:
+        dfd.add_density_forecasts(sample_density_forecasts)
+        with pytest.raises(ValueError, match="existing data has frequency 'Q'"):
+            dfd.add_forecasts(monthly_forecasts, data_check=False)
+    else:
+        dfd.add_forecasts(create_sample_forecasts(), data_check=False)
+        with pytest.raises(ValueError, match="existing data has frequency 'Q'"):
+            dfd.add_density_forecasts(sample_density_forecasts.assign(frequency="M"))
+
+
+def test_clear_filter_density_only(sample_outturns, sample_density_forecasts):
+    """Restore density forecasts without requiring point forecasts."""
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+    dfd.filter(start_date="2022-06-30", end_date="2022-12-31")
+
+    assert len(dfd.density_forecasts) < len(sample_density_forecasts)
+
+    dfd.clear_filter()
+
+    assert len(dfd.density_forecasts) == len(sample_density_forecasts)
 
 
 def test_density_forecasts_retain_calendar_backcasts(sample_outturns):
