@@ -25,6 +25,16 @@ def radar_variables_for_frequency(data, frequency):
     return sorted(forecasts.loc[forecasts["frequency"] == frequency, "variable"].unique())
 
 
+def radar_horizons_for_frequency(data, frequency, variable=None):
+    forecasts = data.forecasts
+    if forecasts.empty:
+        return []
+    selected = forecasts.loc[forecasts["frequency"] == frequency]
+    if variable is not None:
+        selected = selected.loc[selected["variable"] == variable]
+    return sorted(int(horizon) for horizon in selected["target_minus_vintage"].dropna().unique())
+
+
 def create_sidebar(data):
     """Create the sidebar with all conditional inputs"""
 
@@ -70,6 +80,9 @@ def create_sidebar(data):
         radar_frequency_choices = {"Q": "Quarterly"}
     initial_radar_frequency = next(iter(radar_frequency_choices))
     radar_variables = radar_variables_for_frequency(data, initial_radar_frequency)
+    radar_horizons = radar_horizons_for_frequency(
+        data, initial_radar_frequency, radar_variables[0] if radar_variables else None
+    )
 
     vintages = sorted(list(vintages_set))
     outturn_vintages = sorted(
@@ -419,7 +432,12 @@ def create_sidebar(data):
         # Radar horizon selector (for metrics, variables and tests modes)
         ui.panel_conditional(
             radar_tab,
-            ui.input_select("radar_horizon", "Horizon:", choices=horizons, selected=horizons[0]),
+            ui.input_select(
+                "radar_horizon",
+                "Horizon:",
+                choices=radar_horizons,
+                selected=radar_horizons[0] if radar_horizons else None,
+            ),
         ),
         # Radar normalise toggle
         ui.panel_conditional(

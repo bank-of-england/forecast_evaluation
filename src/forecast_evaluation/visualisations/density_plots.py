@@ -86,13 +86,15 @@ def plot_density_vintage(
         )
 
     # filter outturns (they are not filtered with filter())(we select the last vintage only)
-    outturns = data._outturns.copy()
+    outturns = data._outturns.loc[
+        (data._outturns["variable"] == variable)
+        & (data._outturns["frequency"] == frequency)
+        & (data._outturns["metric"] == metric)
+    ]
     min_date = outturn_start_date if outturn_start_date is not None else outturns["date"].min()
 
     outturns = outturns[
         (outturns["vintage_date"] == outturns["vintage_date"].max())
-        & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
-        & (outturns["metric"] == metric)
         & (outturns["date"] <= forecasts_filtered["date"].max())
         & (outturns["date"] >= min_date)
     ].copy()

@@ -5,7 +5,11 @@ import pytest
 from shiny import reactive, ui
 
 from forecast_evaluation.dashboard.create_app import dashboard_app
-from forecast_evaluation.dashboard.ui import create_sidebar, radar_variables_for_frequency
+from forecast_evaluation.dashboard.ui import (
+    create_sidebar,
+    radar_horizons_for_frequency,
+    radar_variables_for_frequency,
+)
 from forecast_evaluation.data.DensityForecastData import DensityForecastData
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
@@ -113,6 +117,38 @@ def test_create_sidebar_with_density_only_forecasts(sample_outturns):
 
     assert 'id="radar_frequency"' in sidebar_html
     assert radar_variables_for_frequency(data, "Q") == []
+
+
+def test_radar_horizon_defaults_to_selected_frequency_and_variable():
+    outturns = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2022-03-31", "2022-04-30"]),
+            "vintage_date": pd.to_datetime(["2022-06-30", "2022-06-30"]),
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+            "value": [10.0, 20.0],
+        }
+    )
+    forecasts = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2022-03-31", "2022-04-30"]),
+            "vintage_date": pd.to_datetime(["2022-03-31", "2022-03-31"]),
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+            "source": ["model", "model"],
+            "forecast_horizon": [0, 0],
+            "value": [9.0, 19.0],
+        }
+    )
+    data = ForecastData(outturns_data=outturns, forecasts_data=forecasts, compute_levels=False, data_check=False)
+
+    html = str(ui.page_fluid(ui.layout_sidebar(create_sidebar(data), ui.div())))
+    radar_horizon_options = html.split('id="radar_horizon"', 1)[1].split("</select>", 1)[0]
+
+    assert 'value="1" selected=""' in radar_horizon_options
+    assert 'value="0"' not in radar_horizon_options
+    assert radar_horizons_for_frequency(data, "Q", "quarterly") == [0]
+    assert radar_horizons_for_frequency(data, "M", "monthly") == [1]
 
 
 def test_dashboard_hides_radar_for_density_only_forecasts(sample_outturns):

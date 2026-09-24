@@ -5,7 +5,11 @@ import io
 from shiny import reactive, render, ui
 
 import forecast_evaluation as fe
-from forecast_evaluation.dashboard.ui import get_selector_info, radar_variables_for_frequency
+from forecast_evaluation.dashboard.ui import (
+    get_selector_info,
+    radar_horizons_for_frequency,
+    radar_variables_for_frequency,
+)
 from forecast_evaluation.dashboard.utils import remove_legend, render_legend
 
 
@@ -20,6 +24,24 @@ def radar(input, output, session, data):
             "radar_variable", choices=variables, selected=variables[0] if variables else None, session=session
         )
         ui.update_selectize("radar_variables", choices=variables, selected=variables, session=session)
+
+    @reactive.effect
+    @reactive.event(input.radar_frequency, input.radar_variable, input.radar_mode)
+    def update_radar_horizons():
+        frequency = input.radar_frequency()
+        variable = input.radar_variable() if input.radar_mode() != "variables" else None
+        horizons = radar_horizons_for_frequency(data, frequency, variable)
+        if not horizons:
+            horizons = radar_horizons_for_frequency(data, frequency)
+        selected = input.radar_horizon()
+        if selected not in {str(horizon) for horizon in horizons}:
+            selected = horizons[0] if horizons else None
+        ui.update_select(
+            "radar_horizon",
+            choices=horizons,
+            selected=selected,
+            session=session,
+        )
 
     @reactive.calc
     @reactive.event(input.update)
