@@ -8,8 +8,6 @@ __pycache__/
 
 .vscode/
 plans/
-!docs/plans/
-!docs/plans/mixed_frequency_forecasts.md
 *copilot-instructions.md
 # Distribution / packaging
 .Python
