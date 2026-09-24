@@ -4,11 +4,17 @@ from typing import TYPE_CHECKING, Literal, Optional, Union
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from forecast_evaluation.utils import clean_unique_id
+from forecast_evaluation.utils import clean_unique_id, require_single_frequency
 from forecast_evaluation.visualisations.theme import create_themed_figure, set_integer_xaxis
 
 if TYPE_CHECKING:
     from forecast_evaluation.tests.results import TestResult
+
+
+def _format_period_label(date: pd.Timestamp, frequency: str) -> str:
+    if frequency == "M":
+        return date.strftime("%Y-%m")
+    return f"{date.year}:Q{date.quarter}"
 
 
 def plot_accuracy(
@@ -76,11 +82,13 @@ def plot_accuracy(
     if len(df) == 0:
         raise ValueError(f"No data available for {variable}, {metric}")
 
+    frequency = require_single_frequency(df, "Accuracy plot")
+
     # Get the consistent start date and end date for each variable
     min_start_date = df["start_date"].min()
-    min_start_date_str = f"{min_start_date.year}:Q{((min_start_date.month) // 3)}"
     max_end_date = df["end_date"].max()
-    max_end_date_str = f"{max_end_date.year}:Q{((max_end_date.month) // 3)}"
+    min_start_date_str = _format_period_label(min_start_date, frequency)
+    max_end_date_str = _format_period_label(max_end_date, frequency)
 
     # Get unique sources
     sources = df["unique_id"].unique()
@@ -191,11 +199,13 @@ def plot_compare_to_benchmark(
     if len(df) == 0:
         raise ValueError(f"No data available for {variable}, {metric}")
 
+    frequency = require_single_frequency(df, "Benchmark accuracy plot")
+
     # Get minimum start_date
     min_start_date = df["start_date"].min()
-    min_start_date_str = f"{min_start_date.year}:Q{((min_start_date.month) // 3)}"
     max_end_date = df["end_date"].max()
-    max_end_date_str = f"{max_end_date.year}:Q{((max_end_date.month) // 3)}"
+    min_start_date_str = _format_period_label(min_start_date, frequency)
+    max_end_date_str = _format_period_label(max_end_date, frequency)
 
     # Get unique sources
     sources = df["unique_id"].unique()

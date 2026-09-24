@@ -2,6 +2,7 @@
 
 import warnings
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
@@ -55,6 +56,21 @@ def test_init_with_density_data(sample_outturns, sample_density_forecasts):
     assert "quantile" in dfd.density_forecasts.columns
     # Parent's forecasts should remain empty
     assert dfd.forecasts.empty
+
+
+def test_density_vintage_uses_latest_outturn_for_selected_variable(sample_outturns, sample_density_forecasts):
+    unrelated_outturn = sample_outturns.iloc[:1].assign(
+        variable="monthly", frequency="M", vintage_date=pd.Timestamp("2025-12-31")
+    )
+    outturns = pd.concat([sample_outturns, unrelated_outturn], ignore_index=True)
+    data = DensityForecastData(outturns_data=outturns, forecasts_data=sample_density_forecasts, compute_levels=False)
+
+    fig, ax = data.plot_density_vintage(
+        variable="gdpkp", vintage_date="2025-12-31", quantiles=[0.01, 0.49, 0.99], return_plot=True
+    )
+
+    assert any(line.get_label() == "Outturns (solid)" for line in ax.lines)
+    plt.close(fig)
 
 
 def test_init_with_fer_load(monkeypatch, sample_outturns):
@@ -184,12 +200,28 @@ def test_point_and_density_forecasts_must_share_frequency(sample_outturns, sampl
 
     if density_first:
         dfd.add_density_forecasts(sample_density_forecasts)
-        with pytest.raises(ValueError, match="existing data has frequency 'Q'"):
+        with pytest.raises(ValueError, match="Each variable must use a single frequency"):
             dfd.add_forecasts(monthly_forecasts, data_check=False)
     else:
         dfd.add_forecasts(create_sample_forecasts(), data_check=False)
-        with pytest.raises(ValueError, match="existing data has frequency 'Q'"):
+        with pytest.raises(ValueError, match="Each variable must use a single frequency"):
             dfd.add_density_forecasts(sample_density_forecasts.assign(frequency="M"))
+
+
+def test_point_and_density_forecasts_can_use_different_frequencies_for_different_variables(
+    sample_outturns, sample_density_forecasts
+):
+    outturns = pd.concat(
+        [sample_outturns, sample_outturns.assign(variable="monthly", frequency="M")],
+        ignore_index=True,
+    )
+    dfd = DensityForecastData(outturns_data=outturns, compute_levels=False)
+    dfd.add_forecasts(create_sample_forecasts(), data_check=False)
+    dfd.add_density_forecasts(sample_density_forecasts.assign(variable="monthly", frequency="M"))
+
+    assert set(dfd.forecasts["frequency"]) == {"Q"}
+    assert set(dfd.density_forecasts["frequency"]) == {"M"}
+    assert set(dfd.density_forecasts["variable"]) == {"monthly"}
 
 
 def test_clear_filter_density_only(sample_outturns, sample_density_forecasts):

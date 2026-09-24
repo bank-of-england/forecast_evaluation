@@ -5,10 +5,16 @@ import pytest
 from shiny import reactive, ui
 
 from forecast_evaluation.dashboard.create_app import dashboard_app
-from forecast_evaluation.dashboard.ui import create_sidebar
+from forecast_evaluation.dashboard.ui import (
+    create_sidebar,
+    radar_horizons_for_frequency,
+    radar_variables_for_frequency,
+)
+from forecast_evaluation.data.DensityForecastData import DensityForecastData
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
 from forecast_evaluation.data.sample_data import (
+    create_sample_density_forecasts,
     create_sample_forecasts,
     create_sample_outturns,
 )
@@ -70,6 +76,91 @@ def test_create_sidebar_releases_hidden_default_for_forecast_data(sample_outturn
     # Non-nowcast data should not show a real releases selector, only a hidden default.
     assert "display: none" in sidebar_html
     assert 'data-display-if="input.tabs == &apos;Hedgehog&apos;"' not in sidebar_html
+
+
+def test_create_sidebar_exposes_radar_frequency_for_mixed_data(sample_outturns, sample_forecasts):
+    outturns = pd.concat(
+        [
+            sample_outturns.assign(variable="quarterly", frequency="Q"),
+            sample_outturns.assign(variable="monthly", frequency="M"),
+        ],
+        ignore_index=True,
+    )
+    forecasts = pd.concat(
+        [
+            sample_forecasts.assign(variable="quarterly", frequency="Q"),
+            sample_forecasts.assign(variable="monthly", frequency="M"),
+        ],
+        ignore_index=True,
+    )
+    fd = ForecastData(outturns_data=outturns, forecasts_data=forecasts, compute_levels=False)
+
+    sidebar = create_sidebar(fd)
+    sidebar_html = str(ui.page_fluid(ui.layout_sidebar(sidebar, ui.div())))
+
+    assert 'id="radar_frequency"' in sidebar_html
+    assert 'id="radar_variable"' in sidebar_html
+    radar_variable_options = sidebar_html.split('id="radar_variable"', 1)[1].split("</select>", 1)[0]
+    assert 'value="monthly"' in radar_variable_options
+    assert 'value="quarterly"' not in radar_variable_options
+    assert radar_variables_for_frequency(fd, "M") == ["monthly"]
+    assert radar_variables_for_frequency(fd, "Q") == ["quarterly"]
+    assert "Quarterly" in sidebar_html
+    assert "Monthly" in sidebar_html
+    assert "Data vintage (periods after first release)" in sidebar_html
+
+
+def test_create_sidebar_with_density_only_forecasts(sample_outturns):
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=create_sample_density_forecasts())
+
+    sidebar_html = str(ui.page_fluid(ui.layout_sidebar(create_sidebar(data), ui.div())))
+
+    assert 'id="radar_frequency"' in sidebar_html
+    assert radar_variables_for_frequency(data, "Q") == []
+
+
+def test_radar_horizon_defaults_to_selected_frequency_and_variable():
+    outturns = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2022-03-31", "2022-04-30"]),
+            "vintage_date": pd.to_datetime(["2022-06-30", "2022-06-30"]),
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+            "value": [10.0, 20.0],
+        }
+    )
+    forecasts = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2022-03-31", "2022-04-30"]),
+            "vintage_date": pd.to_datetime(["2022-03-31", "2022-03-31"]),
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+            "source": ["model", "model"],
+            "forecast_horizon": [0, 0],
+            "value": [9.0, 19.0],
+        }
+    )
+    data = ForecastData(outturns_data=outturns, forecasts_data=forecasts, compute_levels=False, data_check=False)
+
+    html = str(ui.page_fluid(ui.layout_sidebar(create_sidebar(data), ui.div())))
+    radar_horizon_options = html.split('id="radar_horizon"', 1)[1].split("</select>", 1)[0]
+
+    assert 'value="1" selected=""' in radar_horizon_options
+    assert 'value="0"' not in radar_horizon_options
+    assert radar_horizons_for_frequency(data, "Q", "quarterly") == [0]
+    assert radar_horizons_for_frequency(data, "M", "monthly") == [1]
+
+
+def test_dashboard_hides_radar_for_density_only_forecasts(sample_outturns):
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=create_sample_density_forecasts())
+    app = dashboard_app(data)
+
+    assert 'data-value="Radar"' not in str(app.ui(None))
+
+    with patch("forecast_evaluation.dashboard.create_app.radar") as mock_radar:
+        app.server(MagicMock(), MagicMock(), MagicMock())
+
+    mock_radar.assert_not_called()
 
 
 def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):

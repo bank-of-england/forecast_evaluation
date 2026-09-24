@@ -5,12 +5,43 @@ import io
 from shiny import reactive, render, ui
 
 import forecast_evaluation as fe
-from forecast_evaluation.dashboard.ui import get_selector_info
-from forecast_evaluation.dashboard.utils import render_legend, remove_legend
+from forecast_evaluation.dashboard.ui import (
+    get_selector_info,
+    radar_horizons_for_frequency,
+    radar_variables_for_frequency,
+)
+from forecast_evaluation.dashboard.utils import remove_legend, render_legend
 
 
 def radar(input, output, session, data):
     """Server handler for the Radar tab."""
+
+    @reactive.effect
+    @reactive.event(input.radar_frequency)
+    def update_radar_variables():
+        variables = radar_variables_for_frequency(data, input.radar_frequency())
+        ui.update_selectize(
+            "radar_variable", choices=variables, selected=variables[0] if variables else None, session=session
+        )
+        ui.update_selectize("radar_variables", choices=variables, selected=variables, session=session)
+
+    @reactive.effect
+    @reactive.event(input.radar_frequency, input.radar_variable, input.radar_mode)
+    def update_radar_horizons():
+        frequency = input.radar_frequency()
+        variable = input.radar_variable() if input.radar_mode() != "variables" else None
+        horizons = radar_horizons_for_frequency(data, frequency, variable)
+        if not horizons:
+            horizons = radar_horizons_for_frequency(data, frequency)
+        selected = input.radar_horizon()
+        if selected not in {str(horizon) for horizon in horizons}:
+            selected = horizons[0] if horizons else None
+        ui.update_select(
+            "radar_horizon",
+            choices=horizons,
+            selected=selected,
+            session=session,
+        )
 
     @reactive.calc
     @reactive.event(input.update)
@@ -57,6 +88,7 @@ def radar(input, output, session, data):
 
         kwargs = dict(
             mode=mode,
+            frequency=input.radar_frequency(),
             statistic=input.stat(),
             normalise=input.radar_normalise(),
             individual_scales=input.radar_individual_scales() if not input.radar_normalise() else False,
@@ -64,7 +96,7 @@ def radar(input, output, session, data):
         )
 
         if mode == "metrics":
-            kwargs["variable"] = input.variable()
+            kwargs["variable"] = input.radar_variable()
             kwargs["horizon"] = int(input.radar_horizon())
         elif mode == "variables":
             kwargs["metric"] = input.transform()
@@ -79,7 +111,7 @@ def radar(input, output, session, data):
             elif input.radar_test_type() == "correlation":
                 kwargs["anchor_source"] = input.radar_anchor()
         elif mode == "tests":
-            kwargs["variable"] = input.variable()
+            kwargs["variable"] = input.radar_variable()
             kwargs["metric"] = input.transform()
             kwargs["horizon"] = int(input.radar_horizon())
             kwargs["k"] = int(input.k())
@@ -115,7 +147,6 @@ def radar(input, output, session, data):
         mode = input.radar_mode()
         if mode == "tests":
             # export the underlying main table slice
-            import pandas as pd
 
             main = get_filtered_data()._main_table
             csv_bytes = main.to_csv(index=False)

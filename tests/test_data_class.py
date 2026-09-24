@@ -279,7 +279,7 @@ def test_add_forecasts_mixed_frequencies_raises(sample_outturns):
         }
     )
 
-    with pytest.raises(ValueError, match=r"Forecasts being added contain multiple frequencies"):
+    with pytest.raises(ValueError, match=r"Each variable must use a single frequency"):
         fd.add_forecasts(df)
 
 
@@ -314,8 +314,53 @@ def test_add_forecasts_different_frequency_from_existing_raises(sample_outturns)
         }
     )
 
-    with pytest.raises(ValueError, match=r"New forecasts have frequency 'M' but existing data has frequency 'Q'"):
+    with pytest.raises(ValueError, match=r"Each variable must use a single frequency"):
         fd.add_forecasts(df_monthly)
+
+
+def test_add_outturns_different_frequency_for_existing_variable_raises(sample_outturns):
+    fd = ForecastData(outturns_data=sample_outturns)
+    monthly_outturns = sample_outturns.assign(frequency="M")
+
+    with pytest.raises(ValueError, match=r"Each variable must use a single frequency"):
+        fd.add_outturns(monthly_outturns)
+
+
+@pytest.mark.parametrize("separate_adds", [False, True])
+def test_add_forecasts_allows_different_frequencies_per_variable(sample_outturns, sample_forecasts, separate_adds):
+    quarterly_outturns = sample_outturns.assign(variable="quarterly", frequency="Q")
+    monthly_outturns = sample_outturns.assign(variable="monthly", frequency="M")
+    outturns = pd.concat([quarterly_outturns, monthly_outturns], ignore_index=True)
+    quarterly_forecasts = sample_forecasts.assign(variable="quarterly", frequency="Q")
+    monthly_forecasts = sample_forecasts.assign(variable="monthly", frequency="M")
+
+    fd = ForecastData(outturns_data=outturns, compute_levels=False)
+    if separate_adds:
+        fd.add_forecasts(quarterly_forecasts, data_check=False)
+        fd.add_forecasts(monthly_forecasts, data_check=False)
+    else:
+        fd.add_forecasts(
+            pd.concat([quarterly_forecasts, monthly_forecasts], ignore_index=True),
+            data_check=False,
+        )
+
+    assert set(fd._raw_forecasts["frequency"]) == {"Q", "M"}
+    assert set(fd.forecasts["frequency"]) == {"Q", "M"}
+    assert set(fd.df["frequency"]) == {"Q", "M"}
+    assert fd.forecasts.groupby("variable")["frequency"].nunique().eq(1).all()
+
+    comparison_columns = ["unique_id", "variable", "metric", "frequency", "date", "vintage_date_forecast", "k"]
+    sort_columns = ["variable", "frequency", "date", "vintage_date_forecast", "k"]
+    before_clear = fd.df[comparison_columns].sort_values(sort_columns).reset_index(drop=True)
+    fd.filter(frequencies="Q")
+    fd.clear_filter()
+    after_clear = fd.df[comparison_columns].sort_values(sort_columns).reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(before_clear, after_clear)
+
+    fd.create_pseudo_vintages(fill_to="2022-01-01", vintage_frequency="Q")
+    assert set(fd.df["frequency"]) == {"Q", "M"}
+    assert fd.df.groupby("variable")["frequency"].nunique().eq(1).all()
 
 
 def test_two_add_forecasts_calls_produce_no_duplicates(fer_outturns_minimal, fer_forecasts_minimal):

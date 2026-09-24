@@ -9,7 +9,7 @@ import pandas as pd
 
 from forecast_evaluation.data import DensityForecastData
 from forecast_evaluation.data.utils import compute_target_minus_vintage
-from forecast_evaluation.utils import clean_unique_id
+from forecast_evaluation.utils import clean_unique_id, require_single_frequency
 from forecast_evaluation.visualisations.theme import create_themed_figure
 
 
@@ -57,13 +57,10 @@ def plot_density_vintage(
         return None
 
     if frequency is None:
-        inferred = data._raw_outturns["frequency"].unique()
-        if len(inferred) != 1:
-            raise ValueError(
-                f"Could not infer a unique frequency from data; found: {list(inferred)}. "
-                "Please specify the 'frequency' argument explicitly."
-            )
-        frequency = inferred[0]
+        selected = data._density_forecasts.loc[data._density_forecasts["variable"] == variable]
+        if selected.empty:
+            raise ValueError(f"No density forecasts found for variable '{variable}'.")
+        frequency = require_single_frequency(selected, f"Density vintage plot for variable '{variable}'")
 
     # add a check here
     vintage_date = pd.to_datetime(vintage_date)
@@ -89,13 +86,15 @@ def plot_density_vintage(
         )
 
     # filter outturns (they are not filtered with filter())(we select the last vintage only)
-    outturns = data._outturns.copy()
+    outturns = data._outturns.loc[
+        (data._outturns["variable"] == variable)
+        & (data._outturns["frequency"] == frequency)
+        & (data._outturns["metric"] == metric)
+    ]
     min_date = outturn_start_date if outturn_start_date is not None else outturns["date"].min()
 
     outturns = outturns[
         (outturns["vintage_date"] == outturns["vintage_date"].max())
-        & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
-        & (outturns["metric"] == metric)
         & (outturns["date"] <= forecasts_filtered["date"].max())
         & (outturns["date"] >= min_date)
     ].copy()

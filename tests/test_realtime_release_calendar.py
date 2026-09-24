@@ -10,7 +10,7 @@ quarter-end-aligned vintage dates.
 import pandas as pd
 import pytest
 
-from forecast_evaluation.core.main_table import compute_k
+from forecast_evaluation.core.main_table import build_main_table, compute_k
 from forecast_evaluation.data.ForecastData import ForecastData
 from forecast_evaluation.data.NowcastData import NowcastData
 
@@ -152,6 +152,40 @@ class TestCalendarKArithmetic:
 
 class TestMixedFrequency:
     """Monthly series must not be bucketed with quarterly arithmetic."""
+
+    def test_main_table_calculates_k_by_frequency(self):
+        forecasts = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2022-03-31", "2022-03-31"]),
+                "variable": ["quarterly", "monthly"],
+                "frequency": ["Q", "M"],
+                "metric": ["levels", "levels"],
+                "vintage_date": pd.to_datetime(["2022-01-31", "2022-01-31"]),
+                "value": [100.0, 10.0],
+                "unique_id": ["model", "model"],
+                "source": ["model", "model"],
+                "forecast_horizon": [0, 0],
+                "target_minus_vintage": [0, 2],
+            }
+        )
+        outturns = pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2022-03-31", "2022-03-31"]),
+                "variable": ["quarterly", "monthly"],
+                "frequency": ["Q", "M"],
+                "metric": ["levels", "levels"],
+                "vintage_date": pd.to_datetime(["2022-06-30", "2022-05-31"]),
+                "value": [101.0, 11.0],
+            }
+        )
+
+        main_table = build_main_table(forecasts, outturns, ["source"])
+
+        assert main_table.set_index("frequency")["k"].to_dict() == {"Q": 0, "M": 1}
+        for frequency in ("Q", "M"):
+            with pytest.warns(DeprecationWarning, match="frequency.*deprecated"):
+                legacy_table = build_main_table(forecasts, outturns, ["source"], frequency=frequency)
+            pd.testing.assert_frame_equal(legacy_table, main_table)
 
     def test_nowcast_monthly_k_counts_releases(self, realtime_outturns, realtime_forecasts):
         """NowcastData ranks releases directly, so it is frequency-agnostic."""

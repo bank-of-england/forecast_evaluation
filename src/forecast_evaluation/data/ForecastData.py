@@ -79,6 +79,31 @@ def _atomic_state(obj: object, *attributes: str):
         raise
 
 
+def _check_variable_frequencies(dataframes: Iterable[pd.DataFrame]) -> None:
+    """Reject variables stored at multiple frequencies across the data tables."""
+    frequency_pairs = [dataframe[["variable", "frequency"]] for dataframe in dataframes if not dataframe.empty]
+    if not frequency_pairs:
+        return
+
+    frequencies = (
+        pd.concat(frequency_pairs, ignore_index=True)
+        .drop_duplicates()
+        .groupby("variable", sort=True)["frequency"]
+        .unique()
+    )
+    conflicts = frequencies[frequencies.map(len) > 1]
+    if conflicts.empty:
+        return
+
+    details = "; ".join(
+        f"{variable}: {', '.join(sorted(variable_frequencies))}" for variable, variable_frequencies in conflicts.items()
+    )
+    raise ValueError(
+        "Each variable must use a single frequency across its outturns and forecasts. "
+        f"Conflicting frequencies: {details}."
+    )
+
+
 class ForecastData(PlottingMixin):
     """Class for validation and extending forecast data.
 
@@ -87,8 +112,8 @@ class ForecastData(PlottingMixin):
 
     Notes
     -----
-    Each ForecastData instance should only contain forecasts of a single frequency (e.g., all quarterly
-    or all monthly). To work with multiple frequencies, create separate ForecastData instances for each frequency.
+    Each variable must use one frequency across its outturns and forecasts. Different variables may use different
+    frequencies in the same ForecastData instance.
     """
 
     default_k = 12
@@ -232,6 +257,10 @@ class ForecastData(PlottingMixin):
         df_validated = _validate_records(df, optional_columns=["metric"], nullable_vintage=not self._outturn_vintages)
         df_validated = compute_target_minus_vintage(df_validated)
 
+        _check_variable_frequencies(
+            [self._raw_outturns, df_validated, *(getattr(self, table) for table in self._forecast_tables)]
+        )
+
         # Check for duplicates if there are already some records stored
         if not self._raw_outturns.empty:
             df_validated_unique = _check_duplicates(df_validated, self._raw_outturns)
@@ -306,8 +335,8 @@ class ForecastData(PlottingMixin):
         Notes
         -----
         Outturns must be added before forecasts (call add_outturns first).
-        All forecasts added to a ForecastData instance must have the same frequency. To work with forecasts of
-        different frequencies, create separate ForecastData instances for each frequency.
+        Each variable must use one frequency across its outturns and forecasts. Different variables may use different
+        frequencies in the same instance.
         When compute_levels is True, sufficient historical outturn data is required for transformation,
         especially for 'yoy' metrics which need data from one year prior.
         """
@@ -361,7 +390,6 @@ class ForecastData(PlottingMixin):
             forecasts,
             self._outturns,
             self._id_columns,
-            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
             outturn_vintages=self._outturn_vintages,
         )
 
@@ -439,28 +467,9 @@ class ForecastData(PlottingMixin):
         df = _validate_records(df, forecast=True, optional_columns=["metric", *extra_ids, *(extra_columns or [])])
         df = compute_target_minus_vintage(df)
 
-        # Check frequency uniqueness and consistency
-        new_frequencies = df["frequency"].unique()
-        if len(new_frequencies) > 1:
-            raise ValueError(
-                f"Forecasts being added contain multiple frequencies: {new_frequencies.tolist()}. "
-                f"Each ForecastData instance should only contain forecasts of a single frequency. "
-                f"Please add forecasts with different frequencies separately using different ForecastData instances."
-            )
-
-        if len(new_frequencies):
-            new_freq = new_frequencies[0]
-            for table in self._forecast_tables:
-                existing_forecasts = getattr(self, table)
-                if not existing_forecasts.empty:
-                    existing_freq = existing_forecasts["frequency"].iloc[0]
-                    if new_freq == existing_freq:
-                        continue
-                    raise ValueError(
-                        f"New forecasts have frequency '{new_freq}' but existing data has frequency '{existing_freq}'. "
-                        f"Each ForecastData instance should only contain forecasts of a single frequency. "
-                        f"Please create a new ForecastData instance for forecasts with different frequencies."
-                    )
+        _check_variable_frequencies(
+            [self._raw_outturns, df, *(getattr(self, table) for table in self._forecast_tables)]
+        )
 
         # ID columns
         id_cols = ["source", *extra_ids]
@@ -616,7 +625,6 @@ class ForecastData(PlottingMixin):
                 self._forecasts,
                 self._outturns,
                 self._id_columns,
-                frequency=self._forecasts["frequency"].iloc[0],
                 outturn_vintages=self._outturn_vintages,
             )
             self._main_table = main_table
@@ -787,7 +795,6 @@ class ForecastData(PlottingMixin):
             forecasts,
             outturns,
             self._id_columns,
-            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
             outturn_vintages=self._outturn_vintages,
         )
 

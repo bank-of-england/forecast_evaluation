@@ -2,11 +2,45 @@ import matplotlib
 
 matplotlib.use("Agg")  # non-interactive backend; must be set before any figure is created
 
+import matplotlib.pyplot as plt
+import pandas as pd
 import pytest
 
 from forecast_evaluation.visualisations.radar import plot_radar
 
 # ``nowcast_fd`` comes from tests/conftest.py.
+
+
+def test_metrics_infers_frequency_from_selected_variable():
+    accuracy = pd.DataFrame(
+        {
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+            "horizon": [1, 1],
+            "unique_id": ["model", "model"],
+            "rmse": [1.0, 2.0],
+            "rmedse": [1.0, 2.0],
+            "mean_abs_error": [1.0, 2.0],
+        }
+    )
+
+    fig, ax = plot_radar(accuracy, mode="metrics", variable="quarterly", horizon=1, return_plot=True)
+
+    assert fig is not None
+    assert ax is not None
+    plt.close(fig)
+
+
+def test_metrics_reports_missing_variable_when_inferring_frequency():
+    accuracy = pd.DataFrame(
+        {
+            "variable": ["quarterly", "monthly"],
+            "frequency": ["Q", "M"],
+        }
+    )
+
+    with pytest.raises(ValueError, match="No data found for variable 'missing'"):
+        plot_radar(accuracy, mode="metrics", variable="missing", horizon=1)
 
 
 class TestPlotRadarRejectsUnsupportedNowcastAnalyses:

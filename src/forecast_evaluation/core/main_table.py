@@ -1,3 +1,4 @@
+import warnings
 from typing import Literal, Optional, Union
 
 import pandas as pd
@@ -48,7 +49,7 @@ def build_main_table(
     id_columns: list[str],
     variables: Optional[Union[str, list[str]]] = None,
     forecast_ids: Optional[Union[str, list[str]]] = None,
-    frequency: Literal["Q", "M"] = "Q",
+    frequency: Optional[Literal["Q", "M"]] = None,
     *,
     outturn_vintages: bool = True,
 ) -> pd.DataFrame:
@@ -67,8 +68,8 @@ def build_main_table(
     forecast_ids : str or list of str, optional
         Single identifier or list of forecast identifier to include.
         Can be elements of column 'source' or extra_ids columns.
-    frequency : {"Q", "M"}, default "Q"
-        Frequency of the data, either quarterly or monthly.
+    frequency : {"Q", "M"}, optional
+        Deprecated; ignored because each row uses its own frequency.
     outturn_vintages : bool, default True
         Whether the outturn data contains vintage information. When False, skips
         ``compute_k`` and ``latest_vintage`` computation and sets sentinel values
@@ -79,6 +80,13 @@ def build_main_table(
     pd.DataFrame
         Table containing forecast evaluation metrics with forecast errors and vintage information.
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and ignored; frequencies are read from each row.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     forecasts = forecasts.copy()
 
@@ -154,7 +162,13 @@ def build_main_table(
         # No pre-filter on vintage_date_outturn here: `date` is end-of-period, so
         # outturns released before it (flash estimates, early surveys) are legitimate
         # and are retained by compute_k's own `k >= -1` rule.
-        merged = compute_k(merged, frequency)
+        if merged.empty:
+            merged["k"] = pd.Series(dtype=int)
+        else:
+            merged = pd.concat(
+                [compute_k(group.copy(), frequency) for frequency, group in merged.groupby("frequency", sort=False)],
+                ignore_index=True,
+            )
 
         merged["latest_vintage"] = merged.groupby(["variable", "metric", "frequency", "unique_id", "date"])[
             "vintage_date_outturn"

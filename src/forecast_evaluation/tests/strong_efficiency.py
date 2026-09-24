@@ -9,7 +9,7 @@ from statsmodels.tools import add_constant
 
 from forecast_evaluation.data import ForecastData
 from forecast_evaluation.tests.results import TestResult
-from forecast_evaluation.utils import filter_k
+from forecast_evaluation.utils import filter_k, require_single_frequency
 
 
 def strong_efficiency_test(
@@ -220,26 +220,24 @@ def strong_efficiency_analysis(
 
     df = data._main_table.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 
-    frequency = df["frequency"].iloc[0]
+    selected = df[
+        (
+            ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
+            | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
+        )
+        & (df["unique_id"] == source)
+    ]
 
-    # We first align the main table with what is used in this function
-    df = filter_k(df, k)
-
-    # Filter variables and sources
-    df = (
-        df[
-            (
-                ((df["variable"] == outcome_variable) & (df["metric"] == outcome_metric))
-                | ((df["variable"] == instrument_variable) & (df["metric"] == instrument_metric))
-            )
-            & (df["unique_id"] == source)
-        ]
-        .reset_index(drop=True)
-        .drop(columns=["unique_id", "metric", "frequency"])
-    )
-
+    df = filter_k(selected, k)
     if df.empty:
         raise ValueError(f"No data available for source '{source}'")
+    missing_variables = sorted({outcome_variable, instrument_variable} - set(df["variable"]))
+    if missing_variables:
+        raise ValueError(
+            f"Strong efficiency analysis requires data for each selected variable; missing {missing_variables}."
+        )
+    frequency = require_single_frequency(df, "Strong efficiency analysis")
+    df = df.reset_index(drop=True).drop(columns=["unique_id", "metric", "frequency"])
 
     # Pivot data wider
     df_pivot = df.pivot(

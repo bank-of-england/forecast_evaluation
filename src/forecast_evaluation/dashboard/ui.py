@@ -18,12 +18,30 @@ def get_selector_info(col, data):
     return col_choices, id_single, id_multi
 
 
+def radar_variables_for_frequency(data, frequency):
+    forecasts = data.forecasts
+    if forecasts.empty:
+        return []
+    return sorted(forecasts.loc[forecasts["frequency"] == frequency, "variable"].unique())
+
+
+def radar_horizons_for_frequency(data, frequency, variable=None):
+    forecasts = data.forecasts
+    if forecasts.empty:
+        return []
+    selected = forecasts.loc[forecasts["frequency"] == frequency]
+    if variable is not None:
+        selected = selected.loc[selected["variable"] == variable]
+    return sorted(int(horizon) for horizon in selected["target_minus_vintage"].dropna().unique())
+
+
 def create_sidebar(data):
     """Create the sidebar with all conditional inputs"""
 
     # Define the range of options for the dynamic parameters
     # Map frequency codes to period names
     frequency_labels = {"Q": "quarters", "M": "months"}
+    frequencies = set()
 
     if hasattr(data, "_forecasts") and not data.forecasts.empty:
         vintages_set = set([str(v)[:10] for v in data.forecasts["vintage_date"].unique().tolist()])
@@ -32,9 +50,7 @@ def create_sidebar(data):
         sources_set = set(data.forecasts["source"].unique().tolist())
         unique_ids_set = set(data.forecasts["unique_id"].unique().tolist())
         transformations_set = set(data.forecasts["metric"].unique().tolist())
-        # Get frequency label from data
-        freq_code = data.forecasts["frequency"].iloc[0] if not data.forecasts["frequency"].empty else "Q"
-        period_label = frequency_labels.get(freq_code, "periods")
+        frequencies.update(data.forecasts["frequency"].dropna().unique())
         horizons = set(int(h) for h in data.forecasts["target_minus_vintage"].dropna().unique())
     else:
         vintages_set = set()
@@ -43,7 +59,7 @@ def create_sidebar(data):
         sources_set = set()
         unique_ids_set = set()
         transformations_set = set()
-        period_label = "periods"
+        horizons = set()
 
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         vintages_set.update([str(v)[:10] for v in data._density_forecasts["vintage_date"].unique().tolist()])
@@ -52,7 +68,21 @@ def create_sidebar(data):
         sources_set.update(data._density_forecasts["source"].unique().tolist())
         unique_ids_set.update(data._density_forecasts["unique_id"].unique().tolist())
         transformations_set.update(data._density_forecasts["metric"].unique().tolist())
+        frequencies.update(data._density_forecasts["frequency"].dropna().unique())
         horizons.update(int(h) for h in data._density_forecasts["target_minus_vintage"].dropna().unique())
+
+    period_label = frequency_labels.get(next(iter(frequencies)), "periods") if len(frequencies) == 1 else "periods"
+    point_frequencies = sorted(data.forecasts["frequency"].dropna().unique()) if not data.forecasts.empty else []
+    radar_frequency_choices = {
+        frequency: "Quarterly" if frequency == "Q" else "Monthly" for frequency in point_frequencies
+    }
+    if not radar_frequency_choices:
+        radar_frequency_choices = {"Q": "Quarterly"}
+    initial_radar_frequency = next(iter(radar_frequency_choices))
+    radar_variables = radar_variables_for_frequency(data, initial_radar_frequency)
+    radar_horizons = radar_horizons_for_frequency(
+        data, initial_radar_frequency, radar_variables[0] if radar_variables else None
+    )
 
     vintages = sorted(list(vintages_set))
     outturn_vintages = sorted(
@@ -84,7 +114,9 @@ def create_sidebar(data):
     supports_outturn_revision_analysis = data.supports_outturn_revision_analysis
 
     if uses_intra_period_vintages and hasattr(data, "_forecasts") and not data.forecasts.empty:
-        max_release_rank = int(data.forecasts.groupby("date")["vintage_date"].rank(method="dense").max())
+        max_release_rank = int(
+            data.forecasts.groupby(["variable", "frequency", "date"])["vintage_date"].rank(method="dense").max()
+        )
         release_choices = [str(rank) for rank in range(1, max_release_rank + 1)]
     else:
         release_choices = ["1"]
@@ -125,7 +157,6 @@ def create_sidebar(data):
 
     time_machine_tab = "input.tabs == 'Time Machine'"
     hedgehog_tab = "input.tabs == 'Hedgehog'"
-    outturn_revisions_tab = "input.tabs == 'Outturn Revisions'"
     outturn_revisions_subtab = (
         "input.tabs == 'Outturn Revisions' && input.outturn_revisions_subtabs == 'Outturn Revisions'"
     )
@@ -345,15 +376,30 @@ def create_sidebar(data):
                 open=False,  # Set to False if you want it collapsed by default
             ),
         ),
-        # Variables (single select – hidden when Radar tab is in variables mode)
+        # Variables shared by tabs other than Radar
         ui.panel_conditional(
-            "input.tabs != 'About' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Radar' && input.radar_mode == 'variables')",
+            (
+                "input.tabs != 'About' && "
+                "input.tabs != 'Radar' && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh')"
+            ),
             ui.input_selectize("variable", "Variable:", choices=variable, multiple=False, selected=variable[0]),
+        ),
+        ui.panel_conditional(
+            radar_tab + " && input.radar_mode != 'variables'",
+            ui.input_selectize(
+                "radar_variable",
+                "Variable:",
+                choices=radar_variables,
+                selected=radar_variables[0] if radar_variables else None,
+            ),
         ),
         # Variables (multi select – only for Radar variables mode)
         ui.panel_conditional(
             radar_tab + " && input.radar_mode == 'variables'",
-            ui.input_selectize("radar_variables", "Variables:", choices=variable, multiple=True, selected=variable),
+            ui.input_selectize(
+                "radar_variables", "Variables:", choices=radar_variables, multiple=True, selected=radar_variables
+            ),
         ),
         # Error for rolling accuracy
         ui.panel_conditional(
@@ -361,6 +407,15 @@ def create_sidebar(data):
             ui.input_select("error", "Error:", choices=["absolute", "squared"], selected="absolute"),
         ),
         # Radar mode selector
+        ui.panel_conditional(
+            radar_tab,
+            ui.input_select(
+                "radar_frequency",
+                "Frequency:",
+                choices=radar_frequency_choices,
+                selected=initial_radar_frequency,
+            ),
+        ),
         ui.panel_conditional(
             radar_tab,
             ui.input_select(
@@ -377,7 +432,12 @@ def create_sidebar(data):
         # Radar horizon selector (for metrics, variables and tests modes)
         ui.panel_conditional(
             radar_tab,
-            ui.input_select("radar_horizon", "Horizon:", choices=horizons, selected=horizons[0]),
+            ui.input_select(
+                "radar_horizon",
+                "Horizon:",
+                choices=radar_horizons,
+                selected=radar_horizons[0] if radar_horizons else None,
+            ),
         ),
         # Radar normalise toggle
         ui.panel_conditional(
@@ -417,7 +477,10 @@ def create_sidebar(data):
         # Radar bias type selector (tests mode, or variables mode with bias)
         ui.panel_conditional(
             radar_tab
-            + " && (input.radar_mode == 'tests' || (input.radar_mode == 'variables' && input.radar_test_type == 'bias'))",
+            + (
+                " && (input.radar_mode == 'tests' || "
+                "(input.radar_mode == 'variables' && input.radar_test_type == 'bias'))"
+            ),
             ui.input_select(
                 "radar_bias_type",
                 "Bias measure:",
@@ -431,7 +494,10 @@ def create_sidebar(data):
         # Radar efficiency type selector (tests mode, or variables mode with efficiency)
         ui.panel_conditional(
             radar_tab
-            + " && (input.radar_mode == 'tests' || (input.radar_mode == 'variables' && input.radar_test_type == 'efficiency'))",
+            + (
+                " && (input.radar_mode == 'tests' || "
+                "(input.radar_mode == 'variables' && input.radar_test_type == 'efficiency'))"
+            ),
             ui.input_select(
                 "radar_efficiency_type",
                 "Efficiency measure:",
@@ -456,7 +522,11 @@ def create_sidebar(data):
         *(
             [
                 ui.panel_conditional(
-                    "input.tabs != 'About' && input.tabs != 'Outturn Revisions' && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability')",
+                    (
+                        "input.tabs != 'About' && input.tabs != 'Outturn Revisions' && "
+                        "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && "
+                        "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability')"
+                    ),
                     ui.input_select("k", k_label, choices=k_values, selected=k_default),
                 ),
                 # Outturn taken at t + (multiple selection for outturn revisions)
@@ -532,7 +602,11 @@ def create_sidebar(data):
         ),
         # Transformation
         ui.panel_conditional(
-            "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && input.tabs != 'About'",
+            (
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Blanchard-Leigh') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && "
+                "input.tabs != 'About'"
+            ),
             ui.input_selectize(
                 "transform",
                 "Transformation:",
@@ -691,17 +765,35 @@ def create_sidebar(data):
         ),
         # Legend
         ui.panel_conditional(
-            "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
+            (
+                "input.tabs != 'About' && "
+                "!(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')"
+            ),
             ui.input_checkbox("show_legend", "Legend in plot", value=False),
         ),
         # Plot height control
         ui.panel_conditional(
-            "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
+            (
+                "input.tabs != 'About' && "
+                "!(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')"
+            ),
             ui.input_slider("plot_height", "Plot height (px):", min=300, max=2000, value=500, step=50),
         ),
         # Legend height control
         ui.panel_conditional(
-            "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
+            (
+                "input.tabs != 'About' && "
+                "!(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && "
+                "!(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')"
+            ),
             ui.input_slider("legend_height", "Legend height (px):", min=50, max=1000, value=200, step=50),
         ),
     )
