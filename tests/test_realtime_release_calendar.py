@@ -182,6 +182,10 @@ class TestMixedFrequency:
         main_table = build_main_table(forecasts, outturns, ["source"])
 
         assert main_table.set_index("frequency")["k"].to_dict() == {"Q": 0, "M": 1}
+        for frequency in ("Q", "M"):
+            with pytest.warns(DeprecationWarning, match="frequency.*deprecated"):
+                legacy_table = build_main_table(forecasts, outturns, ["source"], frequency=frequency)
+            pd.testing.assert_frame_equal(legacy_table, main_table)
 
     def test_nowcast_monthly_k_counts_releases(self, realtime_outturns, realtime_forecasts):
         """NowcastData ranks releases directly, so it is frequency-agnostic."""

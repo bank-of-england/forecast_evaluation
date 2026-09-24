@@ -1,4 +1,5 @@
-from typing import Optional, Union
+import warnings
+from typing import Literal, Optional, Union
 
 import pandas as pd
 
@@ -48,6 +49,7 @@ def build_main_table(
     id_columns: list[str],
     variables: Optional[Union[str, list[str]]] = None,
     forecast_ids: Optional[Union[str, list[str]]] = None,
+    frequency: Optional[Literal["Q", "M"]] = None,
     *,
     outturn_vintages: bool = True,
 ) -> pd.DataFrame:
@@ -66,6 +68,8 @@ def build_main_table(
     forecast_ids : str or list of str, optional
         Single identifier or list of forecast identifier to include.
         Can be elements of column 'source' or extra_ids columns.
+    frequency : {"Q", "M"}, optional
+        Deprecated; ignored because each row uses its own frequency.
     outturn_vintages : bool, default True
         Whether the outturn data contains vintage information. When False, skips
         ``compute_k`` and ``latest_vintage`` computation and sets sentinel values
@@ -76,6 +80,13 @@ def build_main_table(
     pd.DataFrame
         Table containing forecast evaluation metrics with forecast errors and vintage information.
     """
+
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and ignored; frequencies are read from each row.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     forecasts = forecasts.copy()
 
