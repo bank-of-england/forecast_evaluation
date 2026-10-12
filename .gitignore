@@ -236,3 +236,10 @@ logs/
 *.iso
 *.bin
 *.dmg
+
+# Files from Nades testing
+.github/agents/
+notebooks/*
+!notebooks/example_notebook.ipynb
+!notebooks/mtp_replication_notebook.ipynb
+review/
