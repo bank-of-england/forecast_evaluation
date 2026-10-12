@@ -243,3 +243,4 @@ notebooks/*
 !notebooks/example_notebook.ipynb
 !notebooks/mtp_replication_notebook.ipynb
 review/
+plans/
