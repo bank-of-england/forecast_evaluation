@@ -244,3 +244,4 @@ notebooks/*
 !notebooks/mtp_replication_notebook.ipynb
 review/
 plans/
+*.tmp
