@@ -319,6 +319,20 @@ def test_density_forecasts_repr(sample_outturns, sample_density_forecasts):
     assert len(repr_str) > 0
 
 
+def test_density_forecasts_repr_html_matches_repr(density_only):
+    """Notebook HTML shows the density table, as repr does."""
+    html = density_only._repr_html_()
+
+    assert "quantile" in html
+    assert html == density_only.density_forecasts._repr_html_()
+    assert repr(density_only) == repr(density_only.density_forecasts)
+
+
+def test_density_forecasts_repr_html_with_point_forecasts(density_and_point):
+    """Point forecasts do not replace the density table in the HTML view."""
+    assert "quantile" in density_and_point._repr_html_()
+
+
 # -----------------------
 # Validation Tests
 # -----------------------

@@ -17,7 +17,7 @@ def plot_density_vintage(
     data: DensityForecastData,
     variable: str,
     vintage_date: str | pd.Timestamp,
-    quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
+    quantiles: Optional[list[float]] = None,
     forecast_source: Optional[list[str]] = None,
     outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
@@ -36,6 +36,10 @@ def plot_density_vintage(
         List of forecast sources to include in the plot.
     vintage_date : str or pd.Timestamp
         The vintage date to plot, either as string or pandas Timestamp.
+    quantiles : list of float, optional
+        Quantile levels to plot. If None, uses [0.16, 0.5, 0.84]. Levels missing from the
+        data are replaced by the closest available level with a warning. The list passed
+        in is not modified.
     outturn_start_date : str or pd.Timestamp, optional
         Start date for outturn data to display (inclusive). If None, all available outturns are used.
     frequency : {"Q", "M"} or None, default None
@@ -109,15 +113,17 @@ def plot_density_vintage(
 
     # check that the quantiles are in the dataframe otherwise select the closest available ones
     available_quantiles = forecasts_filtered["quantile"].unique()
-    for i, target_quantile in enumerate(quantiles):
-        if target_quantile not in available_quantiles:
-            quantiles[i] = min(available_quantiles, key=lambda x: abs(x - target_quantile))
-            forecasts_filtered.loc[forecasts_filtered["quantile"] == target_quantile, "quantile"] = quantiles[i]
+    requested = [0.16, 0.5, 0.84] if quantiles is None else list(quantiles)
+    quantiles = []
+    for target_quantile in requested:
+        closest = min(available_quantiles, key=lambda x: abs(x - target_quantile))
+        if not np.isclose(closest, target_quantile, rtol=0, atol=1e-9):
             warnings.warn(
-                f"Quantile {target_quantile} not found. Using closest available quantile: {quantiles[i]}",
+                f"Quantile {target_quantile} not found. Using closest available quantile: {closest}",
                 UserWarning,
                 stacklevel=2,
             )
+        quantiles.append(closest)
 
     # round quantiles
     quantiles = [round(q, 3) for q in quantiles]

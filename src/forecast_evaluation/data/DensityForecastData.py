@@ -348,11 +348,15 @@ class DensityForecastData(ForecastData):
         """Return DataFrame representation when printing the class."""
         return self._density_forecasts.__repr__()
 
+    def _repr_html_(self) -> str | None:
+        """Return the density table as HTML so notebooks match ``__repr__``."""
+        return self._density_forecasts._repr_html_()
+
     def plot_density_vintage(
         self,
         variable: str,
         vintage_date: str | pd.Timestamp,
-        quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
+        quantiles: Optional[list[float]] = None,
         forecast_source: Optional[list[str]] = None,
         outturn_start_date: str | pd.Timestamp | None = None,
         frequency: Union[Literal["Q", "M"], None] = None,
@@ -364,6 +368,9 @@ class DensityForecastData(ForecastData):
 
         Parameters
         ----------
+        quantiles : list of float, optional
+            Quantile levels to plot. If None, uses [0.16, 0.5, 0.84]. The list passed in
+            is not modified.
         **kwargs
             Additional keyword arguments passed to the plotting function.
 
