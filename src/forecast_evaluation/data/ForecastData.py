@@ -1201,7 +1201,7 @@ class ForecastData(PlottingMixin):
 
         if extra_id_cols:
             for col in extra_id_cols:
-                vals = sorted(df[col].astype(str).unique())
+                vals = sorted(df[col].astype(object).map(str).unique())
                 print(f"  {col}: {', '.join(vals)}")
 
         # One table per unique (source, extra_id_cols) combination

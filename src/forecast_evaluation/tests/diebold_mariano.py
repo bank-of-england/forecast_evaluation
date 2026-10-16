@@ -160,8 +160,7 @@ def diebold_mariano_table(
         - 'rmse_ratio': Ratio of model RMSE to benchmark RMSE
         - 'benchmark_source': Benchmark model name
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

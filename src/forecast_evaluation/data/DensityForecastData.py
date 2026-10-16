@@ -2,6 +2,7 @@
 
 import numbers
 import warnings
+from collections.abc import Iterable
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
@@ -11,9 +12,6 @@ from scipy.stats import norm
 from tqdm import tqdm
 
 from forecast_evaluation.data.ForecastData import ForecastData, _atomic_state
-from forecast_evaluation.data.sample_data import (
-    create_sample_density_forecasts,
-)
 
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
@@ -458,6 +456,34 @@ class DensityForecastData(ForecastData):
         """Return the density table as HTML so notebooks match ``__repr__``."""
         return self._density_forecasts._repr_html_()
 
+    def _no_point_forecasts_message(self) -> str:
+        if self._density_df.empty:
+            return super()._no_point_forecasts_message()
+        return (
+            "No point forecasts loaded. Density forecasts must be converted with "
+            "DensityForecastData.to_point_forecast() before point-forecast analyses."
+        )
+
+    def _print_forecast_sections(self) -> None:
+        """Print the point forecast block (if any) followed by the density block."""
+        if not self._forecasts.empty:
+            self._print_forecast_summary()
+        elif not self._density_df.empty:
+            print("\n[FORECASTS] No point forecasts loaded (density forecasts are loaded: see [DENSITY FORECASTS])")
+        else:
+            print("\n[FORECASTS] No data loaded")
+
+        if not self._density_forecasts.empty:
+            self._print_forecast_summary(
+                self._density_forecasts,
+                "DENSITY FORECASTS",
+                show_metric=True,
+                dropna=False,
+                group_footer=_print_quantile_grids,
+            )
+        elif not self._density_df.empty:
+            print("\n[DENSITY FORECASTS] No data after filtering")
+
     def plot_density_vintage(
         self,
         variable: str,
@@ -498,6 +524,47 @@ class DensityForecastData(ForecastData):
             return_plot=return_plot,
             **kwargs,
         )
+
+
+def _describe_quantile_grid(levels: Iterable[float]) -> str:
+    """Describe one quantile grid compactly, e.g. ``0.01-0.99 step 0.02 (n=50)``.
+
+    Levels are rounded to 6 decimals (display only) to remove float noise.
+    """
+    levels = sorted({round(float(q), 6) for q in levels})
+    n = len(levels)
+    if n >= 3:
+        steps = np.diff(levels)
+        if steps.max() - steps.min() < 1e-6:
+            return f"{levels[0]:g}-{levels[-1]:g} step {round(float(steps.mean()), 6):g} (n={n})"
+    if n <= 9:
+        return "{" + ", ".join(f"{q:g}" for q in levels) + "}"
+    return f"{levels[0]:g}-{levels[-1]:g}, n={n}, irregular"
+
+
+def _describe_quantile_grids(grids: Iterable[Iterable[float]]) -> str:
+    """Describe the distinct quantile grids found in one group and flag a missing 0.5."""
+    distinct = sorted({tuple(sorted({round(float(q), 6) for q in grid})) for grid in grids})
+    if len(distinct) == 1:
+        text = _describe_quantile_grid(distinct[0])
+        return text if 0.5 in distinct[0] else f"{text}; no exact 0.5"
+
+    common = set(distinct[0]).intersection(*distinct[1:])
+    text = f"{len(distinct)} distinct grids; common: {_describe_quantile_grid(common) if common else 'none'}"
+    missing = sum(0.5 not in grid for grid in distinct)
+    return f"{text}; 0.5 missing in {missing} of {len(distinct)} grids" if missing else text
+
+
+def _print_quantile_grids(group: pd.DataFrame) -> None:
+    """Print one quantile grid description per (variable, metric) of a summary group."""
+    density_keys = [col for col in ("date", "vintage_date", "forecast_horizon") if col in group.columns]
+    print("  Quantile grid:")
+    for (variable, metric), rows in group.groupby(["variable", "metric"], sort=True, observed=True):
+        grids = [
+            tuple(density["quantile"].astype(float))
+            for _, density in rows.groupby(density_keys, observed=True, dropna=False)
+        ]
+        print(f"    {variable}, {metric}: {_describe_quantile_grids(grids)}")
 
 
 def _parse_quantile_level(method: Union[str, float]) -> float:
@@ -730,24 +797,3 @@ def _sample_from_quantile_function(
     samples = quantile_func(uniform_samples)
 
     return samples
-
-
-# Example usage:
-if __name__ == "__main__":
-    import forecast_evaluation as fe
-
-    # load point forecasts
-    forecast_data = fe.ForecastData(load_fer=True)
-
-    # sample density forecasts
-    density_forecast_df = create_sample_density_forecasts()
-    outturns_df = forecast_data.outturns
-    outturns_df = outturns_df[outturns_df["metric"] == "levels"]
-
-    density_data = fe.DensityForecastData(outturns_data=outturns_df, forecasts_data=density_forecast_df)
-
-    # merge
-    density_data.merge(forecast_data)
-
-    # run dashboard
-    density_data.run_dashboard()

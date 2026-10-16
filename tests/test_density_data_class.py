@@ -1,6 +1,7 @@
 """Tests for DensityForecastData class."""
 
 import warnings
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -331,6 +332,16 @@ def test_density_forecasts_repr_html_matches_repr(density_only):
 def test_density_forecasts_repr_html_with_point_forecasts(density_and_point):
     """Point forecasts do not replace the density table in the HTML view."""
     assert "quantile" in density_and_point._repr_html_()
+
+
+def test_density_module_has_no_demo_block():
+    """The module is a library: no demo-only sample-data import or __main__ block."""
+    import importlib
+
+    module = importlib.import_module("forecast_evaluation.data.DensityForecastData")
+
+    assert not hasattr(module, "create_sample_density_forecasts")
+    assert "__main__" not in Path(module.__file__).read_text(encoding="utf-8")
 
 
 # -----------------------
