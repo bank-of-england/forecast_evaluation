@@ -44,6 +44,7 @@ def create_sidebar(data):
         unique_ids_set = set()
         transformations_set = set()
         period_label = "periods"
+        horizons = set()
 
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         vintages_set.update([str(v)[:10] for v in data._density_forecasts["vintage_date"].unique().tolist()])

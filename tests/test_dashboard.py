@@ -72,6 +72,16 @@ def test_create_sidebar_releases_hidden_default_for_forecast_data(sample_outturn
     assert 'data-display-if="input.tabs == &apos;Hedgehog&apos;"' not in sidebar_html
 
 
+@pytest.mark.parametrize("fixture_name", ["density_only", "density_and_point"])
+def test_create_sidebar_builds_for_density_objects(request, fixture_name):
+    data = request.getfixturevalue(fixture_name)
+
+    sidebar = create_sidebar(data)
+    sidebar_html = str(ui.page_fluid(ui.layout_sidebar(sidebar, ui.div())))
+
+    assert 'id="releases"' in sidebar_html
+
+
 def test_dashboard_hides_correlation_and_radar_tabs_for_nowcast_data(nowcast_fd: NowcastData):
     """Correlation/Radar tabs and their handlers are unsupported for nowcast data, so both are skipped."""
     fd = nowcast_fd
