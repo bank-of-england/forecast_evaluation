@@ -172,8 +172,7 @@ def revisions_errors_correlation_analysis(
         - n_observations: int - number of observations in regression
         - hac_maxlags: int - Newey-West truncation lag used (max information horizon in the group)
     """
-    if data._main_table is None or data._forecasts is None:
-        raise ValueError("ForecastData missing data. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

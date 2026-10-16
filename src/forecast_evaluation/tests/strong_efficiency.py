@@ -202,8 +202,7 @@ def strong_efficiency_analysis(
         TestResult object containing a DataFrame with results for each horizon
         and metadata about the test parameters.
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

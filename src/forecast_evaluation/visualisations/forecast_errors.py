@@ -49,8 +49,7 @@ def plot_forecast_errors(
     tuple or None
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if frequency is not None:
         warnings.warn(
@@ -149,8 +148,7 @@ def plot_forecast_errors_by_horizon(
     tuple or None
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if frequency is not None:
         warnings.warn(
@@ -285,8 +283,7 @@ def plot_forecast_error_density(
     tuple or None
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if frequency is not None:
         warnings.warn(

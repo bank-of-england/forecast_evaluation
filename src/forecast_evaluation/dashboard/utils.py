@@ -50,6 +50,11 @@ def safe_render_plot(*outer_args, **outer_kwargs):
         return decorator
 
 
+def has_point_forecasts(data) -> bool:
+    """Whether point forecasts are loaded (the condition `_require_point_forecasts` checks)."""
+    return not data._raw_forecasts.empty
+
+
 def patch_render_plot():
     """Monkey-patch render.plot to use safe error handling."""
     render.plot = safe_render_plot
