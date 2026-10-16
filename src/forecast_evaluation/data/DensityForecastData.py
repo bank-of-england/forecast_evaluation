@@ -1,16 +1,21 @@
 """Density forecast data class for handling probabilistic forecasts with quantiles."""
 
+import warnings
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.stats import norm
 from tqdm import tqdm
 
 from forecast_evaluation.data.ForecastData import ForecastData, _atomic_state
 from forecast_evaluation.data.sample_data import (
     create_sample_density_forecasts,
 )
+
+# Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
+_TAIL_MASS_WARNING_THRESHOLD = 0.02
 
 
 class DensityForecastData(ForecastData):
@@ -196,28 +201,52 @@ class DensityForecastData(ForecastData):
         if not self._density_df.empty:
             self._density_forecasts = self._density_df.copy()
 
-    def sample_from_density(self, n_samples: int = 10000, random_state: Optional[int] = None) -> pd.DataFrame:
+    def sample_from_density(
+        self, n_samples: int = 10000, random_state: Optional[Union[int, np.random.Generator]] = None
+    ) -> pd.DataFrame:
         """Generate samples from the empirical distribution defined by quantiles.
 
         Uses inverse transform sampling to draw samples from the distribution
-        defined by the quantile forecasts.
+        defined by the quantile forecasts, as currently filtered.
 
         Parameters
         ----------
         n_samples : int, optional
             Number of samples to generate per forecast group. Default is 10000.
-        random_state : int, optional
-            Random seed for reproducibility.
+        random_state : int or numpy.random.Generator, optional
+            Seed (or generator) for one private random generator used for the whole call.
+            The global NumPy random state is neither read nor modified, so reproducibility
+            requires passing ``random_state``.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with sampled values. Columns: [id_columns..., 'sample_id', 'value']
+            One block of ``n_samples`` rows per density. Columns: all density-table columns
+            except 'quantile' and 'value' (including 'unique_id' and 'target_minus_vintage'),
+            then 'sample_id' (0 to ``n_samples - 1``) and 'value'.
+
+        Raises
+        ------
+        ValueError
+            If there are no density forecasts to sample from (none loaded, or all removed
+            by a filter), or if any density has fewer than two distinct quantile levels.
+
+        Warns
+        -----
+        UserWarning
+            If any density has an outer quantile level farther than 0.02 from 0 or 1.
 
         Notes
         -----
-        Works well when you have many quantiles (50+). With few quantiles,
-        consider using parametric fitting instead.
+        Outside the stored quantile range the quantile function is clamped to the
+        end values (it is not extrapolated), so mass ``min(quantile)`` and
+        ``1 - max(quantile)`` sits exactly on the two end values and the samples are too
+        narrow. The effect is driven by how close the outer levels are to 0 and 1, not by
+        the number of levels: a grid from 0.01 to 0.99 is nearly unaffected, while 0.1 to 0.9
+        gives a sample standard deviation of roughly 82% of a normal distribution's.
+
+        Draws are marginal only: they are independent across densities, and ``sample_id`` is
+        an index, not a path, so sums or growth rates across dates treat them as independent.
 
         Examples
         --------
@@ -228,32 +257,47 @@ class DensityForecastData(ForecastData):
         >>> samples = density_data.sample_from_density(n_samples=10, random_state=42)
         >>> mean = samples.groupby(['date', 'variable'])['value'].mean()
         """
+        if self._density_forecasts.empty:
+            raise ValueError("No density forecasts to sample from (none loaded, or the filter removed them all).")
+
+        # Positional index so each group's first row can be found without relying on labels
+        density = self._density_forecasts.reset_index(drop=True)
+
         # Group by all columns except 'quantile' and 'value'
-        group_cols = [col for col in self._density_forecasts.columns if col not in ["quantile", "value"]]
+        group_cols = [col for col in density.columns if col not in ["quantile", "value"]]
 
-        # Sample for each group
-        sampled_groups = []
+        grouped = density.groupby(group_cols, sort=True, dropna=False)
 
-        grouped = self._density_forecasts.groupby(group_cols)
+        levels = grouped["quantile"].agg(["min", "max", "nunique"])
+        short = levels[levels["nunique"] < 2]
+        if not short.empty:
+            names = "; ".join(str(key) for key in short.index[:5])
+            raise ValueError(
+                f"{len(short)} density(ies) have fewer than 2 distinct quantile levels and cannot be sampled: {names}"
+            )
+        _warn_if_tails_clamped(levels)
 
-        for group_vals, group in tqdm(grouped, desc="Sampling from density", total=len(grouped)):
+        rng = np.random.default_rng(random_state)
+
+        draws = []
+        first_rows = []
+
+        for _, group in tqdm(grouped, desc="Sampling from density", total=len(grouped)):
             group = group.sort_values("quantile")
 
             # Create interpolated quantile function
             quantile_func = _interpolate_quantile_function(group["quantile"].values, group["value"].values)
 
-            # Draw samples
-            samples = _sample_from_quantile_function(quantile_func, n_samples, random_state)
+            draws.append(_sample_from_quantile_function(quantile_func, n_samples, rng))
+            first_rows.append(group.index[0])
 
-            # Create DataFrame for this group - replicate group metadata
-            group_df = group[group_cols].iloc[[0]].copy()
-            group_df = pd.concat([group_df] * n_samples, ignore_index=True)
-            group_df["sample_id"] = range(n_samples)
-            group_df["value"] = samples
+        # One metadata row per group, repeated n_samples times
+        metadata = density.loc[first_rows, group_cols].reset_index(drop=True)
+        result = metadata.loc[metadata.index.repeat(n_samples)].reset_index(drop=True)
+        result["sample_id"] = np.tile(np.arange(n_samples, dtype=np.int64), len(first_rows))
+        result["value"] = np.concatenate(draws)
 
-            sampled_groups.append(group_df)
-
-        return pd.concat(sampled_groups, ignore_index=True)
+        return result
 
     def to_point_forecast(self, method: str = "median") -> None:
         """Add a selected quantile to this object's point forecasts.
@@ -426,7 +470,7 @@ def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) ->
     Notes
     -----
     Uses linear interpolation between quantiles. Values outside the range
-    are extrapolated using the nearest quantile value.
+    are clamped to the end values (no extrapolation).
     """
     return interp1d(
         quantiles, values, kind="linear", bounds_error=False, fill_value=(values[0], values[-1]), assume_sorted=True
@@ -456,8 +500,37 @@ def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Call
     return interp1d(values, quantiles, kind="linear", bounds_error=False, fill_value=(0.0, 1.0), assume_sorted=True)
 
 
+def _warn_if_tails_clamped(levels: pd.DataFrame) -> None:
+    """Warn once if any density's outer quantile levels are far from 0 and 1.
+
+    ``levels`` has one row per density with columns 'min' and 'max' (outer quantile levels).
+    """
+    outer_mass = np.maximum(levels["min"].to_numpy(), 1 - levels["max"].to_numpy())
+    # Small tolerance because 1 - 0.99 is 0.010000000000000009 in floating point
+    flagged = outer_mass > _TAIL_MASS_WARNING_THRESHOLD + 1e-9
+    if not flagged.any():
+        return
+
+    worst = int(np.argmax(outer_mass))
+    p = float(outer_mass[worst])
+    c = norm.ppf(1 - p)
+    # Standard deviation of a standard normal clamped at +/- c, relative to the unclamped value of 1
+    sd_ratio = float(np.sqrt((1 - 2 * p) - 2 * c * norm.pdf(c) + 2 * p * c**2))
+
+    warnings.warn(
+        f"sample_from_density: {int(flagged.sum())} of {len(levels)} densities have outer quantile levels "
+        f"farther than {_TAIL_MASS_WARNING_THRESHOLD} from 0 or 1 (worst: {levels['min'].iloc[worst]:g} and "
+        f"{levels['max'].iloc[worst]:g}). Samples are clamped to the stored range, so about {p * 100:.3g}% of "
+        f"draws sit exactly on each end value and the draws are too narrow: for a normal-like distribution the "
+        f"sample standard deviation will be roughly {sd_ratio * 100:.0f}% of the true value. Supply quantiles "
+        f"closer to 0 and 1, or treat the draws as truncated.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def _sample_from_quantile_function(
-    quantile_func: Callable, n_samples: int, random_state: Optional[int] = None
+    quantile_func: Callable, n_samples: int, rng: Optional[Union[int, np.random.Generator]] = None
 ) -> np.ndarray:
     """Draw samples from distribution using inverse transform sampling.
 
@@ -467,8 +540,8 @@ def _sample_from_quantile_function(
         Quantile function (inverse CDF) that maps probability → value.
     n_samples : int
         Number of samples to draw.
-    random_state : int, optional
-        Random seed for reproducibility.
+    rng : int or numpy.random.Generator, optional
+        Seed or generator for a private random stream. The global NumPy random state is not touched.
 
     Returns
     -------
@@ -481,11 +554,10 @@ def _sample_from_quantile_function(
     1. Draw uniform random samples U ~ Uniform(0, 1)
     2. Transform using inverse CDF: X = Q(U)
     """
-    if random_state is not None:
-        np.random.seed(random_state)
+    rng = np.random.default_rng(rng)
 
     # Draw uniform samples
-    uniform_samples = np.random.uniform(0, 1, size=n_samples)
+    uniform_samples = rng.random(n_samples)
 
     # Transform using quantile function (inverse CDF)
     samples = quantile_func(uniform_samples)
