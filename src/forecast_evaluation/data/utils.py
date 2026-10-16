@@ -83,6 +83,7 @@ def filter_tables(
     sources: Optional[Union[list[str], str]] = None,
     frequencies: Optional[Union[str, list[str]]] = None,
     custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    skipped: Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """Filter the dataset based on date and vintage ranges.
 
@@ -112,7 +113,9 @@ def filter_tables(
         List of frequency identifiers to filter, or a single frequency string. Default is None (no filtering).
     custom_filter : Callable[[pd.DataFrame], pd.DataFrame], optional
         A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
-        Default is None.
+        Default is None. It is skipped for a table that lacks a column it references.
+    skipped : list of str, optional
+        If given, the name of the missing column is appended when ``custom_filter`` is skipped.
 
     Returns
     -------
@@ -189,6 +192,8 @@ def filter_tables(
         except KeyError as error:
             missing_column = error.args[0] if error.args else None
             if isinstance(missing_column, str) and missing_column not in df.columns:
+                if skipped is not None:
+                    skipped.append(missing_column)
                 return df
             raise
 
