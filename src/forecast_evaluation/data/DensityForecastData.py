@@ -1,5 +1,6 @@
 """Density forecast data class for handling probabilistic forecasts with quantiles."""
 
+import numbers
 import warnings
 from typing import Callable, Literal, Optional, Union
 
@@ -16,6 +17,9 @@ from forecast_evaluation.data.sample_data import (
 
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
+
+# Quantile levels are compared after rounding to this many decimals (a tolerance of 1e-9).
+_LEVEL_DECIMALS = 9
 
 
 class DensityForecastData(ForecastData):
@@ -299,19 +303,41 @@ class DensityForecastData(ForecastData):
 
         return result
 
-    def to_point_forecast(self, method: str = "median") -> None:
+    def to_point_forecast(
+        self,
+        method: Union[str, float] = "median",
+        *,
+        on_missing: Literal["nearest", "raise"] = "nearest",
+        source_suffix: Optional[str] = None,
+        compute_levels: bool = True,
+        data_check: bool = True,
+    ) -> None:
         """Add a selected quantile to this object's point forecasts.
 
         Reads the density forecasts as currently filtered. If the filter leaves no
-        density forecasts, a warning is raised and nothing is added.
+        density forecasts, a warning is raised and nothing is added. The converted rows keep
+        the density's ``extra_ids`` and, unless ``source_suffix`` is given, its ``source``.
 
         Parameters
         ----------
-        method : str, optional
-            Method to extract point forecast:
-            - 'median': Use 0.5 quantile (default, most robust)
+        method : str or float, optional
+            Quantile level to extract, a number in [0, 1]:
+            - 'median': Use the 0.5 quantile (default)
             - 'mean': Not implemented
-            - specific quantile: e.g., '0.5', '0.75'
+            - a level, as a string or number: e.g. '0.75' or 0.75
+        on_missing : {'nearest', 'raise'}, optional
+            What to do for a density that does not store the requested level (within 1e-9).
+            'nearest' (default) uses the nearest stored level and warns once per call;
+            'raise' raises a ``ValueError`` listing the affected densities. Interpolation
+            between stored levels is not offered.
+        source_suffix : str, optional
+            Appended to ``source`` on the converted rows, so that several quantiles of one
+            density (for example ``' (q0.25)'`` and ``' (q0.75)'``) can be stored side by side,
+            or a point model of the same name is not collided with. Default is None (keep ``source``).
+        compute_levels : bool, optional
+            Passed to ``add_forecasts``. Default is True.
+        data_check : bool, optional
+            Passed to ``add_forecasts``. Default is True.
 
         Returns
         -------
@@ -321,7 +347,32 @@ class DensityForecastData(ForecastData):
         Raises
         ------
         ValueError
-            If no density forecasts have been loaded, or ``method`` is invalid.
+            If no density forecasts have been loaded; ``method`` or ``on_missing`` is invalid;
+            ``on_missing='raise'`` and a density lacks the level; a density has no quantile
+            level common to all its dates; or point forecasts already stored under the same
+            source (and keys) have different values.
+        NotImplementedError
+            If ``method`` is 'mean'.
+
+        Warns
+        -----
+        UserWarning
+            Once per call if the level is not stored for some densities and the nearest level
+            was used, naming the requested level, the level used and the distance.
+
+        Notes
+        -----
+        The level is resolved per forecast path (one source, extra ids, variable, metric,
+        frequency and vintage), so one level is used for every date of the path. Levels are
+        matched with a tolerance of 1e-9. If the level is not stored, the nearest level
+        stored at every date of the path is used; an equally near pair resolves to the lower
+        level, independent of row order. No density is dropped silently.
+
+        The derived ``pop`` and ``yoy`` point forecasts are growth rates of the chosen
+        quantile's LEVEL path, not quantiles of the growth distribution. They coincide only
+        if level quantiles at different dates are perfectly dependent.
+
+        Repeating a call with the same arguments changes nothing and emits no warning.
 
         Examples
         --------
@@ -333,18 +384,12 @@ class DensityForecastData(ForecastData):
         >>> density_data.forecasts.empty
         False
         """
-        import warnings
+        target = _parse_quantile_level(method)
 
-        if method == "median":
-            target_quantile = 0.5
-        elif method == "mean":
-            raise NotImplementedError("Mean estimation from density forecasts is not implemented yet.")
-            return
-        else:
-            try:
-                target_quantile = float(method)
-            except ValueError:
-                raise ValueError(f"Invalid method '{method}'. Use 'median', 'mean', or a quantile value (e.g., '0.5').")
+        if on_missing not in ("nearest", "raise"):
+            raise ValueError(f"Invalid on_missing {on_missing!r}. Use 'nearest' or 'raise'.")
+        if source_suffix is not None and not isinstance(source_suffix, str):
+            raise ValueError(f"source_suffix must be a string or None; got {source_suffix!r}.")
 
         if self._density_df.empty:
             raise ValueError("No density forecasts loaded. Add density forecasts before calling to_point_forecast.")
@@ -358,25 +403,28 @@ class DensityForecastData(ForecastData):
             )
             return
 
-        # Try to find exact match
-        forecast_df = density[density["quantile"] == target_quantile].copy()
+        extra_ids = self._extra_ids
+        path_cols = [
+            col
+            for col in ["source", *extra_ids, "variable", "metric", "frequency", "vintage_date"]
+            if col in density.columns
+        ]
+        forecast_df, missing_message = _select_quantile_rows(density, path_cols, target, on_missing, method)
 
-        # If no exact match, find closest quantile
+        forecast_df = forecast_df.drop(columns=["quantile", "unique_id"], errors="ignore")
+        if source_suffix:
+            forecast_df["source"] = forecast_df["source"].astype(str) + source_suffix
+
+        # An identical repeat is a no-op; a different value under the same keys is a conflict.
+        key_cols = ["source", *extra_ids, "variable", "metric", "frequency", "vintage_date", "date"]
+        forecast_df = _drop_existing_point_rows(forecast_df, self._raw_forecasts, key_cols, target)
         if forecast_df.empty:
-            available_quantiles = density["quantile"].unique()
+            return
 
-            # Find closest quantile
-            closest_quantile = min(available_quantiles, key=lambda x: abs(x - target_quantile))
+        if missing_message:
+            warnings.warn(missing_message, UserWarning, stacklevel=2)
 
-            warnings.warn(
-                f"Quantile {target_quantile} not found. Using closest available quantile: {closest_quantile}",
-                UserWarning,
-                stacklevel=2,
-            )
-
-            forecast_df = density[density["quantile"] == closest_quantile].copy()
-
-        super().add_forecasts(forecast_df)
+        super().add_forecasts(forecast_df, extra_ids=extra_ids, compute_levels=compute_levels, data_check=data_check)
 
     def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData or DensityForecastData instance into this one.
@@ -450,6 +498,125 @@ class DensityForecastData(ForecastData):
             return_plot=return_plot,
             **kwargs,
         )
+
+
+def _parse_quantile_level(method: Union[str, float]) -> float:
+    """Return the quantile level for a ``to_point_forecast`` method, or raise."""
+    if isinstance(method, str):
+        if method == "median":
+            return 0.5
+        if method == "mean":
+            raise NotImplementedError("Mean estimation from density forecasts is not implemented yet.")
+        try:
+            level = float(method)
+        except ValueError:
+            raise ValueError(
+                f"Invalid method '{method}'. Use 'median', 'mean', or a quantile value (e.g., '0.5')."
+            ) from None
+    elif isinstance(method, (bool, np.bool_)) or not isinstance(method, numbers.Real):
+        raise ValueError(f"Quantile level must be a number in [0, 1]; got {method!r}.")
+    else:
+        level = float(method)
+
+    if not (np.isfinite(level) and 0 <= level <= 1):
+        raise ValueError(f"Quantile level must be a number in [0, 1]; got {method!r}.")
+    return level
+
+
+def _describe_path(row: pd.Series, columns: list[str]) -> str:
+    """Format the identity of one forecast path, e.g. ``source=B, variable=gdpkp``."""
+    parts = []
+    for column in columns:
+        value = row[column]
+        parts.append(f"{column}={value.date() if isinstance(value, pd.Timestamp) else value}")
+    return ", ".join(parts)
+
+
+def _select_quantile_rows(
+    density: pd.DataFrame,
+    path_cols: list[str],
+    target: float,
+    on_missing: Literal["nearest", "raise"],
+    method: Union[str, float],
+) -> tuple[pd.DataFrame, Optional[str]]:
+    """Pick one quantile level per forecast path and return its rows and an optional warning text.
+
+    A path is the rows sharing ``path_cols`` (its dates are horizons), so one level is used for
+    all its dates. Only levels stored at every date of the path are candidates. The stored level
+    nearest to ``target`` is used; an equally near pair resolves to the lower level.
+    """
+    density = density.reset_index(drop=True)
+    density = density.assign(
+        _path=density.groupby(path_cols, sort=False, dropna=False).ngroup(),
+        _level=density["quantile"].astype(float).round(_LEVEL_DECIMALS),
+    )
+    n_dates = density.groupby("_path")["date"].nunique()
+    at_level = density.groupby(["_path", "_level"])["date"].nunique().rename("n_dates").reset_index()
+    common = at_level[at_level["n_dates"] == at_level["_path"].map(n_dates)].copy()
+    common["distance"] = (common["_level"] - target).abs().round(_LEVEL_DECIMALS)
+    chosen = common.sort_values(["distance", "_level"]).drop_duplicates("_path").sort_values("_path")
+
+    stored = chosen["distance"] == 0
+    lacking = n_dates.index[~n_dates.index.isin(chosen.loc[stored, "_path"])]
+    no_common = lacking[~lacking.isin(chosen["_path"])]
+
+    if len(lacking):
+        info = density.drop_duplicates("_path").set_index("_path")
+        shown = "; ".join(_describe_path(info.loc[p], path_cols) for p in lacking[:5])
+        more = f" and {len(lacking) - 5} more" if len(lacking) > 5 else ""
+        if on_missing == "raise":
+            raise ValueError(
+                f"Quantile level {target:g} is not stored at every date for {len(lacking)} of {len(n_dates)} "
+                f"forecast(s) (on_missing='raise'): {shown}{more}."
+            )
+        if len(no_common):
+            raise ValueError(
+                f"{len(no_common)} forecast(s) have no quantile level stored at every date, so no level can be "
+                f"used for the whole path: {'; '.join(_describe_path(info.loc[p], path_cols) for p in no_common[:5])}."
+            )
+
+        used = chosen[~stored]
+        details = [
+            f"{_describe_path(info.loc[p], path_cols)}: level {level:g} (distance {distance:g})"
+            for p, level, distance in used[["_path", "_level", "distance"]].head(5).itertuples(index=False)
+        ]
+        message = (
+            f"to_point_forecast({method!r}): quantile level {target:g} is not stored at every date for {len(used)} of "
+            f"{len(n_dates)} forecast(s); used the nearest stored level instead (ties go to the lower level), "
+            f"e.g. {'; '.join(details)}{' and others' if len(used) > 5 else ''}. "
+            f"Pass on_missing='raise' to make this an error."
+        )
+    else:
+        message = None
+
+    rows = density.merge(chosen[["_path", "_level"]], on=["_path", "_level"], how="inner")
+    return rows.drop(columns=["_path", "_level"]).reset_index(drop=True), message
+
+
+def _drop_existing_point_rows(
+    new: pd.DataFrame, existing: pd.DataFrame, key_cols: list[str], target: float
+) -> pd.DataFrame:
+    """Drop rows of ``new`` already stored with the same value; raise if a stored value differs."""
+    keys = [col for col in key_cols if col in new.columns and col in existing.columns]
+    if existing.empty or new.empty or not keys:
+        return new
+
+    old = existing[[*keys, "value"]].drop_duplicates(keys).rename(columns={"value": "_old_value"})
+    old_value = new[keys].merge(old, on=keys, how="left")["_old_value"].to_numpy(dtype=float)
+    overlap = ~np.isnan(old_value)
+    if not overlap.any():
+        return new
+
+    differs = overlap.copy()
+    differs[overlap] = ~np.isclose(new["value"].to_numpy(dtype=float)[overlap], old_value[overlap], rtol=1e-9, atol=0)
+    if differs.any():
+        sources = sorted(new.loc[differs, "source"].astype(str).unique())
+        raise ValueError(
+            f"Point forecasts for source(s) {sources} already exist with different values for {differs.sum()} "
+            f"record(s) (for example from an earlier to_point_forecast call). Pass source_suffix (for example "
+            f"source_suffix=' (q{target:g})') to store several levels side by side, or start from a fresh object."
+        )
+    return new.loc[~overlap].reset_index(drop=True)
 
 
 def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
