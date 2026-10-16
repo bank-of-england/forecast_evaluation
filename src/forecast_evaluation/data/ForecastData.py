@@ -10,7 +10,7 @@ import pandas as pd
 import pandera.pandas as pa
 
 from forecast_evaluation.core.main_table import build_main_table
-from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
+from forecast_evaluation.core.transformations import drop_superseded_outturns, prepare_forecasts, prepare_outturns
 from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
@@ -123,6 +123,8 @@ class ForecastData(PlottingMixin):
         ----------
         outturns_data : pd.DataFrame, optional
             DataFrame containing outturn records to add on initialisation. Default is None.
+            May already contain ``pop``/``yoy`` rows (for example another object's ``outturns``);
+            see :meth:`add_outturns`.
         forecasts_data : pd.DataFrame, optional
             DataFrame containing forecast records to add on initialisation. Default is None.
         load_fer : bool, optional
@@ -202,6 +204,14 @@ class ForecastData(PlottingMixin):
     def add_outturns(self, df: pd.DataFrame, *, metric: Literal["levels", "pop", "yoy"] = "levels") -> None:
         """Validate new outturns and add them to the outturns dataset
 
+        ``pop`` and ``yoy`` are derived from the ``levels`` rows. Supplied ``pop``/``yoy`` rows (for example
+        ``other.outturns``) are kept instead of the derived rows with the same variable, frequency, date,
+        vintage_date and metric, so nothing is duplicated; this also applies to derived rows already stored
+        (supplied rows supersede them, and stored supplied rows supersede newly derived ones). If a supplied
+        value differs from the derived value by more than a small tolerance, the supplied value is kept and
+        one ``UserWarning`` reports how many rows differ and the largest absolute difference. Aligned nowcast
+        snapshot rows (``_aligned``) are exempt from that warning.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -248,7 +258,15 @@ class ForecastData(PlottingMixin):
         # Transform outturns (prepare_outturns handles metric-specific logic)
         outturns = prepare_outturns(df_validated_unique)
 
-        self._outturns = pd.concat([self._outturns, outturns], ignore_index=True)
+        # Supplied pop/yoy rows win over derived rows already stored, and vice versa.
+        existing_outturns = self._outturns
+        if not self._raw_outturns.empty:
+            stored_supplied = self._raw_outturns[self._raw_outturns["metric"] != "levels"]
+            outturns = drop_superseded_outturns(outturns, stored_supplied)
+            new_supplied = df_validated_unique[df_validated_unique["metric"] != "levels"]
+            existing_outturns = drop_superseded_outturns(existing_outturns, new_supplied)
+
+        self._outturns = pd.concat([existing_outturns, outturns], ignore_index=True)
         self._raw_outturns = pd.concat([self._raw_outturns, df_validated_unique], ignore_index=True)
 
     def add_forecasts(
@@ -644,9 +662,23 @@ class ForecastData(PlottingMixin):
         self.add_fer_forecasts()
 
     def filter_fer(self) -> None:
-        """Filter the main dataset to only include specific variable-metric and model combinations"""
+        """Filter the main dataset to only include specific variable-metric and model combinations.
+
+        Does nothing when the main table is empty (for example a density-only object). Density
+        tables are not filtered: the FER model list does not contain density sources.
+        """
+        if self._main_table.empty:
+            return
         self._main_table = filter_fer_variables(self._main_table)
         self._main_table = filter_fer_models(self._main_table)
+
+    def _require_point_forecasts(self) -> None:
+        """Raise a ValueError if no point forecasts have been loaded (filters are not considered)."""
+        if self._raw_forecasts.empty:
+            raise ValueError(self._no_point_forecasts_message())
+
+    def _no_point_forecasts_message(self) -> str:
+        return "No point forecasts loaded. Add them with add_forecasts() before running point-forecast analyses."
 
     def _apply_filter_with_standardized_columns(
         self,
@@ -1064,15 +1096,22 @@ class ForecastData(PlottingMixin):
         else:
             print("\n[OUTTURNS] No data loaded")
 
+        self._print_forecast_sections()
+
+        print("=" * 80 + "\n")
+
+    def _print_forecast_sections(self):
+        """Print the forecast part of the summary."""
         if not self._forecasts.empty:
             self._print_forecast_summary()
         else:
             print("\n[FORECASTS] No data loaded")
 
-        print("=" * 80 + "\n")
+    def _print_variable_table(self, df, show_horizon=False, group_label=None, show_metric=False):
+        """Print a table of variables with date/vintage/horizon info.
 
-    def _print_variable_table(self, df, show_horizon=False, group_label=None):
-        """Print a table of variables with date/vintage/horizon info."""
+        With ``show_metric`` there is one row per (variable, metric) and a Metric column.
+        """
         if group_label:
             print(f"\n  {group_label}")
 
@@ -1080,8 +1119,18 @@ class ForecastData(PlottingMixin):
         max_var_len = max(len(var) for var in variables) if variables else 0
         var_col_width = max(max_var_len, 8)
 
+        if show_metric:
+            pairs = sorted(df[["variable", "metric"]].drop_duplicates().itertuples(index=False, name=None))
+            entries = [(var, metric, df[(df["variable"] == var) & (df["metric"] == metric)]) for var, metric in pairs]
+            metric_col_width = max([len("Metric"), *(len(str(metric)) for _, metric, _ in entries)])
+        else:
+            entries = [(var, None, df[df["variable"] == var]) for var in variables]
+
         # Build header
-        header_parts = [f"  {'Variable':<{var_col_width}}", "Freq", f"{'Date':<24}", f"{'Vintage':<24}"]
+        header_parts = [f"  {'Variable':<{var_col_width}}"]
+        if show_metric:
+            header_parts.append(f"{'Metric':<{metric_col_width}}")
+        header_parts += ["Freq", f"{'Date':<24}", f"{'Vintage':<24}"]
         if show_horizon:
             header_parts.append(f"{'Horizon':<8}")
 
@@ -1092,8 +1141,7 @@ class ForecastData(PlottingMixin):
         print(separator)
 
         # Print rows for each variable
-        for var in variables:
-            var_data = df[df["variable"] == var]
+        for var, metric, var_data in entries:
             frequency = var_data["frequency"].iloc[0]
             date_range = (
                 f"{var_data['date'].min().strftime('%Y-%m-%d')} to {var_data['date'].max().strftime('%Y-%m-%d')}"
@@ -1101,7 +1149,10 @@ class ForecastData(PlottingMixin):
             vintage_range = f"{var_data['vintage_date'].min().strftime('%Y-%m-%d')} "
             vintage_range += f"to {var_data['vintage_date'].max().strftime('%Y-%m-%d')}"
 
-            row_parts = [f"  {var:<{var_col_width}}", f"{frequency:4}", f"{date_range:<24}", f"{vintage_range:<24}"]
+            row_parts = [f"  {var:<{var_col_width}}"]
+            if show_metric:
+                row_parts.append(f"{metric!s:<{metric_col_width}}")
+            row_parts += [f"{frequency:4}", f"{date_range:<24}", f"{vintage_range:<24}"]
             if show_horizon:
                 horizon_range = f"{var_data['forecast_horizon'].min()} to {var_data['forecast_horizon'].max()}"
                 row_parts.append(f"{horizon_range:<8}")
@@ -1121,10 +1172,15 @@ class ForecastData(PlottingMixin):
 
         self._print_variable_table(df)
 
-    def _print_forecast_summary(self):
-        """Print summary statistics for forecasts data."""
-        print("\n[FORECASTS]")
-        df = self._forecasts
+    def _print_forecast_summary(
+        self, df=None, title="FORECASTS", *, show_metric=False, dropna=True, group_footer: Optional[Callable] = None
+    ):
+        """Print summary statistics for forecasts data (``df`` defaults to the filtered point forecasts).
+
+        ``group_footer`` is called with each group's rows after its table is printed.
+        """
+        print(f"\n[{title}]")
+        df = self._forecasts if df is None else df
 
         variables = sorted(df["variable"].unique())
         print(f"  Number of variables: {len(variables)}")
@@ -1150,7 +1206,7 @@ class ForecastData(PlottingMixin):
 
         # One table per unique (source, extra_id_cols) combination
         group_cols = ["source"] + extra_id_cols
-        for group_key, group_data in df.groupby(group_cols, observed=True):
+        for group_key, group_data in df.groupby(group_cols, observed=True, dropna=dropna):
             keys = (group_key,) if not isinstance(group_key, tuple) else group_key
             source = keys[0]
             id_values = keys[1:]
@@ -1161,7 +1217,9 @@ class ForecastData(PlottingMixin):
                 id_label = "  ".join(f"{col}: {val}" for col, val in zip(extra_id_cols, id_values))
                 group_label = f"{source}  [{id_label}]"
 
-            self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
+            self._print_variable_table(group_data, show_horizon=True, group_label=group_label, show_metric=show_metric)
+            if group_footer is not None:
+                group_footer(group_data)
 
 
 def _format_schema_errors(exc: "pa.errors.SchemaErrors", max_examples: int = 5) -> str:
