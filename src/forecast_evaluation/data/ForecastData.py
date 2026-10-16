@@ -25,6 +25,13 @@ from forecast_evaluation.data.utils import (
 BENCHMARK_MODELS = ["AR", "random_walk"]
 _UNSET = object()
 
+_TABLE_LABELS = {
+    "_forecasts": "forecasts",
+    "_outturns": "outturns",
+    "_main_table": "main table",
+    "_density_forecasts": "density forecasts",
+}
+
 
 def _add_compatibility_forecast_horizon(
     df: pd.DataFrame,
@@ -654,13 +661,19 @@ class ForecastData(PlottingMixin):
         sources: Optional[Union[str, list[str]]] = None,
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        table: Optional[str] = None,
+        skipped: Optional[dict[str, str]] = None,
     ) -> pd.DataFrame:
-        """Apply filter_tables with standardized column names."""
+        """Apply filter_tables with standardized column names.
+
+        If ``skipped`` is given, ``skipped[table]`` records the column that made ``custom_filter`` skip this table.
+        """
         # Temporarily rename if needed
         if rename_cols:
             df = df.rename(columns={"vintage_date": "vintage_date_forecast"})
 
         # Apply filter
+        missing = []
         df = filter_tables(
             df,
             start_date,
@@ -672,7 +685,10 @@ class ForecastData(PlottingMixin):
             sources,
             frequencies,
             custom_filter,
+            skipped=missing,
         )
+        if missing and skipped is not None:
+            skipped[table] = missing[0]
 
         # Rename back if needed
         if rename_cols:
@@ -721,48 +737,58 @@ class ForecastData(PlottingMixin):
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         """
-        if not self._forecasts.empty:
-            self._forecasts = self._apply_filter_with_standardized_columns(
-                self._forecasts,
-                rename_cols=True,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
-            )
-
-        self._outturns = self._apply_filter_with_standardized_columns(
-            self._outturns,
-            rename_cols=True,
+        updates, skipped = self._filtered_tables(
             start_date=start_date,
             end_date=end_date,
             start_vintage=start_vintage,
             end_vintage=end_vintage,
             variables=variables,
             metrics=metrics,
+            sources=sources,
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
+        self._commit_filter(updates, skipped)
+
+    def _filtered_tables(
+        self, skipped: Optional[dict[str, str]] = None, **criteria
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
+        """Return the filtered forecasts, outturns and main tables without assigning them.
+
+        Also returns the tables (and missing column) for which ``custom_filter`` was skipped.
+        """
+        skipped = {} if skipped is None else skipped
+        updates = {}
+        if not self._forecasts.empty:
+            updates["_forecasts"] = self._apply_filter_with_standardized_columns(
+                self._forecasts, rename_cols=True, table="_forecasts", skipped=skipped, **criteria
+            )
+
+        # Outturns have no source dimension.
+        updates["_outturns"] = self._apply_filter_with_standardized_columns(
+            self._outturns, rename_cols=True, table="_outturns", skipped=skipped, **{**criteria, "sources": None}
+        )
 
         if not self._main_table.empty:
-            self._main_table = self._apply_filter_with_standardized_columns(
-                self._main_table,
-                rename_cols=False,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
+            updates["_main_table"] = self._apply_filter_with_standardized_columns(
+                self._main_table, rename_cols=False, table="_main_table", skipped=skipped, **criteria
             )
+        return updates, skipped
+
+    def _commit_filter(self, updates: dict[str, pd.DataFrame], skipped: dict[str, str]) -> None:
+        """Assign the filtered tables, warning if ``custom_filter`` was skipped on every one."""
+        for name, table in updates.items():
+            setattr(self, name, table)
+
+        # A column present in only some tables is a table-specific filter, not a typo.
+        if skipped and len(skipped) == len(updates):
+            for name, column in skipped.items():
+                warnings.warn(
+                    f"custom_filter was not applied to the '{_TABLE_LABELS[name]}' table: "
+                    f"column '{column}' not found.",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
     def clear_filter(self) -> None:
         """Reset the forecasts, main and revisions tables to include all original data."""

@@ -130,8 +130,10 @@ class DensityForecastData(ForecastData):
         filter_point_forecasts: Optional[bool] = True,
         filter_density_forecasts: Optional[bool] = True,
     ):
-        """Filter the forecasts and main tables to only include data within specified
+        """Filter the outturns, forecasts, main and density tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
+
+        The filter is atomic: if any table fails to filter, no table is changed.
 
         Parameters
         ----------
@@ -159,39 +161,31 @@ class DensityForecastData(ForecastData):
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         filter_point_forecasts : bool, optional
-            Whether to apply the filter to point forecasts. Default is True.
+            Whether to filter the outturns, point forecasts and main table. Default is True.
+            Outturns and the main table are filtered even when there are no point forecasts.
         filter_density_forecasts : bool, optional
             Whether to apply the filter to density forecasts. Default is True.
         """
-        # Call parent filter for regular forecasts (only if they exist)
-        if not self._forecasts.empty and filter_point_forecasts:
-            super().filter(
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
+        criteria = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_vintage": start_vintage,
+            "end_vintage": end_vintage,
+            "variables": variables,
+            "metrics": metrics,
+            "sources": sources,
+            "frequencies": frequencies,
+            "custom_filter": custom_filter,
+        }
+
+        updates, skipped = self._filtered_tables(**criteria) if filter_point_forecasts else ({}, {})
+
+        if filter_density_forecasts and not self._density_forecasts.empty:
+            updates["_density_forecasts"] = self._apply_filter_with_standardized_columns(
+                self._density_forecasts, rename_cols=True, table="_density_forecasts", skipped=skipped, **criteria
             )
 
-        # Also filter density forecasts (only if they exist)
-        if not self._density_forecasts.empty and filter_density_forecasts:
-            self._density_forecasts = self._apply_filter_with_standardized_columns(
-                self._density_forecasts,
-                rename_cols=True,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
-            )
+        self._commit_filter(updates, skipped)
 
     def clear_filter(self) -> None:
         """Reset both parent forecasts and density forecasts to include all original data."""
@@ -264,6 +258,9 @@ class DensityForecastData(ForecastData):
     def to_point_forecast(self, method: str = "median") -> None:
         """Add a selected quantile to this object's point forecasts.
 
+        Reads the density forecasts as currently filtered. If the filter leaves no
+        density forecasts, a warning is raised and nothing is added.
+
         Parameters
         ----------
         method : str, optional
@@ -276,6 +273,11 @@ class DensityForecastData(ForecastData):
         -------
         None
             The point forecasts are stored on this object.
+
+        Raises
+        ------
+        ValueError
+            If no density forecasts have been loaded, or ``method`` is invalid.
 
         Examples
         --------
@@ -300,12 +302,24 @@ class DensityForecastData(ForecastData):
             except ValueError:
                 raise ValueError(f"Invalid method '{method}'. Use 'median', 'mean', or a quantile value (e.g., '0.5').")
 
+        if self._density_df.empty:
+            raise ValueError("No density forecasts loaded. Add density forecasts before calling to_point_forecast.")
+
+        density = self._density_forecasts
+        if density.empty:
+            warnings.warn(
+                "No density forecasts remain after filtering; no point forecasts were added.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return
+
         # Try to find exact match
-        forecast_df = self._density_df[self._density_df["quantile"] == target_quantile].copy()
+        forecast_df = density[density["quantile"] == target_quantile].copy()
 
         # If no exact match, find closest quantile
         if forecast_df.empty:
-            available_quantiles = self._density_df["quantile"].unique()
+            available_quantiles = density["quantile"].unique()
 
             # Find closest quantile
             closest_quantile = min(available_quantiles, key=lambda x: abs(x - target_quantile))
@@ -316,7 +330,7 @@ class DensityForecastData(ForecastData):
                 stacklevel=2,
             )
 
-            forecast_df = self._density_df[self._density_df["quantile"] == closest_quantile].copy()
+            forecast_df = density[density["quantile"] == closest_quantile].copy()
 
         super().add_forecasts(forecast_df)
 
