@@ -16,7 +16,26 @@ def test_parity_skips_when_refs_missing():
 
 def test_parity_refs_load_and_have_expected_keys():
     refs = require_ref("refs_distributions")
-    for key in ("skt_loc", "skt_scale", "skt_shape", "skt_df", "skt_x", "skt_tau", "skt_pdf", "skt_cdf", "skt_ppf"):
+    expected = (
+        "skt_params",
+        "skt_x",
+        "skt_tau",
+        "skt_pdf",
+        "skt_cdf",
+        "skt_q",
+        "tpn_params",
+        "tpn_x",
+        "tpn_tau",
+        "tpn_pdf",
+        "tpn_q",
+        "mom_inputs",
+        "mom_gam",
+        "mom_sig",
+        "mom_parm",
+        "mom_sig1",
+        "mom_sig2",
+    )
+    for key in expected:
         assert key in refs
     assert not any(k.startswith("__") for k in refs)
 

@@ -9,9 +9,13 @@ from tests.parity._loaders import require_ref
 _PARITY_ROOT = Path(__file__).resolve().parent
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "parity: local-only MATLAB parity tests (gitignored, not shipped)")
+
+
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        if _PARITY_ROOT in Path(str(item.fspath)).resolve().parents:
+        if _PARITY_ROOT in Path(item.path).resolve().parents:
             item.add_marker(pytest.mark.parity)
 
 

@@ -17,6 +17,7 @@ if ~exist(outdir, 'dir')
 end
 rng(0, 'twister');
 written = {};
+failed  = {};
 fprintf('Exporting parity references to %s\n', outdir);
 
 %% Section A: distributions (skew-t, TPN)
@@ -69,7 +70,8 @@ try
         'mom_inputs', 'mom_gam', 'mom_sig', 'mom_parm', 'mom_sig1', 'mom_sig2', '-v7');
     written{end+1} = f;
 catch ME
-    warning('Section A failed: %s', ME.message);
+    warning('forecast_evaluation:DensityParitySectionA', 'Section A failed: %s', ME.message);
+    failed{end+1} = 'A';
 end
 
 %% Section B: fitting (skew-t, TPN, QR_sm)
@@ -79,6 +81,13 @@ try
     nPick = 10;
     R = struct();
     R.qlev = qlev;
+    lev_idx = @(lv) arrayfun(@(q) find(abs(qlev - q) < 1e-8, 1), lv);
+    qi_lev  = [0.05 0.25 0.5 0.75 0.95];   % levels QuantilesInterpolation fits
+    fsa_lev = qlev;                         % quantilesToFit passed to fit_skewt_to_quantiles_all
+    tp_lev  = [0.25 0.5 0.75];              % levels fit_tpn_to_quantiles_SM fits
+    qi_idx = lev_idx(qi_lev);  fsa_idx = lev_idx(fsa_lev);  tp_idx = lev_idx(tp_lev);
+    R.qi_lev = qi_lev;  R.fsa_lev = fsa_lev;  R.tp_lev = tp_lev;
+    nFail = 0;
     series = {'infl', 'inflation'; 'gdp', 'gdp'};
     for s = 1:size(series, 1)
         tag = series{s, 1};
@@ -106,33 +115,57 @@ try
         qi_params = nan(nK, 4);  qi_fitq = nan(nK, numel(qlev));  qi_obj = nan(nK, 1);  qi_time = nan(nK, 1);
         fa_params = nan(nK, 4);  fa_fitq = nan(nK, numel(qlev));  fa_obj = nan(nK, 1);  fa_time = nan(nK, 1);
         tp_params = nan(nK, 3);  tp_fitq = nan(nK, numel(qlev));  tp_obj = nan(nK, 1);  tp_time = nan(nK, 1);
+        qi_obj_fit = nan(nK, 1);  fsa_obj_fit = nan(nK, 1);  tp_obj_fit = nan(nK, 1);
         for k = 1:nK
             tq = reshape(pq(picks(k, 1), :, picks(k, 2)), 1, []);
             targets(k, :) = tq;
 
             % MTP QuantilesInterpolation (fmincon on 5 quantiles, df rounded)
-            tic;
-            [lc, sc, sh, df] = QuantilesInterpolation(tq, qlev);
-            qi_time(k) = toc;
-            qi_params(k, :) = [lc sc sh df];
-            qi_fitq(k, :) = reshape(qskt(qlev, lc, sc, sh, df), 1, []);
-            qi_obj(k) = sum((qi_fitq(k, :) - tq).^2);
+            try
+                tic;
+                [lc, sc, sh, df] = QuantilesInterpolation(tq, qlev);
+                qi_time(k) = toc;
+                qi_params(k, :) = [lc sc sh df];
+                qi_fitq(k, :) = reshape(qskt(qlev, lc, sc, sh, df), 1, []);
+                qi_obj(k) = sum((qi_fitq(k, :) - tq).^2);
+                qi_obj_fit(k) = sum((qi_fitq(k, qi_idx) - tq(qi_idx)).^2);
+            catch ME
+                warning('Section B %s QI fit %d failed: %s', tag, k, ME.message);
+                qi_params(k, :) = NaN;  qi_fitq(k, :) = NaN;  qi_obj(k) = NaN;  qi_obj_fit(k) = NaN;  qi_time(k) = NaN;
+                nFail = nFail + 1;
+            end
 
             % fit_skewt_to_quantiles_all (lsqnonlin over df = 5..30)
-            tic;
-            [fp, fq] = fit_skewt_to_quantiles_all(reshape(tq, 1, 1, [], 1), qlev, qlev, 1, 1, 30);
-            fa_time(k) = toc;
-            fa_params(k, :) = reshape(fp(1, :, 1, 1), 1, []);
-            fa_fitq(k, :) = reshape(fq(1, :, 1, 1), 1, []);
-            fa_obj(k) = sum((reshape(qskt(qlev, fa_params(k, 1), fa_params(k, 2), fa_params(k, 3), fa_params(k, 4)), 1, []) - tq).^2);
+            try
+                tic;
+                [fp, fq] = fit_skewt_to_quantiles_all(reshape(tq, 1, 1, [], 1), qlev, fsa_lev, 1, 1, 30);
+                fa_time(k) = toc;
+                fa_params(k, :) = reshape(fp(1, :, 1, 1), 1, []);
+                fa_fitq(k, :) = reshape(fq(1, :, 1, 1), 1, []);
+                fa_q19 = reshape(qskt(qlev, fa_params(k, 1), fa_params(k, 2), fa_params(k, 3), fa_params(k, 4)), 1, []);
+                fa_obj(k) = sum((fa_q19 - tq).^2);
+                fsa_obj_fit(k) = sum((fa_q19(fsa_idx) - tq(fsa_idx)).^2);
+            catch ME
+                warning('Section B %s FSA fit %d failed: %s', tag, k, ME.message);
+                fa_params(k, :) = NaN;  fa_fitq(k, :) = NaN;  fa_obj(k) = NaN;  fsa_obj_fit(k) = NaN;  fa_time(k) = NaN;
+                nFail = nFail + 1;
+            end
 
             % Two-piece normal (fmincon on q25/q50/q75)
-            tic;
-            [tpar, tfq] = fit_tpn_to_quantiles_SM(tq, qlev);
-            tp_time(k) = toc;
-            tp_params(k, :) = tpar;
-            tp_fitq(k, :) = reshape(tfq, 1, []);
-            tp_obj(k) = sum((tp_fitq(k, :) - sort(tq)).^2);
+            try
+                tic;
+                [tpar, tfq] = fit_tpn_to_quantiles_SM(tq, qlev);
+                tp_time(k) = toc;
+                tp_params(k, :) = tpar;
+                tp_fitq(k, :) = reshape(tfq, 1, []);
+                tqs = sort(tq);
+                tp_obj(k) = sum((tp_fitq(k, :) - tqs).^2);
+                tp_obj_fit(k) = sum((tp_fitq(k, tp_idx) - tqs(tp_idx)).^2);
+            catch ME
+                warning('Section B %s TPN fit %d failed: %s', tag, k, ME.message);
+                tp_params(k, :) = NaN;  tp_fitq(k, :) = NaN;  tp_obj(k) = NaN;  tp_obj_fit(k) = NaN;  tp_time(k) = NaN;
+                nFail = nFail + 1;
+            end
         end
 
         R.([tag '_picks'])     = picks;   % [origin, horizon] (1-based)
@@ -143,6 +176,9 @@ try
         R.([tag '_fa_obj'])    = fa_obj;     R.([tag '_fa_time']) = fa_time;
         R.([tag '_tp_params']) = tp_params;  R.([tag '_tp_fitq']) = tp_fitq;
         R.([tag '_tp_obj'])    = tp_obj;     R.([tag '_tp_time']) = tp_time;
+        R.([tag '_qi_obj_fit'])  = qi_obj_fit;   % objectives over the actually-fitted levels
+        R.([tag '_fsa_obj_fit']) = fsa_obj_fit;
+        R.([tag '_tp_obj_fit'])  = tp_obj_fit;
 
         if s == 1
             infl_targets_for_qrsm = targets(1:min(5, nK), :);
@@ -173,11 +209,15 @@ try
         end
     end
 
+    fprintf('Section B: %d individual fit(s) failed (NaN written)\n', nFail);
+    R.n_fit_failures = nFail;
+
     f = fullfile(outdir, 'refs_fitting.mat');
     save(f, '-struct', 'R', '-v7');
     written{end+1} = f;
 catch ME
-    warning('Section B failed: %s', ME.message);
+    warning('forecast_evaluation:DensityParitySectionB', 'Section B failed: %s', ME.message);
+    failed{end+1} = 'B';
 end
 
 %% Section C: calibration tests (Knueppel, Mitchell-Weale, RS, GMM)
@@ -264,7 +304,8 @@ try
     save(f, '-struct', 'R', '-v7');
     written{end+1} = f;
 catch ME
-    warning('Section C failed: %s', ME.message);
+    warning('forecast_evaluation:DensityParitySectionC', 'Section C failed: %s', ME.message);
+    failed{end+1} = 'C';
 end
 
 %% Section D: scoring (quantile-grid CRPS/wCRPS, qwps, skew-t value grid, sharpness)
@@ -302,7 +343,8 @@ try
             if strcmp(fam, 'norm')
                 qfun = @(p) norminv(p, P(i, 1), P(i, 2));
             else
-                qfun = @(p) reshape(qskt(p, P(i, 1), P(i, 2), P(i, 3), P(i, 4)), size(p));
+                % qskt needs row input (pskt returns rows); restore caller's shape
+                qfun = @(p) reshape(qskt(reshape(p, 1, []), P(i, 1), P(i, 2), P(i, 3), P(i, 4)), size(p));
             end
             q = qfun(tau_grid);
             xdraw = qfun(u_draw);
@@ -335,7 +377,7 @@ try
         x_lo = lc_v - 15 * sc_v;
         x_hi = lc_v + max(15, 8 * abs(sh_v)) * sc_v;
         xg   = linspace(x_lo, x_hi, nG)';
-        pdg  = dskt(xg, lc_v, sc_v, sh_v, df_v);
+        pdg  = reshape(dskt(xg', lc_v, sc_v, sh_v, df_v), [], 1);
         cdg  = min(max(cumtrapz(xg, pdg), 0), 1);
         [cu, ia] = unique(cdg, 'stable');
         xu = xg(ia);
@@ -354,7 +396,7 @@ try
     quant_qr = (0.05:0.05:0.95)';
     R.interp19_quant = quant_qr;
     R.interp19_qvals = [norminv(quant_qr, 0.5, 1.2), ...
-                        reshape(qskt(quant_qr, 2, 1.5, -3, 5), [], 1)];   % 19 x 2
+                        reshape(qskt(quant_qr', 2, 1.5, -3, 5), [], 1)];   % 19 x 2
     nC = size(R.interp19_qvals, 2);
     R.interp19_pit = nan(nC, nY);  R.interp19_crps = nan(nC, nY);  R.interp19_wcrpsL = nan(nC, nY);
     R.interp19_qntl = nan(nC, numel(q_sharp_lev));
@@ -375,19 +417,26 @@ try
     save(f, '-struct', 'R', '-v7');
     written{end+1} = f;
 catch ME
-    warning('Section D failed: %s', ME.message);
+    warning('forecast_evaluation:DensityParitySectionD', 'Section D failed: %s', ME.message);
+    failed{end+1} = 'D';
 end
 
 %% Section E: end-to-end evaluation refs (manual step, see comment block at end of file)
 fprintf(['\nSection E (manual): refs_eval_inflation.mat / refs_eval_growth.mat must be saved from\n' ...
-         'forecast_evaluation_inflation.m (insert after lines 199 and 376) and\n' ...
-         'forecast_evaluation_growth.m (insert after lines 261 and 382).\n' ...
+         'forecast_evaluation_inflation.m (approx. lines 199 and 376) and\n' ...
+         'forecast_evaluation_growth.m (approx. lines 261 and 382).\n' ...
+         'Anchor on the quoted source text, not line numbers (E2 shifts once E1 is inserted).\n' ...
          'Copy the snippets from the comment block at the end of:\n  %s\n'], [mfilename('fullpath') '.m']);
 
 %% Summary
 fprintf('\nWrote %d reference file(s):\n', numel(written));
 for k = 1:numel(written)
     fprintf('  %s\n', written{k});
+end
+if isempty(failed)
+    fprintf('No sections failed.\n');
+else
+    fprintf('Failed section(s): %s\n', strjoin(failed, ', '));
 end
 
 %% ===================== Local functions =====================
@@ -405,7 +454,7 @@ rs_test_stats.ks_stat  = KS;
 rs_test_stats.cvm_stat = CVM;
 
 el = floor(T.^(1/3));
-bootMC = 200;
+bootMC = size(eta, 2);   % 200 in the original rs_test.m
 
 tableboot = CVfinalbootstrapInoue_eta(el, bootMC, z, rvec, eta);
 rs_boot_crit_value.ks = tableboot(:,1)';
@@ -571,6 +620,7 @@ end
 %% ===================== Section E: manual snippets =====================
 % Paste these into the MTP evaluation scripts and run them once. Datetimes
 % are converted to datenum and cell arrays unpacked so scipy.io.loadmat can read them.
+% Anchor on the quoted source text, not the line numbers: E2's line shifts once E1 is inserted.
 %
 % --- forecast_evaluation_inflation.m -----------------------------------
 % (E1) Insert AFTER line 199  "originDT_all{1} = eval_origins;"
@@ -579,7 +629,7 @@ end
 %   pe_boe_mode = modevar;  pe_boe_mean = meanvar;  pe_boe_unc = dispvar;   % (h+1) x nQOrig_fc
 %   pe_fc_origins = datenum(fc_origins);
 %
-% (E2) Insert AFTER line 376  "          mu_bv sigma_bv t_idx q_grid;"
+% (E2) Insert AFTER (orig. line 376, shifted by E1)  "          mu_bv sigma_bv t_idx q_grid;"
 %      (end of BVAR block, BEFORE "RUN TESTS FOR EACH MODEL"):
 %
 %   pe_models = models;  pe_eval_horizons = cfg.eval_horizons;  pe_eval_origins = datenum(eval_origins);
@@ -598,7 +648,7 @@ end
 %   pe_boe_mode = modevar_fc;  pe_boe_mean = meanvar_fc;  pe_boe_unc = dispvar_fc;   % 13 x nQOrig_fc
 %   pe_fc_origins = datenum(fc_origins);
 %
-% (E2) Insert AFTER line 382  "          ih j k h_idx t_idx mu_bv sigma_bv act q_grid;"
+% (E2) Insert AFTER (orig. line 382, shifted by E1)  "          ih j k h_idx t_idx mu_bv sigma_bv act q_grid;"
 %      (end of BVAR block, BEFORE "RUN TESTS FOR EACH MODEL"):
 %
 %   pe_models = models;  pe_eval_horizons = cfg.eval_horizons;  pe_eval_origins = datenum(eval_origins);

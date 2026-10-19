@@ -661,6 +661,11 @@ exposing a ``density_forecasts`` table for density analysis.
        variable="gdpkp", vintage_date="2025-12-31", return_plot=True
    )
 
+   ``quantiles`` and ``return_plot`` are keyword-only. Quantiles default to
+   ``(0.16, 0.5, 0.84)`` and are sorted; if a requested level is not stored, the
+   nearest stored level is used with a warning. The plot shades one outer band
+   for two or more levels, with any inner levels shown as faint dashed lines.
+
 Dashboard
 ---------
 
