@@ -80,6 +80,8 @@ def test_signature():
         assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
     assert params["on_missing"].default == "nearest"
     assert params["source_suffix"].default is None
+    assert params["compute_levels"].default is None
+    assert params["data_check"].default is False
 
 
 def test_keeps_extra_ids(density_extra_ids):
@@ -116,6 +118,21 @@ def test_passes_add_options(density_extra_ids, monkeypatch):
     assert len(df) == 13
     assert df["region"].eq("UK").all()
     assert "quantile" not in df.columns
+
+
+def test_constructor_compute_levels_is_default_for_conversion(density_outturns_df, density_df, monkeypatch):
+    data = DensityForecastData(
+        outturns_data=density_outturns_df,
+        forecasts_data=density_df,
+        compute_levels=False,
+        data_check=False,
+    )
+    calls = []
+    monkeypatch.setattr(ForecastData, "add_forecasts", lambda self, df, **kwargs: calls.append(kwargs))
+
+    data.to_point_forecast("0.25")
+
+    assert calls == [{"extra_ids": [], "compute_levels": False, "data_check": False}]
 
 
 # -----------------------

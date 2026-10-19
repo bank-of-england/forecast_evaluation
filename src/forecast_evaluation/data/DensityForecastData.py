@@ -11,7 +11,7 @@ from scipy.interpolate import interp1d
 from scipy.stats import norm
 from tqdm import tqdm
 
-from forecast_evaluation.data.ForecastData import ForecastData, _atomic_state
+from forecast_evaluation.data.ForecastData import _UNSET, ForecastData, _atomic_state, _check_forecast_data
 
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
@@ -40,6 +40,18 @@ class DensityForecastData(ForecastData):
     extra_ids : list of str, optional
         Additional identification columns beyond 'source'. Quantile distinguishes
         observations within a density, not separate forecasts.
+    metric : str, optional
+        Metric to assign when missing from outturn or density data. Default is 'levels'.
+    compute_levels : bool, optional
+        Default for ``to_point_forecast``; density ingestion itself never derives metrics.
+    data_check : bool, optional
+        Whether to check each density's central path against outturns when it is added.
+    outturn_vintages : bool, optional
+        Whether outturns contain vintage information. Default is True.
+    default_k : int or None, optional
+        Default outturn revision index used by evaluation functions.
+    first_forecast_horizon : int or dict[str, int], optional
+        Deprecated fallback used when density input omits ``forecast_horizon``.
 
     Examples
     --------
@@ -59,8 +71,14 @@ class DensityForecastData(ForecastData):
         outturns_data: Optional[pd.DataFrame] = None,
         forecasts_data: Optional[pd.DataFrame] = None,
         load_fer: Optional[bool] = False,
+        *,
         extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
+        data_check: bool = True,
+        outturn_vintages: bool = True,
+        default_k: Optional[int] = None,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
     ):
         """Initialise DensityForecastData.
 
@@ -69,17 +87,40 @@ class DensityForecastData(ForecastData):
         """
         self._density_forecasts = pd.DataFrame()
         self._density_df = pd.DataFrame()
+        self._compute_levels = compute_levels
 
         # Initialise parent class without forecasts
         super().__init__(
-            outturns_data=outturns_data, load_fer=load_fer, extra_ids=extra_ids, compute_levels=compute_levels
+            outturns_data=outturns_data,
+            load_fer=load_fer,
+            extra_ids=extra_ids,
+            metric=metric,
+            compute_levels=compute_levels,
+            data_check=data_check,
+            outturn_vintages=outturn_vintages,
+            default_k=default_k,
+            first_forecast_horizon=first_forecast_horizon,
         )
 
         # Add forecasts if provided (using density-specific method)
         if forecasts_data is not None:
-            self.add_density_forecasts(forecasts_data, extra_ids=extra_ids)
+            self.add_density_forecasts(
+                forecasts_data,
+                extra_ids=extra_ids,
+                metric=metric,
+                data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
+            )
 
-    def add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
+    def add_density_forecasts(
+        self,
+        df: pd.DataFrame,
+        *,
+        extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
+        data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+    ) -> None:
         """Validate and add density forecasts with quantile column.
 
         Parameters
@@ -90,6 +131,14 @@ class DensityForecastData(ForecastData):
         extra_ids : list of str, optional
             Additional identification columns beyond 'source'. The 'quantile'
             column is validated separately and never identifies a forecast.
+        metric : str, optional
+            Metric assigned when the input has no 'metric' column or has null values.
+            Default is 'levels'.
+        data_check : bool, optional
+            Whether to compare the nearest-to-median path with outturns. Densities
+            without a quantile within 0.1 of 0.5 are skipped. Default is True.
+        first_forecast_horizon : int or dict[str, int], optional
+            Deprecated fallback used when ``forecast_horizon`` is missing.
 
         Raises
         ------
@@ -107,13 +156,42 @@ class DensityForecastData(ForecastData):
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
 
-        if "metric" not in df.columns:
-            df = df.assign(metric="levels")
-
         extra_ids = [column for column in extra_ids or [] if column != "quantile"]
         with _atomic_state(self, *self._forecast_state):
             # Pass the backing table name because validation may align its id columns.
-            df = self._validate_new_forecasts(df, stored="_density_df", extra_ids=extra_ids, extra_columns=["quantile"])
+            df = self._validate_new_forecasts(
+                df,
+                stored="_density_df",
+                extra_ids=extra_ids,
+                extra_columns=["quantile"],
+                metric=metric,
+                first_forecast_horizon=first_forecast_horizon,
+            )
+
+            if data_check:
+                central = df.assign(_median_gap=(df["quantile"] - 0.5).abs())
+                central_keys = ["unique_id", "variable", "metric", "frequency", "date", "vintage_date"]
+                central = central.sort_values(["_median_gap", "quantile"], kind="mergesort")
+                central = central.drop_duplicates(subset=central_keys, keep="first")
+                central = central[central["_median_gap"] <= 0.1].drop(columns=["_median_gap", "quantile"])
+                _check_forecast_data(central, self._outturns)
+
+            negative_horizons = df["forecast_horizon"] < 0
+            n_negative = int(negative_horizons.sum())
+            if n_negative:
+                row_label = "row" if n_negative == 1 else "rows"
+                warnings.warn(
+                    f"Dropped {n_negative} density forecast {row_label} with negative forecast_horizon.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                df = df.loc[~negative_horizons].copy()
+
+            if df.empty:
+                warnings.warn(
+                    "No density forecasts available after filtering/validation.", UserWarning, stacklevel=2
+                )
+                return
 
             self._density_df = pd.concat([self._density_df, df], ignore_index=True)
             self._density_forecasts = pd.concat([self._density_forecasts, df], ignore_index=True)
@@ -307,8 +385,8 @@ class DensityForecastData(ForecastData):
         *,
         on_missing: Literal["nearest", "raise"] = "nearest",
         source_suffix: Optional[str] = None,
-        compute_levels: bool = True,
-        data_check: bool = True,
+        compute_levels: Optional[bool] = None,
+        data_check: bool = False,
     ) -> None:
         """Add a selected quantile to this object's point forecasts.
 
@@ -333,9 +411,11 @@ class DensityForecastData(ForecastData):
             density (for example ``' (q0.25)'`` and ``' (q0.75)'``) can be stored side by side,
             or a point model of the same name is not collided with. Default is None (keep ``source``).
         compute_levels : bool, optional
-            Passed to ``add_forecasts``. Default is True.
+            Passed to ``add_forecasts``. If omitted, uses the constructor's
+            ``compute_levels`` setting (default True).
         data_check : bool, optional
-            Passed to ``add_forecasts``. Default is True.
+            Whether to check the converted point forecasts again. Density data is
+            checked on ingestion by default, so this defaults to False.
 
         Returns
         -------
@@ -422,7 +502,12 @@ class DensityForecastData(ForecastData):
         if missing_message:
             warnings.warn(missing_message, UserWarning, stacklevel=2)
 
-        super().add_forecasts(forecast_df, extra_ids=extra_ids, compute_levels=compute_levels, data_check=data_check)
+        super().add_forecasts(
+            forecast_df,
+            extra_ids=extra_ids,
+            compute_levels=self._compute_levels if compute_levels is None else compute_levels,
+            data_check=data_check,
+        )
 
     def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData or DensityForecastData instance into this one.
@@ -442,11 +527,11 @@ class DensityForecastData(ForecastData):
             Default is True.
         """
 
-        super().merge(other, compute_levels=compute_levels)
+        with _atomic_state(self, *self._forecast_state, "_raw_outturns", "_outturns"):
+            super().merge(other, compute_levels=compute_levels)
 
-        if isinstance(other, DensityForecastData):
-            if not other._density_df.empty:
-                self.add_density_forecasts(other._density_df, extra_ids=other._extra_ids)
+            if isinstance(other, DensityForecastData) and not other._density_df.empty:
+                self.add_density_forecasts(other._density_df, extra_ids=other._extra_ids, data_check=False)
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""
@@ -488,41 +573,63 @@ class DensityForecastData(ForecastData):
         self,
         variable: str,
         vintage_date: str | pd.Timestamp,
-        quantiles: Optional[list[float]] = None,
         forecast_source: Optional[list[str]] = None,
         outturn_start_date: str | pd.Timestamp | None = None,
-        frequency: Union[Literal["Q", "M"], None] = None,
+        frequency: Optional[Literal["Q", "M"]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
+        *,
+        quantiles: Optional[list[float]] = None,
         return_plot: bool = False,
-        **kwargs,
     ) -> tuple | None:
-        """Plot forecast density plots.
+        """Plot density forecasts for one vintage with quantile bands and outturns.
 
         Parameters
         ----------
-        quantiles : list of float, optional
-            Quantile levels to plot. If None, uses [0.16, 0.5, 0.84]. The list passed in
-            is not modified.
-        **kwargs
-            Additional keyword arguments passed to the plotting function.
+        variable : str
+            Variable to plot.
+        vintage_date : str or pd.Timestamp
+            Forecast vintage to plot.
+        forecast_source : list of str, optional
+            Sources to include. If None, all sources are included.
+        outturn_start_date : str or pd.Timestamp, optional
+            First outturn date to display (inclusive). If None, use all available dates.
+        frequency : {"Q", "M"}, optional
+            Frequency to filter on. If None, infer it from the outturns.
+        metric : {"levels", "pop", "yoy"}, default "levels"
+            Metric to plot. Density forecasts must already be stored in this metric.
+        quantiles : sequence of float, optional
+            Keyword-only quantile levels in [0, 1]. Defaults to ``(0.16, 0.5, 0.84)``. A copy is
+            sorted in ascending order. Two or more levels draw one shaded outer band; inner levels
+            are faint dashed lines. The 0.5 level, or the middle requested level for an odd-length
+            list, is solid. Missing levels use the nearest stored value with a warning.
+        return_plot : bool, default False
+            Keyword-only. If True, return the matplotlib figure and axes instead of showing the plot.
+
+        Returns
+        -------
+        tuple or None
+            ``(fig, ax)`` if ``return_plot`` is True; otherwise None.
+
+        See Also
+        --------
+        forecast_evaluation.visualisations.plot_density_vintage
 
         Notes
         -----
-        This method creates density plots for the density forecasts.
+        Outturns use the latest available vintage and are split before and after the forecast vintage.
         """
         from forecast_evaluation.visualisations.density_plots import plot_density_vintage
 
         return plot_density_vintage(
             self,
-            variable,
-            vintage_date,
+            variable=variable,
+            vintage_date=vintage_date,
             forecast_source=forecast_source,
-            quantiles=quantiles,
             outturn_start_date=outturn_start_date,
             frequency=frequency,
             metric=metric,
+            quantiles=quantiles,
             return_plot=return_plot,
-            **kwargs,
         )
 
 

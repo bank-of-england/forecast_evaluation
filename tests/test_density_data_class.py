@@ -1,5 +1,6 @@
 """Tests for DensityForecastData class."""
 
+import inspect
 import warnings
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from forecast_evaluation.data.sample_data import (
     create_sample_forecasts,
     create_sample_outturns,
 )
+from forecast_evaluation.data.utils import compute_target_minus_vintage, construct_unique_id
 
 
 # -----------------------
@@ -46,6 +48,49 @@ def test_init_empty():
     assert dfd.forecasts.empty
     assert dfd.density_forecasts.empty
     assert dfd.outturns is not None
+
+
+def test_constructor_parameters_match_parent_and_are_keyword_only():
+    parent_params = inspect.signature(ForecastData.__init__).parameters
+    density_params = inspect.signature(DensityForecastData.__init__).parameters
+
+    assert list(density_params) == list(parent_params)
+    for name in (
+        "extra_ids",
+        "metric",
+        "compute_levels",
+        "data_check",
+        "outturn_vintages",
+        "default_k",
+        "first_forecast_horizon",
+    ):
+        assert density_params[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_init_accepts_parent_options(sample_outturns):
+    outturns = sample_outturns.drop(columns="metric", errors="ignore")
+    dfd = DensityForecastData(
+        outturns_data=outturns,
+        metric="pop",
+        compute_levels=False,
+        data_check=False,
+        outturn_vintages=False,
+        default_k=3,
+        first_forecast_horizon=1,
+    )
+
+    assert dfd._raw_outturns["metric"].eq("pop").all()
+    assert dfd.default_k == 3
+    assert dfd.outturn_vintages is False
+    assert dfd.first_forecast_horizon == 1
+    assert dfd._compute_levels is False
+
+
+def test_add_density_forecast_options_are_keyword_only():
+    params = inspect.signature(DensityForecastData.add_density_forecasts).parameters
+
+    for name in ("extra_ids", "metric", "data_check", "first_forecast_horizon"):
+        assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
 
 
 def test_init_with_density_data(sample_outturns, sample_density_forecasts):
@@ -158,15 +203,104 @@ def test_density_forecasts_preserve_provided_metrics(sample_outturns):
 
 
 def test_density_forecasts_default_to_levels(sample_outturns, sample_density_forecasts):
-    """Default density forecasts without a metric to levels without warning."""
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    """Default density forecasts to levels and warn when metric is omitted."""
+    with pytest.warns(UserWarning, match="Forecasts input has no 'metric' column"):
         dfd = DensityForecastData(
-            outturns_data=sample_outturns.assign(metric="levels"), forecasts_data=sample_density_forecasts
+            outturns_data=sample_outturns.assign(metric="levels"),
+            forecasts_data=sample_density_forecasts,
+            data_check=False,
         )
 
     assert dfd.density_forecasts["metric"].eq("levels").all()
-    assert not caught
+
+
+def test_density_metric_argument_fills_null_metric_values(sample_outturns, sample_density_forecasts):
+    forecasts = sample_density_forecasts.assign(metric=pd.NA)
+    dfd = DensityForecastData(
+        outturns_data=sample_outturns.assign(metric="pop"),
+        forecasts_data=forecasts,
+        metric="pop",
+        data_check=False,
+    )
+
+    assert dfd.density_forecasts["metric"].eq("pop").all()
+
+
+@pytest.mark.parametrize(
+    ("quantiles", "data_check", "expect_warning"),
+    [([0.25, 0.5, 0.75], True, True), ([0.25, 0.5, 0.75], False, False), ([0.05, 0.95], True, False)],
+)
+def test_density_data_check_uses_near_median_path(sample_outturns, quantiles, data_check, expect_warning):
+    outturns = sample_outturns.assign(metric="levels")
+    outturns = outturns[outturns["variable"] == "gdpkp"].sort_values("date").iloc[:3]
+    forecasts = pd.DataFrame(
+        [
+            {
+                "date": outturn["date"],
+                "variable": outturn["variable"],
+                "vintage_date": outturn["vintage_date"],
+                "source": "check",
+                "frequency": outturn["frequency"],
+                "forecast_horizon": 1,
+                "metric": "levels",
+                "quantile": quantile,
+                "value": float(outturn["value"])
+                * (100 if quantile == 0.5 or len(quantiles) == 2 else 1),
+            }
+            for _, outturn in outturns.iterrows()
+            for quantile in quantiles
+        ]
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DensityForecastData(outturns_data=outturns, forecasts_data=forecasts, data_check=data_check)
+
+    check_warnings = [warning for warning in caught if "[Data check]" in str(warning.message)]
+    assert bool(check_warnings) is expect_warning
+
+
+def test_density_forecasts_drop_negative_horizons_with_warning(sample_outturns, sample_density_forecasts):
+    forecasts = sample_density_forecasts.iloc[:4].copy()
+    forecasts["metric"] = "levels"
+    forecasts["forecast_horizon"] = [-1, -1, 0, 0]
+
+    with pytest.warns(UserWarning, match="Dropped 2 density forecast rows with negative forecast_horizon"):
+        dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+    assert len(dfd._density_df) == len(dfd._density_forecasts) == 2
+    assert dfd._density_df["forecast_horizon"].eq(0).all()
+
+
+def test_density_with_only_negative_horizons_adds_nothing(sample_outturns, sample_density_forecasts):
+    forecasts = sample_density_forecasts.iloc[:4].assign(forecast_horizon=-1, metric="levels")
+
+    with pytest.warns(UserWarning, match="No density forecasts available after filtering/validation"):
+        dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+    assert dfd._density_df.empty
+    assert dfd._density_forecasts.empty
+
+
+def test_density_first_forecast_horizon_is_forwarded(sample_outturns, sample_density_forecasts):
+    forecasts = sample_density_forecasts.drop(columns="forecast_horizon")
+    forecasts = forecasts[forecasts["date"] > forecasts["date"].min()].copy()
+
+    with pytest.warns(FutureWarning, match="first_forecast_horizon"):
+        dfd = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=forecasts,
+            data_check=False,
+            first_forecast_horizon=1,
+        )
+
+    expected = compute_target_minus_vintage(forecasts)["target_minus_vintage"] - 1
+    pd.testing.assert_series_equal(
+        dfd._density_df["forecast_horizon"].reset_index(drop=True),
+        expected.reset_index(drop=True),
+        check_names=False,
+        check_dtype=False,
+    )
 
 
 def test_density_plot_missing_metric_raises_clear_error(sample_outturns, sample_density_forecasts):
@@ -531,7 +665,71 @@ def test_merge_density_with_different_extra_ids():
     # Both id columns should exist in merged data
     assert "label1" in merged.density_forecasts.columns
     assert "label2" in merged.density_forecasts.columns
-    assert set(merged.id_columns) == {"source", "label1", "label2"}
+    assert merged.id_columns == ["source", "label1", "label2"]
+    for table in (merged._density_df, merged._density_forecasts):
+        expected = construct_unique_id(table, merged.id_columns)
+        pd.testing.assert_series_equal(table["unique_id"], expected, check_names=False)
+        assert set(table["unique_id"]) == {"mpr2 + A + ", "mpr2 +  + B"}
+        assert table["unique_id"].str.count(" \\+ ").eq(2).all()
+
+    merged.filter(sources=["mpr2 + A + "])
+    assert len(merged.density_forecasts) == len(forecast_df_1)
+    merged.clear_filter()
+    merged.filter(sources=["mpr2 + A"])
+    assert merged.density_forecasts.empty
+    merged.clear_filter()
+    merged.filter(sources=["mpr2"])
+    assert len(merged.density_forecasts) == len(forecast_df_1) + len(forecast_df_2)
+
+
+def test_density_merge_is_atomic(sample_outturns, sample_density_forecasts):
+    outturns = sample_outturns.assign(metric="levels")
+    forecasts = sample_density_forecasts.assign(metric="levels")
+    target = DensityForecastData(outturns_data=outturns, data_check=False)
+    target.add_density_forecasts(forecasts, data_check=False)
+    target.add_forecasts(create_sample_forecasts().assign(source="point", metric="levels"), data_check=False)
+    conflicting = DensityForecastData(
+        outturns_data=outturns,
+        forecasts_data=forecasts.assign(value=lambda frame: frame["value"] + 1),
+        data_check=False,
+    )
+    conflicting.add_outturns(outturns.assign(variable="cpiy"))
+
+    table_names = (
+        "_raw_outturns",
+        "_outturns",
+        "_raw_forecasts",
+        "_forecasts",
+        "_main_table",
+        "_density_df",
+        "_density_forecasts",
+    )
+    before = {name: getattr(target, name).copy(deep=True) for name in table_names}
+    before_id_columns = target.id_columns.copy()
+    before_horizon = target.first_forecast_horizon
+    assert not target._raw_forecasts.empty
+    assert not target._main_table.empty
+
+    with pytest.raises(ValueError, match="Duplicate records found with different values"):
+        target.merge(conflicting)
+
+    assert target.id_columns == before_id_columns
+    assert target.first_forecast_horizon == before_horizon
+    for name, table in before.items():
+        pd.testing.assert_frame_equal(getattr(target, name), table)
+
+
+def test_forecastdata_merge_density_warns(sample_outturns, sample_density_forecasts):
+    outturns = sample_outturns.assign(metric="levels")
+    density = DensityForecastData(
+        outturns_data=outturns,
+        forecasts_data=sample_density_forecasts.assign(metric="levels"),
+        data_check=False,
+    )
+    plain = ForecastData(outturns_data=outturns)
+
+    with pytest.warns(UserWarning, match="Density forecasts.*were not merged"):
+        plain.merge(density)
 
 
 def test_merge_density_with_different_outturns():
