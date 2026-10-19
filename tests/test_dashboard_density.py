@@ -115,6 +115,21 @@ def test_quantile_choices_distinct_levels_not_collapsed(density_df, density_outt
     assert len(choices) == 199
 
 
+def test_quantile_time_machine_plot_call_works_with_keyword_only_quantiles(density_only):
+    with pytest.warns(UserWarning, match="not stored"):
+        fig, ax = density_only.plot_density_vintage(
+            variable="gdpkp",
+            vintage_date="2025-12-31",
+            outturn_start_date=None,
+            metric="levels",
+            quantiles=[0.16, 0.5, 0.84],
+            return_plot=True,
+        )
+
+    assert fig is not None
+    assert "mpr2 (0.15-0.83)" in ax.get_legend_handles_labels()[1]
+
+
 # -----------------------
 # Empty forecasts
 # -----------------------
