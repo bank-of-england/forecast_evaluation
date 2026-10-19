@@ -495,7 +495,7 @@ class ForecastData(PlottingMixin):
             # check that the id columns of the new forecasts match the existing ones
             # and if not adjust the datasets
             if set(self._id_columns) != set(id_cols):
-                all_id_cols = list(set(self._id_columns).union(set(id_cols)))
+                all_id_cols = self._id_columns + [col for col in id_cols if col not in self._id_columns]
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
@@ -505,6 +505,19 @@ class ForecastData(PlottingMixin):
                     if col not in id_cols:
                         # add missing columns to new data
                         df[col] = pd.NA
+
+                for table_name in (*self._forecast_tables, "_main_table"):
+                    table = getattr(self, table_name)
+                    if table.empty:
+                        continue
+                    missing_id_cols = {col: pd.NA for col in self._id_columns if col not in table.columns}
+                    if missing_id_cols:
+                        table = table.assign(**missing_id_cols)
+                    setattr(
+                        self,
+                        table_name,
+                        table.assign(unique_id=construct_unique_id(table, self._id_columns)),
+                    )
 
         # Compare against the raw input records, not derived ones such as levels computed
         # from pop/yoy, which would raise false positives.
@@ -978,6 +991,15 @@ class ForecastData(PlottingMixin):
 
         if self._outturn_vintages != other._outturn_vintages:
             raise ValueError("Cannot merge ForecastData instances with different outturn_vintages settings.")
+
+        density_forecasts = getattr(other, "_density_df", None)
+        if density_forecasts is not None and not density_forecasts.empty and not hasattr(self, "_density_df"):
+            warnings.warn(
+                "Density forecasts in `other` cannot be stored by this ForecastData instance and were not merged. "
+                "Merge into a DensityForecastData instance to retain them.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if not other._raw_outturns.empty:
             self.add_outturns(other._raw_outturns)
