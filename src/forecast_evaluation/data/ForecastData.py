@@ -417,6 +417,7 @@ class ForecastData(PlottingMixin):
         extra_columns: Optional[list[str]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+        density_data: bool = False,
     ) -> pd.DataFrame:
         """Validate a batch of forecasts against the ``stored`` table and label it with a ``unique_id``.
 
@@ -461,7 +462,12 @@ class ForecastData(PlottingMixin):
         # Convert extra col names to contain only letters, numbers, and underscores
         df, extra_ids = _fix_extra_columns(df, list(extra_ids or []))
 
-        df = _validate_records(df, forecast=True, optional_columns=["metric", *extra_ids, *(extra_columns or [])])
+        df = _validate_records(
+            df,
+            forecast=True,
+            optional_columns=["metric", *extra_ids, *(extra_columns or [])],
+            density_data=density_data,
+        )
         df = compute_target_minus_vintage(df)
 
         # Check frequency uniqueness and consistency
@@ -1341,6 +1347,7 @@ def _validate_records(
     forecast=False,
     optional_columns: Optional[list[str]] = None,
     nullable_vintage: bool = False,
+    density_data: bool = False,
 ) -> pd.DataFrame:
     """Validate a DataFrame of forecast records using the Pandera ForecastSchema.
 
@@ -1354,6 +1361,8 @@ def _validate_records(
         List of optional labelling columns to include in the schema validation. Default is None.
     nullable_vintage : bool, optional
         Whether to allow nullable vintage_date values. Default is False.
+    density_data : bool, optional
+        Whether the records are density forecasts and require finite values. Default is False.
 
     Returns
     -------
@@ -1374,7 +1383,12 @@ def _validate_records(
             )
         raise ValueError(error_col)
 
-    schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
+    schema = create_data_schema(
+        forecast,
+        optional_columns,
+        nullable_vintage=nullable_vintage,
+        density_data=density_data,
+    )
     try:
         validated_df = schema.validate(df, lazy=True)
     except pa.errors.SchemaErrors as exc:

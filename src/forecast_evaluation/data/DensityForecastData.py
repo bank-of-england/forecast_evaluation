@@ -16,8 +16,8 @@ from forecast_evaluation.data.ForecastData import _UNSET, ForecastData, _atomic_
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
 
-# Quantile levels are compared after rounding to this many decimals (a tolerance of 1e-9).
-_LEVEL_DECIMALS = 9
+# Canonical quantile precision shared with point-forecast level resolution.
+QUANTILE_DECIMALS = 10
 
 
 class DensityForecastData(ForecastData):
@@ -46,6 +46,9 @@ class DensityForecastData(ForecastData):
         Default for ``to_point_forecast``; density ingestion itself never derives metrics.
     data_check : bool, optional
         Whether to check each density's central path against outturns when it is added.
+    crossing : {"rearrange", "error", "ignore"}, optional
+        How to handle values that decrease across quantile levels. The default rearranges
+        the values and warns.
     outturn_vintages : bool, optional
         Whether outturns contain vintage information. Default is True.
     default_k : int or None, optional
@@ -79,6 +82,7 @@ class DensityForecastData(ForecastData):
         outturn_vintages: bool = True,
         default_k: Optional[int] = None,
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
+        crossing: Literal["rearrange", "error", "ignore"] = "rearrange",
     ):
         """Initialise DensityForecastData.
 
@@ -110,6 +114,7 @@ class DensityForecastData(ForecastData):
                 metric=metric,
                 data_check=data_check,
                 first_forecast_horizon=first_forecast_horizon,
+                crossing=crossing,
             )
 
     def add_density_forecasts(
@@ -120,6 +125,7 @@ class DensityForecastData(ForecastData):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         data_check: bool = True,
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+        crossing: Literal["rearrange", "error", "ignore"] = "rearrange",
     ) -> None:
         """Validate and add density forecasts with quantile column.
 
@@ -139,11 +145,22 @@ class DensityForecastData(ForecastData):
             without a quantile within 0.1 of 0.5 are skipped. Default is True.
         first_forecast_horizon : int or dict[str, int], optional
             Deprecated fallback used when ``forecast_horizon`` is missing.
+        crossing : {"rearrange", "error", "ignore"}, optional
+            Policy for values that decrease with increasing quantile. ``"rearrange"`` sorts
+            values within each density and emits one warning per call; ``"error"`` rejects
+            crossed densities; ``"ignore"`` preserves supplied values. Equal adjacent values
+            are valid. Default is ``"rearrange"``.
 
         Raises
         ------
         ValueError
-            If 'quantile' column is missing from the DataFrame.
+            If 'quantile' column is missing, ``crossing`` is invalid, the schema is invalid,
+            or ``crossing="error"`` and any density is crossed.
+
+        Warns
+        -----
+        UserWarning
+            Once per call when ``crossing="rearrange"`` changes one or more densities.
 
         Examples
         --------
@@ -155,6 +172,18 @@ class DensityForecastData(ForecastData):
         """
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
+        if crossing not in ("rearrange", "error", "ignore"):
+            raise ValueError("crossing must be one of 'rearrange', 'error', or 'ignore'.")
+
+        df = df.copy()
+        numeric_quantiles = pd.to_numeric(df["quantile"], errors="coerce")
+        coercible_quantiles = numeric_quantiles.notna() | df["quantile"].isna()
+        if coercible_quantiles.all():
+            in_range_quantiles = numeric_quantiles.between(0, 1)
+            df["quantile"] = numeric_quantiles.where(
+                ~in_range_quantiles,
+                numeric_quantiles.round(QUANTILE_DECIMALS),
+            )
 
         extra_ids = [column for column in extra_ids or [] if column != "quantile"]
         with _atomic_state(self, *self._forecast_state):
@@ -166,7 +195,9 @@ class DensityForecastData(ForecastData):
                 extra_columns=["quantile"],
                 metric=metric,
                 first_forecast_horizon=first_forecast_horizon,
+                density_data=True,
             )
+            df = _apply_crossing_policy(df, crossing)
 
             if data_check:
                 central = df.assign(_median_gap=(df["quantile"] - 0.5).abs())
@@ -722,12 +753,12 @@ def _select_quantile_rows(
     density = density.reset_index(drop=True)
     density = density.assign(
         _path=density.groupby(path_cols, sort=False, dropna=False).ngroup(),
-        _level=density["quantile"].astype(float).round(_LEVEL_DECIMALS),
+        _level=density["quantile"].astype(float).round(QUANTILE_DECIMALS),
     )
     n_dates = density.groupby("_path")["date"].nunique()
     at_level = density.groupby(["_path", "_level"])["date"].nunique().rename("n_dates").reset_index()
     common = at_level[at_level["n_dates"] == at_level["_path"].map(n_dates)].copy()
-    common["distance"] = (common["_level"] - target).abs().round(_LEVEL_DECIMALS)
+    common["distance"] = (common["_level"] - target).abs().round(QUANTILE_DECIMALS)
     chosen = common.sort_values(["distance", "_level"]).drop_duplicates("_path").sort_values("_path")
 
     stored = chosen["distance"] == 0
@@ -791,6 +822,70 @@ def _drop_existing_point_rows(
             f"source_suffix=' (q{target:g})') to store several levels side by side, or start from a fresh object."
         )
     return new.loc[~overlap].reset_index(drop=True)
+
+
+def _rearrange_quantiles(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, int, int, float, list[str]]:
+    """Sort values within each density and report the affected groups."""
+    if df.empty:
+        return df, 0, 0, 0.0, []
+
+    key_columns = [column for column in df.columns if column not in ("quantile", "value")]
+    group_ids = df.groupby(key_columns, sort=False, dropna=False).ngroup().to_numpy()
+    quantiles = df["quantile"].to_numpy(dtype=float)
+    values = df["value"].to_numpy(dtype=float)
+    by_quantile = np.lexsort((quantiles, group_ids))
+    ordered_groups = group_ids[by_quantile]
+    ordered_values = values[by_quantile]
+    decreases = (ordered_groups[1:] == ordered_groups[:-1]) & (ordered_values[1:] < ordered_values[:-1])
+    affected_groups = np.unique(ordered_groups[1:][decreases])
+    total_groups = int(np.unique(group_ids).size)
+
+    if not affected_groups.size:
+        return df, 0, total_groups, 0.0, []
+
+    by_value = np.lexsort((values, group_ids))
+    rearranged_values = values.copy()
+    rearranged_values[by_quantile] = values[by_value]
+    changes = np.abs(rearranged_values - values)
+    rearranged = df.copy()
+    rearranged["value"] = rearranged_values
+
+    examples = []
+    for group_id in affected_groups[:5]:
+        row = df.iloc[np.flatnonzero(group_ids == group_id)[0]]
+        examples.append(_describe_path(row, key_columns))
+
+    return rearranged, int(affected_groups.size), total_groups, float(changes.max()), examples
+
+
+def _apply_crossing_policy(df: pd.DataFrame, crossing: Literal["rearrange", "error", "ignore"]) -> pd.DataFrame:
+    """Apply the selected policy to strict decreases across quantile levels."""
+    if crossing == "ignore":
+        return df
+
+    rearranged, affected, total, largest_change, examples = _rearrange_quantiles(df)
+    if not affected:
+        return df
+
+    extra = f" and {affected - len(examples)} more" if affected > len(examples) else ""
+    example_text = "; ".join(examples) + extra
+    if crossing == "error":
+        raise ValueError(
+            f"{affected} of {total} densities have values that are not non-decreasing in quantile; "
+            f"examples: {example_text}."
+        )
+
+    warnings.warn(
+        f"Rearranged {affected} of {total} densities because values were not non-decreasing in quantile "
+        f"(largest absolute change {largest_change:g}); "
+        f"example key: {example_text}. "
+        "Check the model that produced them.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return rearranged
 
 
 def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
