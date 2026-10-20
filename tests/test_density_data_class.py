@@ -4,6 +4,7 @@ import inspect
 import warnings
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -13,6 +14,7 @@ from forecast_evaluation.data.sample_data import (
     create_sample_forecasts,
     create_sample_outturns,
 )
+from forecast_evaluation.data.schema import create_data_schema
 from forecast_evaluation.data.utils import compute_target_minus_vintage, construct_unique_id
 
 
@@ -38,6 +40,37 @@ def sample_density_forecasts_single_quantile() -> pd.DataFrame:
     return forecasts
 
 
+def _swap_quantile_values(
+    forecasts: pd.DataFrame,
+    date: str,
+    lower: float,
+    upper: float,
+    *,
+    id_column: str | None = None,
+    id_value: object = None,
+) -> pd.DataFrame:
+    selected = forecasts["date"].eq(pd.Timestamp(date))
+    if id_column is not None:
+        id_mask = forecasts[id_column].isna() if pd.isna(id_value) else forecasts[id_column].eq(id_value)
+        selected &= id_mask
+
+    lower_mask = selected & np.isclose(forecasts["quantile"].to_numpy(dtype=float), lower)
+    upper_mask = selected & np.isclose(forecasts["quantile"].to_numpy(dtype=float), upper)
+    assert lower_mask.sum() == upper_mask.sum() == 1
+
+    crossed = forecasts.copy()
+    crossed.loc[lower_mask, "value"] = forecasts.loc[upper_mask, "value"].iloc[0]
+    crossed.loc[upper_mask, "value"] = forecasts.loc[lower_mask, "value"].iloc[0]
+    return crossed
+
+
+def _assert_density_values_monotone(table: pd.DataFrame) -> None:
+    key_columns = [column for column in table.columns if column not in ("quantile", "value")]
+    for density_group in table.groupby(key_columns, sort=False, dropna=False):
+        values = density_group[1].sort_values("quantile")["value"]
+        assert values.is_monotonic_increasing
+
+
 # -----------------------
 # Constructor Tests
 # -----------------------
@@ -54,7 +87,8 @@ def test_constructor_parameters_match_parent_and_are_keyword_only():
     parent_params = inspect.signature(ForecastData.__init__).parameters
     density_params = inspect.signature(DensityForecastData.__init__).parameters
 
-    assert list(density_params) == list(parent_params)
+    assert list(density_params)[:-1] == list(parent_params)
+    assert list(density_params)[-1] == "crossing"
     for name in (
         "extra_ids",
         "metric",
@@ -63,6 +97,7 @@ def test_constructor_parameters_match_parent_and_are_keyword_only():
         "outturn_vintages",
         "default_k",
         "first_forecast_horizon",
+        "crossing",
     ):
         assert density_params[name].kind is inspect.Parameter.KEYWORD_ONLY
 
@@ -89,7 +124,7 @@ def test_init_accepts_parent_options(sample_outturns):
 def test_add_density_forecast_options_are_keyword_only():
     params = inspect.signature(DensityForecastData.add_density_forecasts).parameters
 
-    for name in ("extra_ids", "metric", "data_check", "first_forecast_horizon"):
+    for name in ("extra_ids", "metric", "data_check", "first_forecast_horizon", "crossing"):
         assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
 
 
@@ -244,10 +279,9 @@ def test_density_data_check_uses_near_median_path(sample_outturns, quantiles, da
                 "forecast_horizon": 1,
                 "metric": "levels",
                 "quantile": quantile,
-                "value": float(outturn["value"])
-                * (100 if quantile == 0.5 or len(quantiles) == 2 else 1),
+                    "value": float(outturn["value"]) + date_index * 10 + quantiles.index(quantile) * 100,
             }
-            for _, outturn in outturns.iterrows()
+                for date_index, (_, outturn) in enumerate(outturns.iterrows())
             for quantile in quantiles
         ]
     )
@@ -501,6 +535,316 @@ def test_quantile_validation_negative():
 
     with pytest.raises(Exception):  # Schema validation should fail
         DensityForecastData(outturns_data=outturns, forecasts_data=forecasts)
+
+
+@pytest.mark.parametrize("quantile", [-4e-11, 1.00000000004])
+def test_quantiles_outside_bounds_are_not_rounded_into_range(sample_outturns, density_df, quantile):
+    forecasts = density_df.iloc[[0]].copy()
+    forecasts["quantile"] = quantile
+
+    with pytest.raises(Exception, match="quantile"):
+        DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+
+def test_default_crossing_rearrangement_warns_once_with_summary(sample_outturns, density_df):
+    swaps = [("2026-06-30", 0.49, 0.51), ("2027-03-31", 0.15, 0.83)]
+    crossed = density_df
+    for date, lower, upper in swaps:
+        crossed = _swap_quantile_values(crossed, date, lower, upper)
+
+    expected_changes = []
+    for date, lower, upper in swaps:
+        date_rows = crossed[crossed["date"].eq(pd.Timestamp(date))]
+        lower_value = date_rows.loc[np.isclose(date_rows["quantile"], lower), "value"].iloc[0]
+        upper_value = date_rows.loc[np.isclose(date_rows["quantile"], upper), "value"].iloc[0]
+        expected_changes.append(abs(lower_value - upper_value))
+    expected_largest_change = max(expected_changes)
+
+    data = DensityForecastData(outturns_data=sample_outturns)
+    with pytest.warns(UserWarning, match="Rearranged 2 of 13 densities") as caught:
+        data.add_density_forecasts(crossed, data_check=False)
+
+    assert len(caught) == 1
+    message = str(caught[0].message)
+    assert f"largest absolute change {expected_largest_change:g}" in message
+    assert "example key:" in message
+    assert "variable=gdpkp" in message
+    assert "date=2026-06-30" in message
+
+    expected = DensityForecastData(
+        outturns_data=sample_outturns, forecasts_data=density_df, data_check=False
+    )
+    for table in (data._density_df, data._density_forecasts):
+        actual_sorted = table.sort_values(["date", "quantile"]).reset_index(drop=True)
+        expected_sorted = expected._density_df.sort_values(["date", "quantile"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(actual_sorted, expected_sorted, check_dtype=False)
+        _assert_density_values_monotone(table)
+
+
+def test_crossing_error_mode_forwards_from_constructor_and_rolls_back_add(
+    sample_outturns, density_df
+):
+    crossed = _swap_quantile_values(density_df, "2027-03-31", 0.15, 0.83)
+
+    with pytest.raises(ValueError, match="not non-decreasing") as constructor_error:
+        DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=crossed,
+            crossing="error",
+            data_check=False,
+        )
+    assert "1 of 13 densities" in str(constructor_error.value)
+    assert "date=2027-03-31" in str(constructor_error.value)
+
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=density_df, data_check=False)
+    table_names = (
+        "_raw_outturns",
+        "_outturns",
+        "_raw_forecasts",
+        "_forecasts",
+        "_main_table",
+        "_density_df",
+        "_density_forecasts",
+    )
+    before_tables = {name: getattr(data, name).copy(deep=True) for name in table_names}
+    before_id_columns = data.id_columns.copy()
+    before_horizon = data.first_forecast_horizon
+
+    with pytest.raises(ValueError, match="not non-decreasing"):
+        data.add_density_forecasts(
+            crossed.assign(region="UK"),
+            extra_ids=["region"],
+            crossing="error",
+            data_check=False,
+        )
+
+    assert data.id_columns == before_id_columns
+    assert data.first_forecast_horizon == before_horizon
+    for name, before in before_tables.items():
+        pd.testing.assert_frame_equal(getattr(data, name), before)
+
+
+def test_crossing_error_mode_is_scoped_to_each_added_batch(sample_outturns, density_df):
+    base = density_df.iloc[[0]]
+    lower = base.assign(quantile=0.25, value=2.0)
+    upper = base.assign(quantile=0.75, value=1.0)
+    data = DensityForecastData(outturns_data=sample_outturns)
+
+    data.add_density_forecasts(lower, crossing="error", data_check=False)
+    data.add_density_forecasts(upper, crossing="error", data_check=False)
+
+    combined = data.density_forecasts.sort_values("quantile")
+    assert combined["quantile"].tolist() == [0.25, 0.75]
+    assert combined["value"].tolist() == [2.0, 1.0]
+    assert not combined["value"].is_monotonic_increasing
+
+
+def test_crossing_ignore_preserves_values_without_rearrangement_warning(sample_outturns, density_df):
+    crossed = _swap_quantile_values(density_df, "2027-03-31", 0.15, 0.83)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        data = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=crossed,
+            crossing="ignore",
+            data_check=False,
+        )
+
+    assert not [warning for warning in caught if "Rearranged" in str(warning.message)]
+    date_rows = data.density_forecasts[data.density_forecasts["date"].eq(pd.Timestamp("2027-03-31"))]
+    assert not date_rows.sort_values("quantile")["value"].is_monotonic_increasing
+    actual = data.density_forecasts.sort_values(["date", "quantile"]).reset_index(drop=True)
+    expected = crossed.assign(quantile=crossed["quantile"].round(10)).sort_values(
+        ["date", "quantile"]
+    ).reset_index(drop=True)
+    pd.testing.assert_frame_equal(
+        actual[["date", "quantile", "value"]],
+        expected[["date", "quantile", "value"]],
+        check_dtype=False,
+    )
+
+
+def test_tied_and_monotone_quantiles_are_valid(sample_outturns, density_df):
+    tied = density_df.copy()
+    date_mask = tied["date"].eq(pd.Timestamp("2026-06-30"))
+    lower_mask = date_mask & np.isclose(tied["quantile"], 0.49)
+    upper_mask = date_mask & np.isclose(tied["quantile"], 0.51)
+    tied.loc[upper_mask, "value"] = tied.loc[lower_mask, "value"].iloc[0]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        data = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=tied,
+            crossing="error",
+            data_check=False,
+        )
+
+    assert not [warning for warning in caught if "Rearranged" in str(warning.message)]
+    _assert_density_values_monotone(data.density_forecasts)
+    tied_rows = data.density_forecasts[data.density_forecasts["date"].eq(pd.Timestamp("2026-06-30"))]
+    tied_values = tied_rows.loc[np.isclose(tied_rows["quantile"], 0.49), "value"].iloc[0]
+    tied_upper = tied_rows.loc[np.isclose(tied_rows["quantile"], 0.51), "value"].iloc[0]
+    assert tied_values == tied_upper
+
+
+def test_density_finiteness_validation_does_not_change_point_or_outturn_schemas():
+    point_forecast = create_sample_forecasts().iloc[[0]].copy()
+    point_forecast["value"] = np.inf
+    point_forecast["quantile"] = 0.5
+    validated_point = create_data_schema(forecast=True, optional_columns=["quantile"]).validate(point_forecast)
+    assert np.isposinf(validated_point["value"].iloc[0])
+
+    outturn = create_sample_outturns().iloc[[0]].copy()
+    outturn["value"] = np.inf
+    validated_outturn = create_data_schema(forecast=False).validate(outturn)
+    assert np.isposinf(validated_outturn["value"].iloc[0])
+
+
+def test_point_forecast_quantile_extra_id_does_not_enable_density_finiteness(sample_outturns):
+    forecasts = create_sample_forecasts().iloc[[0]].copy()
+    forecasts["quantile"] = 0.5
+    forecasts["metric"] = "levels"
+    forecasts["value"] = np.inf
+    point_data = ForecastData(outturns_data=sample_outturns, compute_levels=False)
+
+    point_data.add_forecasts(
+        forecasts,
+        extra_ids=["quantile"],
+        compute_levels=False,
+        data_check=False,
+    )
+
+    assert np.isposinf(point_data.forecasts["value"].iloc[0])
+
+
+@pytest.mark.parametrize(
+    ("quantile", "value"),
+    [(0.0, np.inf), (1.0, -np.inf), (0.5, np.nan)],
+)
+def test_non_finite_density_values_are_rejected(sample_outturns, density_df, quantile, value):
+    forecasts = density_df.iloc[[0]].copy()
+    forecasts["quantile"] = quantile
+    forecasts["value"] = value
+
+    with pytest.raises(ValueError, match="value must be finite"):
+        DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+
+def test_finite_values_at_closed_quantile_bounds_are_accepted_and_sampleable(sample_outturns, density_df):
+    forecasts = density_df[density_df["date"].eq(density_df["date"].min())].iloc[:2].copy()
+    forecasts["quantile"] = [0.0, 1.0]
+    forecasts["value"] = [-1.0, 1.0]
+    data = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+    assert set(data.density_forecasts["quantile"]) == {0.0, 1.0}
+    samples = data.sample_from_density(n_samples=100, random_state=1)
+    assert np.isfinite(samples["value"]).all()
+
+
+def test_numeric_quantiles_are_canonicalized_and_duplicates_checked_after_rounding(sample_outturns, density_df):
+    forecast = density_df.iloc[[0]].copy()
+    forecast["quantile"] = pd.Series(["0.12345678906"], index=forecast.index, dtype=object)
+    canonical = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecast, data_check=False)
+    assert canonical.density_forecasts["quantile"].iloc[0] == 0.1234567891
+
+    first = density_df.iloc[[0]].copy().assign(quantile=0.15)
+    second = first.copy()
+    second["quantile"] = 0.15000000000000002
+    second["value"] = second["value"] + 1
+    numeric_like = pd.concat([first, second], ignore_index=True)
+    numeric_like["quantile"] = pd.Series(["0.15", "0.15000000000000002"], dtype=object)
+    with pytest.raises(ValueError, match="Duplicate records found with different values"):
+        DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=numeric_like,
+            data_check=False,
+        )
+
+
+def test_non_numeric_quantile_uses_existing_schema_validation(sample_outturns, density_df):
+    forecasts = density_df.iloc[[0]].copy()
+    forecasts["quantile"] = "not-a-quantile"
+
+    with pytest.raises(ValueError, match="quantile"):
+        DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
+
+
+def test_crossing_rearrangement_groups_extra_ids_with_na(sample_outturns, density_df):
+    uk = density_df.assign(region="UK")
+    missing_region = density_df.assign(region=pd.NA)
+    forecasts = pd.concat([uk, missing_region], ignore_index=True)
+    crossed = _swap_quantile_values(
+        forecasts,
+        "2027-03-31",
+        0.15,
+        0.83,
+        id_column="region",
+        id_value=pd.NA,
+    )
+
+    with pytest.warns(UserWarning, match="Rearranged 1 of 26 densities") as caught:
+        data = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=crossed,
+            extra_ids=["region"],
+            data_check=False,
+        )
+
+    rearrangement_warnings = [warning for warning in caught if "Rearranged" in str(warning.message)]
+    assert len(rearrangement_warnings) == 1
+    assert "region=" in str(rearrangement_warnings[0].message)
+    affected_date = pd.Timestamp("2027-03-31")
+    missing_rows = data.density_forecasts[
+        data.density_forecasts["region"].isna() & data.density_forecasts["date"].eq(affected_date)
+    ]
+    uk_rows = data.density_forecasts[
+        data.density_forecasts["region"].eq("UK") & data.density_forecasts["date"].eq(affected_date)
+    ]
+    assert missing_rows.sort_values("quantile")["value"].is_monotonic_increasing
+    pd.testing.assert_series_equal(
+        uk_rows.sort_values("quantile")["value"].reset_index(drop=True),
+        uk.loc[uk["date"].eq(affected_date)].sort_values("quantile")["value"].reset_index(drop=True),
+        check_names=False,
+    )
+
+
+def test_sampling_reproduces_labelled_quantiles_after_rearrangement(sample_outturns, crossed_density_df):
+    with pytest.warns(UserWarning, match="Rearranged 1 of 13 densities"):
+        data = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=crossed_density_df,
+            data_check=False,
+        )
+
+    samples = data.sample_from_density(n_samples=2000, random_state=1)
+    affected_date = pd.Timestamp("2027-03-31")
+    sampled_values = samples.loc[samples["date"].eq(affected_date), "value"].to_numpy()
+    labelled = data.density_forecasts[data.density_forecasts["date"].eq(affected_date)]
+    for quantile_level, value in labelled[["quantile", "value"]].itertuples(index=False, name=None):
+        empirical_quantile = float((sampled_values <= value).mean())
+        assert abs(empirical_quantile - quantile_level) < 0.05
+
+
+def test_unsorted_rows_preserve_density_and_sampling_results(sample_outturns, density_df):
+    ordered = DensityForecastData(outturns_data=sample_outturns, forecasts_data=density_df, data_check=False)
+    shuffled_input = density_df.sample(frac=1, random_state=7).reset_index(drop=True)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shuffled = DensityForecastData(
+            outturns_data=sample_outturns,
+            forecasts_data=shuffled_input,
+            data_check=False,
+        )
+
+    assert not [warning for warning in caught if "Rearranged" in str(warning.message)]
+    ordered_table = ordered.density_forecasts.sort_values(["date", "quantile"]).reset_index(drop=True)
+    shuffled_table = shuffled.density_forecasts.sort_values(["date", "quantile"]).reset_index(drop=True)
+    pd.testing.assert_frame_equal(ordered_table, shuffled_table, check_dtype=False)
+    pd.testing.assert_frame_equal(
+        ordered.sample_from_density(n_samples=30, random_state=9),
+        shuffled.sample_from_density(n_samples=30, random_state=9),
+    )
 
 
 # -----------------------

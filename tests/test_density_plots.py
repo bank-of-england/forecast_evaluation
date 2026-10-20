@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+from matplotlib.axes import Axes
 from matplotlib.collections import PolyCollection
 
 matplotlib.use("Agg")  # non-interactive backend; must be set before any figure is created
@@ -149,6 +150,31 @@ def test_unsorted_quantiles_use_sorted_outer_band(density_df, density_outturns_d
     band_values = bands[0].get_paths()[0].vertices[:, 1]
     assert band_values.min() == pytest.approx(1.16)
     assert band_values.max() == pytest.approx(13.84)
+
+
+def test_crossed_density_input_has_a_non_inverted_plot_band(
+    density_outturns_df, crossed_density_df, monkeypatch
+):
+    captured_bands = []
+    original_fill_between = Axes.fill_between
+
+    def capture_fill_between(axes, x_values, lower_values, upper_values=0, *args, **kwargs):
+        captured_bands.append((np.asarray(lower_values), np.asarray(upper_values)))
+        return original_fill_between(axes, x_values, lower_values, upper_values, *args, **kwargs)
+
+    monkeypatch.setattr(Axes, "fill_between", capture_fill_between)
+    with pytest.warns(UserWarning, match="Rearranged 1 of 13 densities"):
+        data = DensityForecastData(
+            outturns_data=density_outturns_df,
+            forecasts_data=crossed_density_df,
+            data_check=False,
+        )
+
+    _plot(data, quantiles=[0.15, 0.49, 0.83])
+
+    assert len(captured_bands) == 1
+    lower_values, upper_values = captured_bands[0]
+    assert np.all(lower_values <= upper_values)
 
 
 def test_two_quantiles_draw_one_outer_band(density_df, density_outturns_df):

@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import pandera.pandas as pa
 
@@ -13,6 +14,7 @@ def create_data_schema(
     optional_columns: Optional[list[str]] = None,
     *,
     nullable_vintage: bool = False,
+    density_data: bool = False,
 ) -> pa.DataFrameSchema:
     """Create validation schema for forecast/outturn data.
 
@@ -25,6 +27,9 @@ def create_data_schema(
     nullable_vintage : bool, optional
         Whether to allow nullable vintage_date values (e.g., when outturn vintages are not
         available). Default is False.
+    density_data : bool, optional
+        Whether to require finite values for density records. Default is False so point and
+        outturn value validation is unchanged.
 
     Returns
     -------
@@ -77,6 +82,14 @@ def create_data_schema(
                 )
             else:
                 columns[col] = pa.Column(str, non_empty_string, nullable=True)
+
+    if density_data:
+        columns["value"] = pa.Column(
+            float,
+            pa.Check(lambda s: np.isfinite(s), name="value must be finite", ignore_na=False),
+            nullable=False,
+            coerce=True,
+        )
 
     return pa.DataFrameSchema(
         columns=columns,
