@@ -4,6 +4,8 @@ from .bias import bias_analysis
 from .blanchard_leigh import blanchard_leigh_horizon_analysis
 from .correlation import forecast_errors_correlation_analysis
 from .density_calibration import build_density_eval_table, compute_pit, knuppel_test, mitchell_weale_test
+from .density_path_calibration import galvao_mantoan_mitchell_test, rossi_sekhposyan_test
+from .density_scoring import compute_crps, crps_analysis, sharpness_analysis
 from .diebold_mariano import diebold_mariano_table, diebold_mariano_test
 from .fluctuation_tests import fluctuation_tests
 from .intra_period import compute_intra_period_accuracy, compute_intra_period_bias
@@ -35,5 +37,10 @@ __all__ = [
     "compute_pit",
     "knuppel_test",
     "mitchell_weale_test",
+    "compute_crps",
+    "crps_analysis",
+    "sharpness_analysis",
+    "rossi_sekhposyan_test",
+    "galvao_mantoan_mitchell_test",
     "TestResult",
 ]
