@@ -342,6 +342,11 @@ class FittedDensityForecasts:
     def __len__(self) -> int:
         return len(self.keys)
 
+    def take(self, rows) -> FittedDensityForecasts:
+        """New object with the given rows (positions, repeats allowed); diagnostics are dropped."""
+        params = self.params.iloc[np.asarray(rows, dtype=int)]
+        return FittedDensityForecasts.from_params(params, self.method, data=self.data)
+
     def __repr__(self) -> str:
         return f"FittedDensityForecasts(method={self.method!r}, n_densities={len(self)})"
 

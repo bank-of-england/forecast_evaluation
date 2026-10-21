@@ -3,6 +3,7 @@ from .accuracy import compare_to_benchmark, compute_accuracy_statistics, create_
 from .bias import bias_analysis
 from .blanchard_leigh import blanchard_leigh_horizon_analysis
 from .correlation import forecast_errors_correlation_analysis
+from .density_calibration import build_density_eval_table, compute_pit, knuppel_test, mitchell_weale_test
 from .diebold_mariano import diebold_mariano_table, diebold_mariano_test
 from .fluctuation_tests import fluctuation_tests
 from .intra_period import compute_intra_period_accuracy, compute_intra_period_bias
@@ -30,5 +31,9 @@ __all__ = [
     "fluctuation_tests",
     "compute_intra_period_accuracy",
     "compute_intra_period_bias",
+    "build_density_eval_table",
+    "compute_pit",
+    "knuppel_test",
+    "mitchell_weale_test",
     "TestResult",
 ]
