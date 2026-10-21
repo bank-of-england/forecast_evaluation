@@ -12,6 +12,7 @@ from scipy.stats import norm
 from tqdm import tqdm
 
 from forecast_evaluation.data.ForecastData import _UNSET, ForecastData, _atomic_state, _check_forecast_data
+from forecast_evaluation.density.fitting import FittedDensityForecasts, fit_quantile_densities
 
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
@@ -541,6 +542,73 @@ class DensityForecastData(ForecastData):
             extra_ids=extra_ids,
             compute_levels=self._compute_levels if compute_levels is None else compute_levels,
             data_check=data_check,
+        )
+
+    def fit_parametric_density(
+        self,
+        method: Literal["skew_t", "two_piece_normal", "normal", "mpz"],
+        match_levels: Union[None, str, Iterable[float]] = None,
+        *,
+        approx_tol: float = 0.05,
+        **options,
+    ) -> FittedDensityForecasts:
+        """Fit a density family to each stored density forecast, as currently filtered.
+
+        Parametric families are fitted by least squares to the quantile values at the matched
+        levels: (loc, scale) in closed form, the remaining shape parameter by a grid search
+        refined with the exact quantile function.
+
+        Parameters
+        ----------
+        method : {"skew_t", "two_piece_normal", "normal", "mpz"}
+            ``"skew_t"``: Azzalini skew-t on an integer df grid; ``"two_piece_normal"``: two-piece
+            normal; ``"normal"``: normal; ``"mpz"``: the exact semi-parametric MPZ distribution
+            through the matched quantiles (no fitting).
+        match_levels : None, "all" or sequence of float, optional
+            Levels to fit. Each requested level maps to the nearest stored level of each density
+            (ties to the lower level; no interpolation). None uses the method default: skew-t
+            (0.05, 0.25, 0.5, 0.75, 0.95), two-piece normal (0.25, 0.5, 0.75), otherwise "all".
+        approx_tol : float, optional
+            Warn when a fitted density misses any stored quantile by more than ``approx_tol``
+            times its fitted interquartile range. Default 0.05.
+        **options
+            Skew-t only: ``df_grid`` (default 5..30), ``shape_bound`` (default 30),
+            ``n_shape_grid`` (default 41), ``n_refine_df`` (default None: refine every df).
+
+        Returns
+        -------
+        FittedDensityForecasts
+            One row per density with ``params``, ``pdf``/``cdf``/``ppf``, ``moments()``,
+            ``to_value_grid()``, ``to_quantile_grid()`` and ``diagnostics``.
+
+        Raises
+        ------
+        ValueError
+            If no density forecasts remain, ``method``/``match_levels`` is invalid, or the matched
+            levels of a density are fewer than the family needs (normal and MPZ 2, two-piece
+            normal 3, skew-t 4).
+
+        Warns
+        -----
+        UserWarning
+            Once per call if a requested level is more than 0.01 from the stored level used, if
+            some densities cannot be fitted (parameters NaN), or if the approximation error
+            exceeds ``approx_tol``.
+
+        Examples
+        --------
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> fitted = density_data.fit_parametric_density("normal")
+        >>> list(fitted.params.columns[-2:])
+        ['loc', 'scale']
+        """
+        if self._density_forecasts.empty:
+            raise ValueError("No density forecasts to fit (none loaded, or the filter removed them all).")
+        return fit_quantile_densities(
+            self._density_forecasts, method, match_levels, approx_tol=approx_tol, data=self, **options
         )
 
     def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
