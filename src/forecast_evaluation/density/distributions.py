@@ -298,11 +298,14 @@ def _bracketed_newton(q, x0, cdf, pdf, xtol=1e-13, ftol=1e-15, max_iter=200):
         with np.errstate(divide="ignore", invalid="ignore"):
             xn = xa - resid / pdf(xa, active)
         mid = 0.5 * (lo[active] + hi[active])
-        bad = ~np.isfinite(xn) | (xn <= lo[active]) | (xn >= hi[active])
+        bad = ~np.isfinite(xn) | (xn < lo[active]) | (xn > hi[active])
         xn[bad] = mid[bad]
+        # A zero residual means xa is the root; never replace it by a bisection midpoint.
+        conv = np.abs(resid) <= ftol
+        xn[conv] = xa[conv]
         x[active] = xn
         scale = 1.0 + np.abs(xn)
-        done = (np.abs(xn - xa) <= xtol * scale) | (np.abs(resid) <= ftol) | (hi[active] - lo[active] <= xtol * scale)
+        done = conv | (np.abs(xn - xa) <= xtol * scale) | (hi[active] - lo[active] <= xtol * scale)
         active = active[~done]
         if active.size == 0:
             break
