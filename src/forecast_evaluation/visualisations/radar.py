@@ -155,6 +155,9 @@ def plot_radar(
                 "NowcastData. Use bias_type='mean' instead."
             )
 
+    if isinstance(df, _ForecastData):
+        df._require_point_forecasts()
+
     if frequency is None:
         if hasattr(df, "_main_table") and df._main_table is not None:
             _freq_col = df._main_table["frequency"]

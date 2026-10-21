@@ -63,10 +63,7 @@ def plot_hedgehog(
         Otherwise, returns None.
     """
     # Validate inputs
-    if data._forecasts is None:
-        raise ValueError("ForecastData forecasts are not available. Please ensure data has been added and processed.")
-    if data._main_table is None:
-        raise ValueError("ForecastData not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if frequency is not None:
         warnings.warn(

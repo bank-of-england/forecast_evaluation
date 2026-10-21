@@ -64,6 +64,8 @@ def plot_errors_across_time(
         If return_plot is True, returns (fig, ax). Otherwise, returns None.
     """
 
+    data._require_point_forecasts()
+
     if sources is None:
         sources = data._main_table["unique_id"].unique().tolist()
     elif isinstance(sources, str):

@@ -8,6 +8,9 @@ __pycache__/
 
 .vscode/
 plans/
+# Local-only MATLAB parity tier (development aid, retired once parity is established)
+tests/parity/
+tests/data/matlab_parity/
 *copilot-instructions.md
 # Distribution / packaging
 .Python
@@ -236,3 +239,14 @@ logs/
 *.iso
 *.bin
 *.dmg
+
+# Files from Nades testing
+.github/agents/
+notebooks/*
+!notebooks/example_notebook.ipynb
+!notebooks/mtp_replication_notebook.ipynb
+review/
+plans/
+*.tmp
+notebooks/MTP/
+notebooks/OaR-main/
