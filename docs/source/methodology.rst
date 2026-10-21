@@ -261,6 +261,43 @@ Benchmarking Strategy
 Benchmarks are constructed on a **real-time basis**, using only information available when each forecast was made. This approach ensures fair comparison (no look-ahead bias).
 
 
+Density Forecast Evaluation
+---------------------------
+
+Density forecasts are evaluated as continuous distributions fitted to their stored quantiles, following the forecast evaluation in Aikman et al. (2026). Fitted parameters are the single source of truth: PITs, scores and interval widths use each family's exact cdf and quantile function.
+
+Fitting
+^^^^^^^
+
+Each family is fitted by least squares to the stored quantiles at the matched levels. Location and scale have a closed form given the shape, which is found by a grid search refined with the exact quantile function. The skew-t degrees of freedom are searched over an integer grid (default 5 to 30). The defaults match the skew-t at levels 0.05, 0.25, 0.5, 0.75 and 0.95, and the two-piece normal at 0.25, 0.5 and 0.75. The MPZ distribution is not fitted: it is uniform between adjacent stored quantiles, with Gaussian tails set by the outermost pairs. Bank of England fan charts are two-piece normals built from their mean, mode and uncertainty.
+
+Calibration
+^^^^^^^^^^^
+
+For outturn :math:`y_t` and fitted cdf :math:`F_t`, the PIT is :math:`z_t = F_t(y_t)`, which is i.i.d. uniform for a correctly specified one-step forecast.
+
+- **Knüppel (2015)**: with :math:`s_t = \sqrt{12}(z_t - 1/2)`, the moments :math:`(s_t, s_t^2 - 1, s_t^3, s_t^4 - 1.8)` have zero mean under uniformity. Odd and even pairs give separate Wald statistics with Newey-West covariances (automatic lag, Andrews 1991), summed and compared with :math:`\chi^2_4`.
+- **Mitchell and Weale (2023)**: the Knüppel moments of PITs inside :math:`[\alpha/2, 1-\alpha/2]`, rescaled to that region, plus a HAC test that the share inside equals :math:`1-\alpha` (default :math:`\alpha = 0.10`); :math:`\chi^2_5`.
+- **Rossi and Sekhposyan (2019)**: Kolmogorov-Smirnov and Cramér-von Mises distances between the empirical PIT cdf and the 45-degree line, with block-bootstrap critical values (block length :math:`\lfloor T^{1/3} \rfloor`). This allows for serial correlation at multi-step horizons.
+- **Galvão, Mantoan and Mitchell**: a joint test across horizons from the same forecast origins. The statistic is the maximum (unweighted or with decreasing or increasing horizon weights) of the per-horizon Rossi-Sekhposyan statistics. Bootstrap draws share multipliers across horizons, and the first horizon uses the Brownian-bridge limit. Sup-test and Bonferroni critical values are reported.
+
+Accuracy and sharpness
+^^^^^^^^^^^^^^^^^^^^^^
+
+The (weighted) continuous ranked probability score is the quantile-weighted integral of quantile scores (Gneiting and Ranjan, 2011):
+
+.. math::
+
+   \text{wCRPS}(F, y) = 2 \int_0^1 v(\tau)\,\big(\mathbb{1}\{y < F^{-1}(\tau)\} - \tau\big)\big(F^{-1}(\tau) - y\big)\, d\tau,
+
+with :math:`v(\tau) = 1` for the CRPS, :math:`\tau^2` for the right tail (e.g. upside inflation risk) and :math:`(1-\tau)^2` for the left tail (e.g. downside GDP risk). It is integrated over a 2000-point value grid between the :math:`10^{-6}` and :math:`1-10^{-6}` quantiles, with the outturn added as a node. Lower is better. Sharpness is summarised by interval widths :math:`F^{-1}(u) - F^{-1}(l)`: by default the central 30%, 50% and 90% intervals and the 5-25% and 75-95% tail bands.
+
+Replication
+^^^^^^^^^^^
+
+An opt-in parity test tier (``pytest -m parity``, local only) checks each statistic against the original MATLAB code. It also reproduces the published evaluation tables from the MATLAB forecast parameters. Two differences are by design. Path-test decisions come from a single bootstrap rather than rejection frequencies over repeated bootstraps. The skew-t CRPS uses the exact cdf rather than a numerically integrated one, so it differs from the MATLAB value by at most the MATLAB grid spacing. The inflation fan-chart inputs store the 2020-06-30 origin (no published fan chart) as zero mean, mode and uncertainty. MATLAB scores these 13 forecasts as a point mass at zero, with PIT 1. The package rejects a zero scale, so the replication keeps MATLAB's values for those forecasts only.
+
+
 Practical Guidance for Users
 ----------------------------
 
@@ -318,6 +355,16 @@ Technical References
 - Harvey, D., Leybourne, S. and Newbold, P. (1997). `Testing the equality of prediction mean squared errors <https://www.sciencedirect.com/science/article/pii/S0169207096007194>`_. *International Journal of Forecasting*, 13(2), 281–291.
 
 - Harvey, D. I., Leybourne, S. J. and Whitehouse, E. J. (2017). `Forecast evaluation tests and negative long-run variance estimates in small samples <https://www.sciencedirect.com/science/article/pii/S0169207017300559>`_. *International Journal of Forecasting*, 33(4), 833–847.
+
+- Andrews, D. W. K. (1991). Heteroskedasticity and autocorrelation consistent covariance matrix estimation. *Econometrica*, 59(3), 817–858.
+
+- Gneiting, T. and Ranjan, R. (2011). Comparing density forecasts using threshold- and quantile-weighted scoring rules. *Journal of Business & Economic Statistics*, 29(3), 411–422.
+
+- Knüppel, M. (2015). Evaluating the calibration of multi-step-ahead density forecasts using raw moments. *Journal of Business & Economic Statistics*, 33(2), 270–281.
+
+- Mitchell, J. and Weale, M. (2023). Censored density forecasts: production and evaluation. *Journal of Applied Econometrics*.
+
+- Rossi, B. and Sekhposyan, T. (2019). Alternative tests for correct specification of conditional predictive densities. *Journal of Econometrics*, 208(2), 638–657.
 
 **Bank of England Resources**
 

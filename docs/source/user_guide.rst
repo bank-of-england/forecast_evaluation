@@ -746,10 +746,66 @@ solid and dates at or after it are dashed. Prior outturns are included by defaul
 ``outturn_start_date`` sets their first displayed date. Invalid or duplicate
 quantile requests, or requests resolving to the same stored level, are rejected.
 
-Density plots and marginal sampling do not provide density-specific scoring or
-calibration diagnostics. CRPS, PIT and similar diagnostics are not implemented.
 Existing forecast error distribution plots describe point forecast errors,
 including errors after explicit conversion, not predictive density calibration.
+Density calibration and scoring are covered next.
+
+Fitting densities to quantiles
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Evaluation works on a continuous density fitted to each stored set of quantiles:
+
+.. code-block:: python
+
+   fitted = density_data.fit_parametric_density("skew_t")
+   fitted.params        # one row per density: keys plus loc, scale, shape, df
+   fitted.diagnostics   # levels used, fit errors, success flag
+   fitted.moments()     # mean, variance, skewness
+
+``method`` is ``"skew_t"`` (Azzalini skew-t), ``"two_piece_normal"``, ``"normal"``
+or ``"mpz"`` (the exact semi-parametric distribution through the quantiles, with
+Gaussian tails). Requested levels map to the nearest stored level without
+interpolation, warning if more than 0.01 away. A warning is also issued when the
+fit misses a stored quantile by more than ``approx_tol`` times the fitted
+interquartile range.
+
+Densities with known parameters, such as published fan charts, can be evaluated
+without fitting:
+
+.. code-block:: python
+
+   params = keys.assign(mode=..., sigma1=..., sigma2=...)  # keys: density_forecasts key columns
+   fitted = fe.FittedDensityForecasts.from_params(params, "two_piece_normal", data=density_data)
+
+Calibration, scoring and sharpness
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Outturns are matched exactly as for point forecasts: ``k`` selects the outturn
+revision (default ``data.default_k``; ``"latest"`` uses the latest vintage), and
+results are grouped by variable, source, metric, frequency and horizon
+(``target_minus_vintage``). Every function returns a ``TestResult``.
+
+.. code-block:: python
+
+   pit = fe.compute_pit(fitted, k="latest")
+   fe.knuppel_test(fitted)                  # PIT moments, HAC
+   fe.mitchell_weale_test(fitted)           # censored moments + coverage, alpha=0.10
+   rs = fe.rossi_sekhposyan_test(fitted, seed=0)
+   fe.galvao_mantoan_mitchell_test(fitted, seed=0)   # joint test across horizons
+   crps = fe.crps_analysis(fitted)                   # mean CRPS by horizon
+   fe.crps_analysis(fitted, weight="left")           # downside-weighted CRPS
+   fe.sharpness_analysis(fitted)                     # interval widths
+
+   pit.plot()                                        # PIT histogram
+   pit.plot(kind="ecdf", rs_result=rs)               # PIT ECDF with RS bands
+   crps.plot()
+
+``weight`` is ``"none"``, ``"centre"``, ``"tails"``, ``"left"``, ``"right"``,
+``"heavy_tails"`` or a callable of the quantile level. Rossi-Sekhposyan and
+Galvao-Mantoan-Mitchell critical values come from a block bootstrap; pass
+``seed`` for reproducible results. The path test needs PITs for every
+horizon from the same forecast origins and treats the first horizon as one step
+ahead. See :doc:`methodology` for definitions.
 
 Dashboard
 ---------
