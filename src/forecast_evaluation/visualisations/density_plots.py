@@ -138,7 +138,6 @@ def plot_density_vintage(
             )
         frequency = inferred[0]
 
-    # add a check here
     vintage_date = pd.to_datetime(vintage_date)
 
     # filter forecasts

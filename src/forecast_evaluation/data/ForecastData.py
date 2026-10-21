@@ -759,7 +759,7 @@ class ForecastData(PlottingMixin):
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
     ) -> None:
-        """Filter the forecasts and main tables to only include data within specified
+        """Filter the forecasts, outturns and main tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
 
         Parameters
@@ -842,7 +842,7 @@ class ForecastData(PlottingMixin):
                 )
 
     def clear_filter(self) -> None:
-        """Reset the forecasts, main and revisions tables to include all original data."""
+        """Reset the forecasts, outturns and main tables to include all original data."""
         # Density-only instances have no point forecasts for build_main_table to join.
         if self._raw_forecasts.empty:
             self._forecasts = self._raw_forecasts.copy()

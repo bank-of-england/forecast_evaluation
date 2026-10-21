@@ -631,8 +631,10 @@ For probabilistic forecasts with quantiles, use
 :class:`forecast_evaluation.data.DensityForecastData`, which extends
 ``ForecastData``.
 
-Density forecast input must include a ``quantile`` column with values between 0 and 1.
-Add outturns before density forecasts. The sample density generator is available
+Density forecast input uses the point forecast columns plus a ``quantile`` column.
+Quantile levels must be finite and in the inclusive range [0, 1]; density ``value``
+entries must also be finite and non-null. Add outturns before density forecasts.
+The sample density generator is available
 from ``forecast_evaluation.data.sample_data``:
 
 .. code-block:: python
@@ -652,8 +654,77 @@ You can also add density forecasts to an existing object:
    density_data = fe.DensityForecastData(outturns_data=fe.create_sample_outturns())
    density_data.add_density_forecasts(density_df)
 
-Density forecast objects retain the standard forecast and outturn workflow while also
-exposing a ``density_forecasts`` table for density analysis.
+In a density-only object, ``density_forecasts`` and ``outturns`` are populated,
+while ``forecasts`` and the point-analysis table ``df`` remain empty until explicit
+conversion. ``add_density_forecasts`` stores the supplied density metrics; it does
+not automatically derive additional ``pop`` or ``yoy`` densities, even when the
+constructor uses ``compute_levels=True``.
+
+Outturn preparation derives growth from levels where needed, but retains supplied
+``pop`` and ``yoy`` outturn values. A mismatch against levels-derived growth emits
+a warning rather than replacing the supplied value. Library-created nowcast
+snapshot rows marked ``_aligned`` are exempt from that mismatch warning.
+
+Quantile crossing and filtering
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The constructor and ``add_density_forecasts`` accept ``crossing``. The default,
+``"rearrange"``, sorts values within each crossed density and warns once per call.
+``"error"`` rejects crossings; ``"ignore"`` keeps supplied values. Equal adjacent
+quantile values are valid. These policies do not relax finite-value or
+quantile-range validation.
+
+``filter`` applies to density forecasts, point forecasts, outturns and ``df`` by
+default, including when no point forecasts exist. Use
+``filter_point_forecasts=False`` or ``filter_density_forecasts=False`` to leave
+the corresponding views unchanged. Filtering preserves the backing density
+data; ``clear_filter()`` restores all views.
+
+Converting to point forecasts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Conversion adds a selected quantile to the same object's point forecast tables,
+using the currently filtered densities:
+
+.. code-block:: python
+
+   density_data.to_point_forecast(method="median")
+
+``method`` defaults to ``"median"`` (0.5), or accepts a numeric quantile level or
+its string representation. ``"mean"`` is not implemented. If the requested level
+is missing, ``on_missing="nearest"`` (the default) warns and selects the nearest
+stored level common to all dates of each forecast path. Equally near levels
+resolve to the lower one. Use ``on_missing="raise"`` to reject missing levels
+during conversion; this option does not change ingestion or plotting.
+Missing-quantile interpolation for conversion remains a deferred follow-up and
+is not implemented.
+
+Converted rows retain their source unless ``source_suffix`` is provided. For
+example, distinct suffixes allow several selected quantiles to coexist as point
+forecasts. ``compute_levels`` defaults to the constructor's setting. Any derived
+``pop`` or ``yoy`` point forecasts are growth rates of the selected level-quantile
+path, not quantiles of the marginal growth distribution.
+
+Sampling densities
+~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+   samples = density_data.sample_from_density(n_samples=10000, random_state=42)
+
+Sampling uses the currently filtered densities and a private random generator.
+Pass ``random_state`` for reproducibility. Draws are independent across densities:
+``sample_id`` is an index, not a joint path across dates or variables.
+
+The inverse quantile function is linearly interpolated between stored levels.
+Outside that range it is clamped to the endpoint values, not extrapolated, so
+tail mass accumulates at those endpoints and can narrow the sampled distribution.
+A warning is issued if an outer quantile is farther than 0.02 from 0 or 1.
+Sampling raises ``ValueError`` if no densities remain or any density has fewer
+than two distinct quantile levels.
+
+Plotting densities
+~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
@@ -661,10 +732,24 @@ exposing a ``density_forecasts`` table for density analysis.
        variable="gdpkp", vintage_date="2025-12-31", return_plot=True
    )
 
-   ``quantiles`` and ``return_plot`` are keyword-only. Quantiles default to
-   ``(0.16, 0.5, 0.84)`` and are sorted; if a requested level is not stored, the
-   nearest stored level is used with a warning. The plot shades one outer band
-   for two or more levels, with any inner levels shown as faint dashed lines.
+``quantiles`` and ``return_plot`` are keyword-only. Quantiles default to
+``(0.16, 0.5, 0.84)`` and are sorted; if a requested level is not stored, the
+nearest stored level is used with a warning, not interpolation. The plot shades
+one outer fan band for two or more levels, with other levels shown as faint
+dashed lines. The requested median is solid; otherwise an odd-length list uses
+its middle level as the solid line. An even-length list without the median has
+no solid central line.
+
+Density forecasts must already contain the requested ``metric``. Outturns use
+the latest available outturn vintage: dates before the forecast vintage are
+solid and dates at or after it are dashed. Prior outturns are included by default;
+``outturn_start_date`` sets their first displayed date. Invalid or duplicate
+quantile requests, or requests resolving to the same stored level, are rejected.
+
+Density plots and marginal sampling do not provide density-specific scoring or
+calibration diagnostics. CRPS, PIT and similar diagnostics are not implemented.
+Existing forecast error distribution plots describe point forecast errors,
+including errors after explicit conversion, not predictive density calibration.
 
 Dashboard
 ---------
@@ -683,6 +768,11 @@ When working inside a notebook, you can embed the dashboard in the notebook outp
 .. code-block:: python
 
    data.run_dashboard(from_jupyter=True)
+
+``DensityForecastData.run_dashboard()`` supports density plots and outturn views
+without point forecasts. Point-analysis tabs display placeholders until point
+forecasts are added or ``to_point_forecast()`` is called. Converting a quantile
+enables point analysis; it does not evaluate the full density.
 
 Further Reading
 ---------------

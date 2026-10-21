@@ -33,6 +33,18 @@ def sample_density_forecasts() -> pd.DataFrame:
 
 
 @pytest.fixture
+def multi_density_forecasts(sample_density_forecasts) -> pd.DataFrame:
+    return pd.concat(
+        [
+            sample_density_forecasts.assign(variable=variable, source=source, metric="levels")
+            for variable in ("gdpkp", "cpisa")
+            for source in ("mpr2", "alternative")
+        ],
+        ignore_index=True,
+    )
+
+
+@pytest.fixture
 def sample_density_forecasts_single_quantile() -> pd.DataFrame:
     """Create sample density forecast data with single quantile (median)."""
     forecasts = create_sample_forecasts()
@@ -172,11 +184,29 @@ def test_init_missing_quantile_column_raises(sample_outturns):
 
 def test_init_with_extra_ids(sample_outturns, sample_density_forecasts):
     """Test initialization with extra ID columns."""
-    sample_density_forecasts["region"] = "UK"
-    dfd = DensityForecastData(
-        outturns_data=sample_outturns, forecasts_data=sample_density_forecasts, extra_ids=["region"]
+    forecasts = pd.concat(
+        [
+            sample_density_forecasts.assign(region="UK"),
+            sample_density_forecasts.assign(region="US", value=sample_density_forecasts["value"] + 10),
+        ],
+        ignore_index=True,
     )
-    assert "region" in dfd.id_columns
+    dfd = DensityForecastData(
+        outturns_data=sample_outturns, forecasts_data=forecasts, extra_ids=["region"], data_check=False
+    )
+    assert dfd.id_columns == ["source", "region"]
+    expected = forecasts.assign(quantile=forecasts["quantile"].round(10)).sort_values(
+        ["region", "date", "quantile"]
+    ).reset_index(drop=True)
+    for table in (dfd._density_df, dfd.density_forecasts):
+        assert set(table["unique_id"]) == {"mpr2 + UK", "mpr2 + US"}
+        assert table.groupby("region")["unique_id"].nunique().to_dict() == {"UK": 1, "US": 1}
+        actual = table.sort_values(["region", "date", "quantile"]).reset_index(drop=True)
+        pd.testing.assert_frame_equal(
+            actual[["region", "date", "quantile", "value"]],
+            expected[["region", "date", "quantile", "value"]],
+            check_dtype=False,
+        )
 
 
 @pytest.mark.parametrize("on_init", [True, False])
@@ -364,13 +394,27 @@ def test_point_and_density_forecasts_must_share_frequency(sample_outturns, sampl
 def test_clear_filter_density_only(sample_outturns, sample_density_forecasts):
     """Restore density forecasts without requiring point forecasts."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
-    dfd.filter(start_date="2022-06-30", end_date="2022-12-31")
+    original = dfd.density_forecasts.copy(deep=True)
+    outturns_before = dfd.outturns.copy(deep=True)
+    raw_outturns_before = dfd._raw_outturns.copy(deep=True)
+    dfd.filter(start_date="2024-09-30", end_date="2026-09-30")
 
-    assert len(dfd.density_forecasts) < len(sample_density_forecasts)
+    expected = original[original["date"].between("2024-09-30", "2026-09-30")]
+    assert len(expected) == 200
+    assert 0 < len(expected) < len(original)
+    pd.testing.assert_frame_equal(dfd.density_forecasts.reset_index(drop=True), expected.reset_index(drop=True))
+    pd.testing.assert_frame_equal(dfd._density_df, original)
+    expected_outturns = outturns_before[outturns_before["date"].between("2024-09-30", "2026-09-30")]
+    assert 0 < len(expected_outturns) < len(outturns_before)
+    pd.testing.assert_frame_equal(dfd.outturns.reset_index(drop=True), expected_outturns.reset_index(drop=True))
+    pd.testing.assert_frame_equal(dfd._raw_outturns, raw_outturns_before)
 
     dfd.clear_filter()
 
-    assert len(dfd.density_forecasts) == len(sample_density_forecasts)
+    pd.testing.assert_frame_equal(dfd.density_forecasts, original)
+    pd.testing.assert_frame_equal(dfd.outturns, outturns_before)
+    pd.testing.assert_frame_equal(dfd._raw_outturns, raw_outturns_before)
+    assert dfd.forecasts.empty
 
 
 def test_density_forecasts_retain_calendar_backcasts(sample_outturns):
@@ -420,32 +464,38 @@ def test_rejected_density_forecasts_do_not_mutate_state(sample_outturns, sample_
 # -----------------------
 # Filtering Tests
 # -----------------------
-def test_filter_preserves_quantiles(sample_outturns, sample_density_forecasts):
+def test_filter_preserves_quantiles(sample_outturns, multi_density_forecasts):
     """Test that filtering preserves quantile information."""
-    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=multi_density_forecasts)
+    original = dfd.density_forecasts.copy(deep=True)
+    outturns_before = dfd.outturns.copy(deep=True)
+    assert set(original["variable"]) == {"gdpkp", "cpisa"}
+    assert set(outturns_before["variable"]) == {"gdpkp", "cpisa"}
 
-    original_quantiles = set(dfd.density_forecasts["quantile"].unique())
+    dfd.filter(variables=["gdpkp"])
 
-    # Check if filtering is properly set up (mocking may prevent proper filtering)
-    try:
-        dfd.filter(variables=["gdpkp"])
-        filtered_quantiles = set(dfd.density_forecasts["quantile"].unique())
-
-        # With 100 quantiles, all should be preserved when filtering by variable
-        assert len(original_quantiles) == 50
-        assert original_quantiles == filtered_quantiles
-    except KeyError:
-        # If mocking prevents filtering, just verify quantiles exist
-        assert len(original_quantiles) == 50
+    expected = original[original["variable"].eq("gdpkp")]
+    assert len(expected) == 1300
+    pd.testing.assert_frame_equal(dfd.density_forecasts.reset_index(drop=True), expected.reset_index(drop=True))
+    pd.testing.assert_frame_equal(dfd._density_df, original)
+    assert dfd.density_forecasts.groupby(["source", "date"])["quantile"].nunique().eq(50).all()
+    expected_outturns = outturns_before[outturns_before["variable"].eq("gdpkp")]
+    pd.testing.assert_frame_equal(dfd.outturns.reset_index(drop=True), expected_outturns.reset_index(drop=True))
 
 
-def test_filter_by_source(sample_outturns, sample_density_forecasts):
+def test_filter_by_source(sample_outturns, multi_density_forecasts):
     """Test filtering by source works with density forecasts."""
-    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
-    sources = dfd.density_forecasts["source"].unique()
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=multi_density_forecasts)
+    original = dfd.density_forecasts.copy(deep=True)
+    outturns_before = dfd.outturns.copy(deep=True)
+    assert set(original["source"]) == {"mpr2", "alternative"}
 
-    dfd.filter(sources=[sources[0]])
-    assert all(dfd.density_forecasts["source"] == sources[0])
+    dfd.filter(sources=["alternative"])
+
+    expected = original[original["source"].eq("alternative")]
+    assert len(expected) == 1300
+    pd.testing.assert_frame_equal(dfd.density_forecasts.reset_index(drop=True), expected.reset_index(drop=True))
+    pd.testing.assert_frame_equal(dfd.outturns, outturns_before)
 
 
 # -----------------------
@@ -454,38 +504,55 @@ def test_filter_by_source(sample_outturns, sample_density_forecasts):
 def test_copy_is_deep(sample_outturns, sample_density_forecasts):
     """Test that copy creates a deep copy."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+    dfd.add_forecasts(create_sample_forecasts(), data_check=False)
     dfd_copy = dfd.copy()
 
-    # Modify original
-    dfd.density_forecasts.iloc[0, dfd.density_forecasts.columns.get_loc("value")] = 999
+    for name in ("_density_df", "_density_forecasts", "_raw_forecasts", "_forecasts", "_raw_outturns", "_outturns"):
+        original = getattr(dfd, name)
+        copied = getattr(dfd_copy, name)
+        assert not original.empty
+        snapshot = original.copy(deep=True)
 
-    # Copy should be unchanged
-    assert dfd_copy.density_forecasts.iloc[0]["value"] != 999
+        original.iloc[0, original.columns.get_loc("value")] += 100
+        pd.testing.assert_frame_equal(copied, snapshot)
+
+        changed_original = original.copy(deep=True)
+        copied.iloc[-1, copied.columns.get_loc("value")] -= 100
+        pd.testing.assert_frame_equal(original, changed_original)
 
 
 # -----------------------
 # Integration Tests
 # -----------------------
-def test_density_forecasts_with_custom_filter(sample_outturns, sample_density_forecasts):
+def test_density_forecasts_with_custom_filter(sample_outturns, multi_density_forecasts):
     """Test custom filtering works with density forecasts."""
-    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=multi_density_forecasts)
+    dfd.add_forecasts(create_sample_forecasts(), data_check=False)
+    original = dfd.density_forecasts.copy(deep=True)
+    unchanged = {name: getattr(dfd, name).copy(deep=True) for name in ("outturns", "forecasts", "df")}
 
     def custom_filter(df):
-        return df[df["quantile"] >= 0.5]
+        return df[df["quantile"] >= 0.5] if "quantile" in df.columns else df
 
     dfd.filter(custom_filter=custom_filter)
 
-    # Should have roughly 50 quantiles remaining (0.5 to 0.99)
-    assert all(dfd.density_forecasts["quantile"] >= 0.5)
-    assert len(dfd.density_forecasts["quantile"].unique()) >= 20  # Allow some tolerance
+    expected = original[original["quantile"].ge(0.5)]
+    assert len(expected) == 1300
+    pd.testing.assert_frame_equal(dfd.density_forecasts.reset_index(drop=True), expected.reset_index(drop=True))
+    pd.testing.assert_frame_equal(dfd._density_df, original)
+    for name, snapshot in unchanged.items():
+        assert not snapshot.empty
+        pd.testing.assert_frame_equal(getattr(dfd, name), snapshot)
 
 
 def test_density_forecasts_repr(sample_outturns, sample_density_forecasts):
     """Test that repr works for density forecasts."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
-    repr_str = repr(dfd)
-    assert isinstance(repr_str, str)
-    assert len(repr_str) > 0
+    with pd.option_context("display.max_columns", None):
+        repr_str = repr(dfd)
+        assert repr_str == repr(dfd.density_forecasts)
+    for label in ("quantile", "value", "gdpkp", "mpr2", "650 rows"):
+        assert label in repr_str
 
 
 def test_density_forecasts_repr_html_matches_repr(density_only):
@@ -522,7 +589,7 @@ def test_quantile_validation_out_of_range():
 
     outturns = create_sample_outturns()
 
-    with pytest.raises(Exception):  # Schema validation should fail
+    with pytest.raises(ValueError, match="quantile must be between 0 and 1"):
         DensityForecastData(outturns_data=outturns, forecasts_data=forecasts)
 
 
@@ -533,7 +600,7 @@ def test_quantile_validation_negative():
 
     outturns = create_sample_outturns()
 
-    with pytest.raises(Exception):  # Schema validation should fail
+    with pytest.raises(ValueError, match="quantile must be between 0 and 1"):
         DensityForecastData(outturns_data=outturns, forecasts_data=forecasts)
 
 
@@ -870,27 +937,78 @@ def test_single_quantile_at_boundary(sample_outturns):
 # -----------------------
 # Conversion Tests
 # -----------------------
-def test_to_point_forecast_median(sample_outturns, sample_density_forecasts):
-    """Test converting density forecasts to point forecasts using median."""
+@pytest.mark.parametrize("has_median", [True, False])
+def test_to_point_forecast_median(sample_outturns, sample_density_forecasts, has_median):
+    """Select exact medians silently or the lower nearest level with one warning."""
+    forecasts = sample_density_forecasts.copy()
+    if has_median:
+        forecasts.loc[np.isclose(forecasts["quantile"], 0.49), "quantile"] = 0.5
+    dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts)
+    density_before = dfd.density_forecasts.copy(deep=True)
+    selected_quantile = 0.5 if has_median else 0.49
+    expected = density_before[np.isclose(density_before["quantile"], selected_quantile)]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        dfd.to_point_forecast(method="median")
+
+    if has_median:
+        assert not caught
+    else:
+        assert len(caught) == 1
+        assert caught[0].category is UserWarning
+        message = str(caught[0].message)
+        assert "0.5" in message and "0.49" in message and "nearest" in message.lower()
+    levels = dfd.forecasts[dfd.forecasts["metric"].eq("levels")]
+    columns = ["date", "source", "variable", "metric", "frequency", "vintage_date", "forecast_horizon", "value"]
+    assert len(levels) == len(expected) == 13
+    pd.testing.assert_frame_equal(
+        levels[columns].reset_index(drop=True), expected[columns].reset_index(drop=True), check_dtype=False
+    )
+    pd.testing.assert_frame_equal(
+        dfd._raw_forecasts[columns].reset_index(drop=True),
+        expected[columns].reset_index(drop=True),
+        check_dtype=False,
+    )
+    pd.testing.assert_frame_equal(dfd.density_forecasts, density_before)
+
+
+def test_to_point_forecast_missing_median_strict(sample_outturns, sample_density_forecasts):
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
+    density_before = dfd.density_forecasts.copy(deep=True)
 
-    # Convert to point forecast using median
-    dfd.to_point_forecast(method="median")
+    with pytest.raises(ValueError, match="on_missing='raise'"):
+        dfd.to_point_forecast(method="median", on_missing="raise")
 
-    # Check that parent forecasts are now populated
-    assert not dfd.forecasts.empty
-    assert len(dfd.forecasts) > 0
+    assert dfd.forecasts.empty
+    pd.testing.assert_frame_equal(dfd.density_forecasts, density_before)
 
 
 def test_to_point_forecast_specific_quantile(sample_outturns, sample_density_forecasts):
     """Test converting density forecasts to point forecasts using a specific quantile."""
     dfd = DensityForecastData(outturns_data=sample_outturns, forecasts_data=sample_density_forecasts)
 
-    # Convert using 0.75 quantile
-    dfd.to_point_forecast(method="0.75")
+    density_before = dfd.density_forecasts.copy(deep=True)
+    expected = density_before[np.isclose(density_before["quantile"], 0.75)]
+    assert len(expected) == 13
 
-    # Check that parent forecasts are now populated
-    assert not dfd.forecasts.empty
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        dfd.to_point_forecast(method="0.75", on_missing="raise")
+
+    assert not caught
+    levels = dfd.forecasts[dfd.forecasts["metric"].eq("levels")]
+    columns = ["date", "source", "variable", "metric", "frequency", "vintage_date", "forecast_horizon", "value"]
+    assert len(levels) == 13
+    pd.testing.assert_frame_equal(
+        levels[columns].reset_index(drop=True), expected[columns].reset_index(drop=True), check_dtype=False
+    )
+    pd.testing.assert_frame_equal(
+        dfd._raw_forecasts[columns].reset_index(drop=True),
+        expected[columns].reset_index(drop=True),
+        check_dtype=False,
+    )
+    pd.testing.assert_frame_equal(dfd.density_forecasts, density_before)
 
 
 def test_to_point_forecast_invalid_method(sample_outturns, sample_density_forecasts):
@@ -923,25 +1041,22 @@ def test_sample_from_density_statistics(sample_outturns, sample_density_forecast
     assert "value" in samples.columns
     assert "sample_id" in samples.columns
 
-    # For each date/forecast combination, check mean and variance
-    # The original distribution was normal with mean=100+i and std=mean*0.05
-    for i, date in enumerate(sample_density_forecasts["date"].unique()):
+    for horizon, date in enumerate(sample_density_forecasts["date"].unique()):
         date_samples = samples[samples["date"] == date]["value"]
 
-        if len(date_samples) > 0:
-            expected_mean = i + 1
-            expected_std = 0.5
+        assert not date_samples.empty
+        expected_mean = 115 + horizon
+        expected_std = 0.5
 
-            sample_mean = date_samples.mean()
-            sample_std = date_samples.std()
+        sample_mean = date_samples.mean()
+        sample_std = date_samples.std()
 
-            # Allow 5% tolerance for mean and 10% for std (higher variance in variance estimation)
-            assert abs(sample_mean - expected_mean) / expected_mean < 0.05, (
-                f"Mean mismatch at date {date}: expected {expected_mean}, got {sample_mean}"
-            )
-            assert abs(sample_std - expected_std) / expected_std < 0.10, (
-                f"Std mismatch at date {date}: expected {expected_std}, got {sample_std}"
-            )
+        assert abs(sample_mean - expected_mean) < 0.05, (
+            f"Mean mismatch at date {date}: expected {expected_mean}, got {sample_mean}"
+        )
+        assert abs(sample_std - expected_std) / expected_std < 0.10, (
+            f"Std mismatch at date {date}: expected {expected_std}, got {sample_std}"
+        )
 
 
 # -----------------------
