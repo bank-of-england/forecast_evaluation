@@ -12,6 +12,19 @@ import pandas as pd
 from forecast_evaluation._compat import resolve_forecast_horizon_column
 from forecast_evaluation.utils import clean_unique_id, filter_sources, reconstruct_id_cols_from_unique_id
 
+_DENSITY_PLOTS = {
+    "compute_pit": "plot_pit_histogram",
+    "sharpness_analysis": "plot_sharpness_by_horizon",
+    "crps_analysis": "plot_crps_by_horizon",
+    "compute_crps": "plot_cumulative_crps",
+}
+_DENSITY_TESTS_WITHOUT_PLOT = (
+    "knuppel_test",
+    "mitchell_weale_test",
+    "rossi_sekhposyan_test",
+    "galvao_mantoan_mitchell_test",
+)
+
 
 class TestResult:
     """
@@ -368,11 +381,29 @@ class TestResult:
             return self._plot_rolling_analysis(**kwargs)
         elif test_name == "fluctuation_tests":
             return self._plot_fluctuation_tests(**kwargs)
+        elif test_name in _DENSITY_PLOTS:
+            return self._plot_density(test_name, **kwargs)
+        elif test_name in _DENSITY_TESTS_WITHOUT_PLOT:
+            raise NotImplementedError(
+                f"{test_name} has no plot. Plot the PITs instead, e.g. compute_pit(...).plot(kind='ecdf', "
+                "rs_result=rossi_sekhposyan_test(...))."
+            )
         else:
             raise ValueError(
                 f"Cannot determine visualization for test '{test_name}'. "
                 "Please ensure the test_name metadata is set correctly."
             )
+
+    def _plot_density(self, test_name: str, kind: str = "histogram", **kwargs):
+        """Route density evaluation results to their plots; ``kind`` picks the PIT plot."""
+        from forecast_evaluation.visualisations import density_evaluation_plots as dplots
+
+        if test_name == "compute_pit":
+            plots = {"histogram": dplots.plot_pit_histogram, "ecdf": dplots.plot_pit_ecdf}
+            if kind not in plots:
+                raise ValueError(f"kind must be one of {list(plots)}; got {kind!r}.")
+            return plots[kind](self, **kwargs)
+        return getattr(dplots, _DENSITY_PLOTS[test_name])(self, **kwargs)
 
     def _plot_bias(
         self,
