@@ -28,6 +28,9 @@ class DensityForecastData(ForecastData):
     forecasts with quantile information (basically an extra column indicating quantiles).
     It can still handle point forecasts with the `forecasts` attribute.
 
+    In a density-only instance, `density_forecasts` and `outturns` are populated,
+    while `forecasts` and `df` remain empty until conversion to point forecasts.
+    Density ingestion does not automatically derive additional metrics.
 
     Parameters
     ----------
@@ -912,7 +915,6 @@ def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) ->
         quantiles, values, kind="linear", bounds_error=False, fill_value=(values[0], values[-1]), assume_sorted=True
     )
 
-
 def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
     """Create interpolated CDF function from quantile data.
 
@@ -934,7 +936,6 @@ def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Call
     between values. Probabilities outside the range are clipped to [0, 1].
     """
     return interp1d(values, quantiles, kind="linear", bounds_error=False, fill_value=(0.0, 1.0), assume_sorted=True)
-
 
 def _warn_if_tails_clamped(levels: pd.DataFrame) -> None:
     """Warn once if any density's outer quantile levels are far from 0 and 1.

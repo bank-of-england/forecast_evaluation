@@ -57,17 +57,6 @@ def create_data_schema(
     # Add optional columns
     if optional_columns:
         for col in optional_columns:
-            # metric column has specific validation
-            if col == "metric":
-                columns[col] = pa.Column(
-                    str,
-                    pa.Check(
-                        lambda s: s.isin(["levels", "pop", "yoy"]), name="must be one of ['levels', 'pop', 'yoy']"
-                    ),
-                )
-            else:
-                columns[col] = pa.Column(str, non_empty_string)
-
             if col == "quantile":
                 columns[col] = pa.Column(
                     float,

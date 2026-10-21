@@ -43,6 +43,36 @@ Interrogates specific recent forecast errors and their drivers through complemen
 - Rolling-window fluctuation tests
 - Data revision analysis
 
+Density Forecast Interpretation
+-------------------------------
+
+``DensityForecastData`` stores predictive quantiles for individual target dates.
+Loading densities does not itself populate point forecasts or the point-error
+analysis table, and does not derive additional metric densities. Explicit
+``to_point_forecast`` conversion selects a quantile path for the point evaluation
+methods described below. It defaults to the nearest stored quantile with a
+warning when a requested level is absent; ``on_missing="raise"`` makes this a
+conversion error. Interpolation of missing conversion quantiles is deferred,
+not implemented.
+
+Growth rates calculated from a selected level-quantile path are not generally
+quantiles of the marginal growth distribution. Matching quantile ranks across
+dates implicitly assumes perfect dependence for that interpretation; the stored
+marginal densities do not specify such a joint distribution.
+
+Likewise, ``sample_from_density`` draws independently across densities, not joint
+paths. It linearly interpolates the inverse quantile function within the stored
+range and clamps tails to the endpoint values. This places probability mass at
+the endpoints and can understate dispersion; outer levels farther than 0.02 from
+0 or 1 trigger a warning. Such draws do not recover temporal or cross-variable
+dependence for growth rates or aggregates.
+
+Density-specific scoring and calibration diagnostics, including CRPS and PIT,
+are not implemented. The existing forecast error distribution plots concern
+point forecast errors, not predictive density calibration. Accuracy, bias and
+efficiency results after conversion therefore assess the selected point path,
+not the entire density forecast.
+
 Forecast Error Definition and Data
 -----------------------------------
 
