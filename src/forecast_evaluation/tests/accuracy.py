@@ -57,8 +57,7 @@ def compute_accuracy_statistics(
         - 'start_date' : datetime - Earliest forecast vintage date in the group
         - 'end_date' : datetime - Latest forecast vintage date in the group
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

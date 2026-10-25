@@ -56,6 +56,8 @@ def forecast_errors_correlation_analysis(
         - 'start_date'     : earliest paired observation date
         - 'end_date'       : latest paired observation date
     """
+    data._require_point_forecasts()
+
     if data._main_table is None or data._main_table.empty:
         raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
 

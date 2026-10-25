@@ -13,6 +13,7 @@ from forecast_evaluation.data.ForecastData import (
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.sample_data import create_sample_forecasts, create_sample_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS
+from forecast_evaluation.data.utils import construct_unique_id
 
 
 # -----------------------
@@ -735,17 +736,24 @@ def test_merge_with_different_extra_ids():
 
     forecast_df_2 = create_sample_forecasts()
     forecast_df_2["label2"] = "B"
+    forecast_df_2["label3"] = "C"
 
     fd1 = ForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_1, extra_ids=["label1"])
-    fd2 = ForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_2, extra_ids=["label2"])
+    fd2 = ForecastData(outturns_data=outturns_df, forecasts_data=forecast_df_2, extra_ids=["label2", "label3"])
 
     merged = fd1.copy()
     merged.merge(fd2)
 
     # Both id columns should exist in merged data
-    assert "label1" in merged.forecasts.columns
-    assert "label2" in merged.forecasts.columns
-    assert set(merged.id_columns) == {"source", "label1", "label2"}
+    assert all(column in merged.forecasts.columns for column in ("label1", "label2", "label3"))
+    assert merged.id_columns == ["source", "label1", "label2", "label3"]
+    for table in (merged._raw_forecasts, merged._forecasts, merged._main_table):
+        if not table.empty:
+            pd.testing.assert_series_equal(
+                table["unique_id"].reset_index(drop=True),
+                construct_unique_id(table, merged.id_columns).reset_index(drop=True),
+                check_names=False,
+            )
 
 
 def test_merge_with_different_outturns():

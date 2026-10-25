@@ -158,10 +158,7 @@ def revision_predictability_analysis(
             stacklevel=2,
         )
 
-    if data._forecasts is None:
-        raise ValueError(
-            "ForecastData forecasts data is not available." + " Please ensure data has been added and processed."
-        )
+    data._require_point_forecasts()
 
     if data.uses_intra_period_vintages:
         raise ValueError("Revision predictability analysis is not supported for nowcasting data. ")

@@ -198,8 +198,7 @@ def bias_analysis(
         - 'ci_lower' : float - Lower bound of 95% confidence interval for bias estimate
         - 'ci_upper' : float - Upper bound of 95% confidence interval for bias estimate
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

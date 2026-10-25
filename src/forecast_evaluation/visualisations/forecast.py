@@ -49,8 +49,7 @@ def plot_vintage(
         If return_plot is True, returns a tuple (fig, ax) of the matplotlib figure and axis objects.
         Otherwise, returns None.
     """
-    if data._forecasts is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if frequency is not None:
         warnings.warn(
@@ -231,6 +230,7 @@ def plot_nowcasts(
     fig, ax : tuple or None
         If return_plot is True, returns (fig, ax). Otherwise None.
     """
+    data._require_point_forecasts()
     if data._forecasts is None or data._forecasts.empty:
         raise ValueError("ForecastData forecasts are not available.")
 

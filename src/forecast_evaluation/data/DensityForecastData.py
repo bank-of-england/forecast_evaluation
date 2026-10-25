@@ -1,25 +1,24 @@
 """Density forecast data class for handling probabilistic forecasts with quantiles."""
 
+import numbers
+import warnings
+from collections.abc import Iterable
 from typing import Callable, Literal, Optional, Union
 
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
+from scipy.stats import norm
 from tqdm import tqdm
 
-from forecast_evaluation.core.transformations import prepare_forecasts
-from forecast_evaluation.data.ForecastData import (
-    ForecastData,
-    _atomic_state,
-    _check_duplicates,
-    _check_missing_outturns,
-    _fix_extra_columns,
-    _validate_records,
-)
-from forecast_evaluation.data.sample_data import (
-    create_sample_density_forecasts,
-)
-from forecast_evaluation.data.utils import compute_target_minus_vintage, construct_unique_id
+from forecast_evaluation.data.ForecastData import _UNSET, ForecastData, _atomic_state, _check_forecast_data
+from forecast_evaluation.density.fitting import FittedDensityForecasts, fit_quantile_densities
+
+# Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
+_TAIL_MASS_WARNING_THRESHOLD = 0.02
+
+# Canonical quantile precision shared with point-forecast level resolution.
+QUANTILE_DECIMALS = 10
 
 
 class DensityForecastData(ForecastData):
@@ -30,72 +29,108 @@ class DensityForecastData(ForecastData):
     forecasts with quantile information (basically an extra column indicating quantiles).
     It can still handle point forecasts with the `forecasts` attribute.
 
+    In a density-only instance, `density_forecasts` and `outturns` are populated,
+    while `forecasts` and `df` remain empty until conversion to point forecasts.
+    Density ingestion does not automatically derive additional metrics.
 
     Parameters
     ----------
     outturns_data : pd.DataFrame, optional
         DataFrame containing outturn (actual) data.
     forecasts_data : pd.DataFrame, optional
-        DataFrame containing point forecast records.
-    density_forecasts_data : pd.DataFrame, optional
-        DataFrame containing density forecast records. Must include 'quantile' column.
-    point_estimator : str, optional
-        Estimator for point forecasts; can be 'median', 'mean' or 'mode'.
-        Default is 'median'.
+        DataFrame containing density forecast records. Must include a 'quantile' column.
     load_fer : bool, optional
         Whether to load FER (Forecast Evaluation Report) data. Default is False.
     extra_ids : list of str, optional
-        Additional identification columns beyond 'source' and 'quantile'.
+        Additional identification columns beyond 'source'. Quantile distinguishes
+        observations within a density, not separate forecasts.
+    metric : str, optional
+        Metric to assign when missing from outturn or density data. Default is 'levels'.
+    compute_levels : bool, optional
+        Default for ``to_point_forecast``; density ingestion itself never derives metrics.
+    data_check : bool, optional
+        Whether to check each density's central path against outturns when it is added.
+    crossing : {"rearrange", "error", "ignore"}, optional
+        How to handle values that decrease across quantile levels. The default rearranges
+        the values and warns.
+    outturn_vintages : bool, optional
+        Whether outturns contain vintage information. Default is True.
+    default_k : int or None, optional
+        Default outturn revision index used by evaluation functions.
+    first_forecast_horizon : int or dict[str, int], optional
+        Deprecated fallback used when density input omits ``forecast_horizon``.
 
     Examples
     --------
-    >>> import pandas as pd
     >>> from forecast_evaluation.data import DensityForecastData
-    >>>
-    >>> # Create sample density forecasts
-    >>> df = pd.DataFrame({
-    ...     'date': pd.date_range('2023-01-01', periods=4, freq='QE'),
-    ...     'vintage_date': pd.Timestamp('2023-01-01'),
-    ...     'variable': 'gdp',
-    ...     'frequency': 'Q',
-    ...     'forecast_horizon': [1, 2, 3, 4],
-    ...     'source': 'model_1',
-    ...     'quantile': 0.5,
-    ...     'value': [100, 101, 102, 103]
-    ... })
-    >>>
-    >>> density_data = DensityForecastData(forecasts_data=df)
-    >>> median = density_data.get_median_forecast()
+    >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+    >>> density_data = DensityForecastData(
+    ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+    ... )
+    >>> density_data.density_forecasts["quantile"].nunique()
+    50
     """
+
+    _forecast_tables = (*ForecastData._forecast_tables, "_density_df", "_density_forecasts")
 
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
         forecasts_data: Optional[pd.DataFrame] = None,
         load_fer: Optional[bool] = False,
+        *,
         extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
         compute_levels: bool = True,
+        data_check: bool = True,
+        outturn_vintages: bool = True,
+        default_k: Optional[int] = None,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = None,
+        crossing: Literal["rearrange", "error", "ignore"] = "rearrange",
     ):
         """Initialise DensityForecastData.
 
-        Initialises the density forecast data object. If forecasts_data is provided,
-        it will be validated and added. The 'quantile' column is automatically
-        included as an identification column.
+        Initialises the density forecast data object. Outturns must be available
+        before density forecasts are added. Quantiles share the source's forecast ID.
         """
-        # Initialise parent class without forecasts
-        super().__init__(
-            outturns_data=outturns_data, load_fer=load_fer, extra_ids=extra_ids, compute_levels=compute_levels
-        )
-
-        # Add density-specific attribute
         self._density_forecasts = pd.DataFrame()
         self._density_df = pd.DataFrame()
+        self._compute_levels = compute_levels
+
+        # Initialise parent class without forecasts
+        super().__init__(
+            outturns_data=outturns_data,
+            load_fer=load_fer,
+            extra_ids=extra_ids,
+            metric=metric,
+            compute_levels=compute_levels,
+            data_check=data_check,
+            outturn_vintages=outturn_vintages,
+            default_k=default_k,
+            first_forecast_horizon=first_forecast_horizon,
+        )
 
         # Add forecasts if provided (using density-specific method)
         if forecasts_data is not None:
-            self.add_density_forecasts(forecasts_data, extra_ids=extra_ids)
+            self.add_density_forecasts(
+                forecasts_data,
+                extra_ids=extra_ids,
+                metric=metric,
+                data_check=data_check,
+                first_forecast_horizon=first_forecast_horizon,
+                crossing=crossing,
+            )
 
-    def add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
+    def add_density_forecasts(
+        self,
+        df: pd.DataFrame,
+        *,
+        extra_ids: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
+        data_check: bool = True,
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+        crossing: Literal["rearrange", "error", "ignore"] = "rearrange",
+    ) -> None:
         """Validate and add density forecasts with quantile column.
 
         Parameters
@@ -104,114 +139,97 @@ class DensityForecastData(ForecastData):
             DataFrame containing density forecast records. Must include 'quantile' column
             with values between 0 and 1.
         extra_ids : list of str, optional
-            Additional identification columns beyond 'source' and 'quantile'.
+            Additional identification columns beyond 'source'. The 'quantile'
+            column is validated separately and never identifies a forecast.
+        metric : str, optional
+            Metric assigned when the input has no 'metric' column or has null values.
+            Default is 'levels'.
+        data_check : bool, optional
+            Whether to compare the nearest-to-median path with outturns. Densities
+            without a quantile within 0.1 of 0.5 are skipped. Default is True.
+        first_forecast_horizon : int or dict[str, int], optional
+            Deprecated fallback used when ``forecast_horizon`` is missing.
+        crossing : {"rearrange", "error", "ignore"}, optional
+            Policy for values that decrease with increasing quantile. ``"rearrange"`` sorts
+            values within each density and emits one warning per call; ``"error"`` rejects
+            crossed densities; ``"ignore"`` preserves supplied values. Equal adjacent values
+            are valid. Default is ``"rearrange"``.
 
         Raises
         ------
         ValueError
-            If 'quantile' column is missing from the DataFrame.
+            If 'quantile' column is missing, ``crossing`` is invalid, the schema is invalid,
+            or ``crossing="error"`` and any density is crossed.
+
+        Warns
+        -----
+        UserWarning
+            Once per call when ``crossing="rearrange"`` changes one or more densities.
 
         Examples
         --------
-        >>> density_data = DensityForecastData()
-        >>> df = pd.DataFrame({
-        ...     'date': ['2023-01-01'],
-        ...     'vintage_date': ['2023-01-01'],
-        ...     'variable': ['gdp'],
-        ...     'frequency': ['Q'],
-        ...     'forecast_horizon': [1],
-        ...     'source': ['model_1'],
-        ...     'quantile': [0.5],
-        ...     'value': [100]
-        ... })
-        >>> density_data.add_density_forecasts(df)
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(outturns_data=create_sample_outturns())
+        >>> density_data.add_density_forecasts(create_sample_density_forecasts())
+        >>> density_data.density_forecasts["quantile"].nunique()
+        50
         """
-        with _atomic_state(
-            self,
-            "_id_columns",
-            "_raw_forecasts",
-            "_forecasts",
-            "_density_df",
-            "_density_forecasts",
-        ):
-            self._add_density_forecasts(df, extra_ids=extra_ids)
-
-    def _add_density_forecasts(self, df: pd.DataFrame, extra_ids: Optional[list[str]] = None) -> None:
-        """Add density forecasts without discarding valid calendar backcasts."""
-        # Check for quantile column
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
+        if crossing not in ("rearrange", "error", "ignore"):
+            raise ValueError("crossing must be one of 'rearrange', 'error', or 'ignore'.")
 
-        # Add 'quantile' to extra_ids if not already there
-        if extra_ids is None:
-            extra_ids = ["quantile"]
-        elif "quantile" not in extra_ids:
-            extra_ids = ["quantile"] + list(extra_ids)
+        df = df.copy()
+        numeric_quantiles = pd.to_numeric(df["quantile"], errors="coerce")
+        coercible_quantiles = numeric_quantiles.notna() | df["quantile"].isna()
+        if coercible_quantiles.all():
+            in_range_quantiles = numeric_quantiles.between(0, 1)
+            df["quantile"] = numeric_quantiles.where(
+                ~in_range_quantiles,
+                numeric_quantiles.round(QUANTILE_DECIMALS),
+            )
 
-        # Convert extra col names to contain only letters, numbers, and underscores
-        if extra_ids is not None:
-            df, extra_ids = _fix_extra_columns(df, extra_ids)
+        extra_ids = [column for column in extra_ids or [] if column != "quantile"]
+        with _atomic_state(self, *self._forecast_state):
+            # Pass the backing table name because validation may align its id columns.
+            df = self._validate_new_forecasts(
+                df,
+                stored="_density_df",
+                extra_ids=extra_ids,
+                extra_columns=["quantile"],
+                metric=metric,
+                first_forecast_horizon=first_forecast_horizon,
+                density_data=True,
+            )
+            df = _apply_crossing_policy(df, crossing)
 
-        # Validate records using the ForecastRecord model
-        df = _validate_records(df, forecast=True, optional_columns=extra_ids)
-        df = compute_target_minus_vintage(df)
+            if data_check:
+                central = df.assign(_median_gap=(df["quantile"] - 0.5).abs())
+                central_keys = ["unique_id", "variable", "metric", "frequency", "date", "vintage_date"]
+                central = central.sort_values(["_median_gap", "quantile"], kind="mergesort")
+                central = central.drop_duplicates(subset=central_keys, keep="first")
+                central = central[central["_median_gap"] <= 0.1].drop(columns=["_median_gap", "quantile"])
+                _check_forecast_data(central, self._outturns)
 
-        # ID columns
-        id_cols = ["source"] if extra_ids is None else ["source"] + extra_ids
-        if self._id_columns is None:
-            self._id_columns = id_cols
-        else:
-            # re-add "quantile" to id columns if missing
-            if "quantile" not in self._id_columns:
-                self._id_columns = self._id_columns + ["quantile"]
-            # check that the id columns of the new forecasts match the existing ones
-            # and if not adjust the datasets
-            if set(self._id_columns) != set(id_cols):
-                all_id_cols = list(set(self._id_columns).union(set(id_cols)))
-                for col in all_id_cols:
-                    if col not in self._id_columns:
-                        # add missing columns to existing data
-                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
-                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
-                        self._density_df = self._density_df.assign(**{col: pd.NA})
-                        self._density_forecasts = self._density_forecasts.assign(**{col: pd.NA})
-                        self._id_columns = self._id_columns + [col]
-                    if col not in id_cols:
-                        # add missing columns to new data
-                        df[col] = pd.NA
+            negative_horizons = df["forecast_horizon"] < 0
+            n_negative = int(negative_horizons.sum())
+            if n_negative:
+                row_label = "row" if n_negative == 1 else "rows"
+                warnings.warn(
+                    f"Dropped {n_negative} density forecast {row_label} with negative forecast_horizon.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                df = df.loc[~negative_horizons].copy()
 
-        # Check for duplicates if there are already some records stored
-        if not self._density_forecasts.empty:
-            df = _check_duplicates(df, self._density_forecasts)
+            if df.empty:
+                warnings.warn(
+                    "No density forecasts available after filtering/validation.", UserWarning, stacklevel=2
+                )
+                return
 
-        # Check if forecasts have corresponding outturns
-        _check_missing_outturns(df, self._outturns)
-
-        # create a unique identifier for forecasts
-        df["unique_id"] = construct_unique_id(df, self._id_columns)
-
-        # Transform density forecasts
-        # Unlike point forecasts, we don't match the data with outturns
-        # It doesnt make sense to match the quantile 0.1 with the outturn
-        # and take yoy, for instance
-        forecasts_levels = df.copy()
-        forecasts_levels["metric"] = "levels"
-        forecasts_yoy = _prepare_density_forecasts(df, "yoy")
-        forecasts_pop = _prepare_density_forecasts(df, "pop")
-        forecasts = pd.concat([forecasts_levels, forecasts_yoy, forecasts_pop], ignore_index=True)
-
-        # Ensure quantile remains float in forecasts
-        df["quantile"] = df["quantile"].astype(float)
-        forecasts["quantile"] = forecasts["quantile"].astype(float)
-
-        # reconstruct id without quantiles
-        self._id_columns = [col for col in self._id_columns if col != "quantile"]
-        df["unique_id"] = construct_unique_id(df, self._id_columns)
-        forecasts["unique_id"] = construct_unique_id(forecasts, self._id_columns)
-
-        # Add to existing density-specific data
-        self._density_df = pd.concat([self._density_df, df], ignore_index=True)
-        self._density_forecasts = pd.concat([self._density_forecasts, forecasts], ignore_index=True)
+            self._density_df = pd.concat([self._density_df, df], ignore_index=True)
+            self._density_forecasts = pd.concat([self._density_forecasts, df], ignore_index=True)
 
     @property
     def density_forecasts(self) -> pd.DataFrame:
@@ -232,8 +250,10 @@ class DensityForecastData(ForecastData):
         filter_point_forecasts: Optional[bool] = True,
         filter_density_forecasts: Optional[bool] = True,
     ):
-        """Filter the forecasts and main tables to only include data within specified
+        """Filter the outturns, forecasts, main and density tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
+
+        The filter is atomic: if any table fails to filter, no table is changed.
 
         Parameters
         ----------
@@ -261,39 +281,31 @@ class DensityForecastData(ForecastData):
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         filter_point_forecasts : bool, optional
-            Whether to apply the filter to point forecasts. Default is True.
+            Whether to filter the outturns, point forecasts and main table. Default is True.
+            Outturns and the main table are filtered even when there are no point forecasts.
         filter_density_forecasts : bool, optional
             Whether to apply the filter to density forecasts. Default is True.
         """
-        # Call parent filter for regular forecasts (only if they exist)
-        if not self._forecasts.empty and filter_point_forecasts:
-            super().filter(
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
+        criteria = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "start_vintage": start_vintage,
+            "end_vintage": end_vintage,
+            "variables": variables,
+            "metrics": metrics,
+            "sources": sources,
+            "frequencies": frequencies,
+            "custom_filter": custom_filter,
+        }
+
+        updates, skipped = self._filtered_tables(**criteria) if filter_point_forecasts else ({}, {})
+
+        if filter_density_forecasts and not self._density_forecasts.empty:
+            updates["_density_forecasts"] = self._apply_filter_with_standardized_columns(
+                self._density_forecasts, rename_cols=True, table="_density_forecasts", skipped=skipped, **criteria
             )
 
-        # Also filter density forecasts (only if they exist)
-        if not self._density_forecasts.empty and filter_density_forecasts:
-            self._density_forecasts = self._apply_filter_with_standardized_columns(
-                self._density_forecasts,
-                rename_cols=True,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
-            )
+        self._commit_filter(updates, skipped)
 
     def clear_filter(self) -> None:
         """Reset both parent forecasts and density forecasts to include all original data."""
@@ -302,123 +314,302 @@ class DensityForecastData(ForecastData):
 
         # Also reset density forecasts (only if they exist)
         if not self._density_df.empty:
-            forecasts = prepare_forecasts(self._density_df, self._outturns, self._id_columns)
-            self._density_forecasts = forecasts
+            self._density_forecasts = self._density_df.copy()
 
-    def sample_from_density(self, n_samples: int = 10000, random_state: Optional[int] = None) -> pd.DataFrame:
+    def sample_from_density(
+        self, n_samples: int = 10000, random_state: Optional[Union[int, np.random.Generator]] = None
+    ) -> pd.DataFrame:
         """Generate samples from the empirical distribution defined by quantiles.
 
         Uses inverse transform sampling to draw samples from the distribution
-        defined by the quantile forecasts.
+        defined by the quantile forecasts, as currently filtered.
 
         Parameters
         ----------
         n_samples : int, optional
             Number of samples to generate per forecast group. Default is 10000.
-        random_state : int, optional
-            Random seed for reproducibility.
+        random_state : int or numpy.random.Generator, optional
+            Seed (or generator) for one private random generator used for the whole call.
+            The global NumPy random state is neither read nor modified, so reproducibility
+            requires passing ``random_state``.
 
         Returns
         -------
         pd.DataFrame
-            DataFrame with sampled values. Columns: [id_columns..., 'sample_id', 'value']
+            One block of ``n_samples`` rows per density. Columns: all density-table columns
+            except 'quantile' and 'value' (including 'unique_id' and 'target_minus_vintage'),
+            then 'sample_id' (0 to ``n_samples - 1``) and 'value'.
+
+        Raises
+        ------
+        ValueError
+            If there are no density forecasts to sample from (none loaded, or all removed
+            by a filter), or if any density has fewer than two distinct quantile levels.
+
+        Warns
+        -----
+        UserWarning
+            If any density has an outer quantile level farther than 0.02 from 0 or 1.
 
         Notes
         -----
-        Works well when you have many quantiles (50+). With few quantiles,
-        consider using parametric fitting instead.
+        Outside the stored quantile range the quantile function is clamped to the
+        end values (it is not extrapolated), so mass ``min(quantile)`` and
+        ``1 - max(quantile)`` sits exactly on the two end values and the samples are too
+        narrow. The effect is driven by how close the outer levels are to 0 and 1, not by
+        the number of levels: a grid from 0.01 to 0.99 is nearly unaffected, while 0.1 to 0.9
+        gives a sample standard deviation of roughly 82% of a normal distribution's.
+
+        Draws are marginal only: they are independent across densities, and ``sample_id`` is
+        an index, not a path, so sums or growth rates across dates treat them as independent.
 
         Examples
         --------
-        >>> samples = density_data.sample_from_density(n_samples=10000, random_state=42)
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> samples = density_data.sample_from_density(n_samples=10, random_state=42)
         >>> mean = samples.groupby(['date', 'variable'])['value'].mean()
         """
+        if self._density_forecasts.empty:
+            raise ValueError("No density forecasts to sample from (none loaded, or the filter removed them all).")
+
+        # Positional index so each group's first row can be found without relying on labels
+        density = self._density_forecasts.reset_index(drop=True)
+
         # Group by all columns except 'quantile' and 'value'
-        group_cols = [col for col in self._density_forecasts.columns if col not in ["quantile", "value"]]
+        group_cols = [col for col in density.columns if col not in ["quantile", "value"]]
 
-        # Sample for each group
-        sampled_groups = []
+        grouped = density.groupby(group_cols, sort=True, dropna=False)
 
-        grouped = self._density_forecasts.groupby(group_cols)
+        levels = grouped["quantile"].agg(["min", "max", "nunique"])
+        short = levels[levels["nunique"] < 2]
+        if not short.empty:
+            names = "; ".join(str(key) for key in short.index[:5])
+            raise ValueError(
+                f"{len(short)} density(ies) have fewer than 2 distinct quantile levels and cannot be sampled: {names}"
+            )
+        _warn_if_tails_clamped(levels)
 
-        for group_vals, group in tqdm(grouped, desc="Sampling from density", total=len(grouped)):
+        rng = np.random.default_rng(random_state)
+
+        draws = []
+        first_rows = []
+
+        for _, group in tqdm(grouped, desc="Sampling from density", total=len(grouped)):
             group = group.sort_values("quantile")
 
             # Create interpolated quantile function
             quantile_func = _interpolate_quantile_function(group["quantile"].values, group["value"].values)
 
-            # Draw samples
-            samples = _sample_from_quantile_function(quantile_func, n_samples, random_state)
+            draws.append(_sample_from_quantile_function(quantile_func, n_samples, rng))
+            first_rows.append(group.index[0])
 
-            # Create DataFrame for this group - replicate group metadata
-            group_df = group[group_cols].iloc[[0]].copy()
-            group_df = pd.concat([group_df] * n_samples, ignore_index=True)
-            group_df["sample_id"] = range(n_samples)
-            group_df["value"] = samples
+        # One metadata row per group, repeated n_samples times
+        metadata = density.loc[first_rows, group_cols].reset_index(drop=True)
+        result = metadata.loc[metadata.index.repeat(n_samples)].reset_index(drop=True)
+        result["sample_id"] = np.tile(np.arange(n_samples, dtype=np.int64), len(first_rows))
+        result["value"] = np.concatenate(draws)
 
-            sampled_groups.append(group_df)
+        return result
 
-        return pd.concat(sampled_groups, ignore_index=True)
+    def to_point_forecast(
+        self,
+        method: Union[str, float] = "median",
+        *,
+        on_missing: Literal["nearest", "raise"] = "nearest",
+        source_suffix: Optional[str] = None,
+        compute_levels: Optional[bool] = None,
+        data_check: bool = False,
+    ) -> None:
+        """Add a selected quantile to this object's point forecasts.
 
-    def to_point_forecast(self, method: str = "median") -> ForecastData:
-        """Convert density forecasts to point forecasts.
+        Reads the density forecasts as currently filtered. If the filter leaves no
+        density forecasts, a warning is raised and nothing is added. The converted rows keep
+        the density's ``extra_ids`` and, unless ``source_suffix`` is given, its ``source``.
 
         Parameters
         ----------
-        method : str, optional
-            Method to extract point forecast:
-            - 'median': Use 0.5 quantile (default, most robust)
-            - 'mean': Average via sampling from distribution
-            - specific quantile: e.g., '0.5', '0.75'
+        method : str or float, optional
+            Quantile level to extract, a number in [0, 1]:
+            - 'median': Use the 0.5 quantile (default)
+            - 'mean': Not implemented
+            - a level, as a string or number: e.g. '0.75' or 0.75
+        on_missing : {'nearest', 'raise'}, optional
+            What to do for a density that does not store the requested level (within 1e-9).
+            'nearest' (default) uses the nearest stored level and warns once per call;
+            'raise' raises a ``ValueError`` listing the affected densities. Interpolation
+            between stored levels is not offered.
+        source_suffix : str, optional
+            Appended to ``source`` on the converted rows, so that several quantiles of one
+            density (for example ``' (q0.25)'`` and ``' (q0.75)'``) can be stored side by side,
+            or a point model of the same name is not collided with. Default is None (keep ``source``).
+        compute_levels : bool, optional
+            Passed to ``add_forecasts``. If omitted, uses the constructor's
+            ``compute_levels`` setting (default True).
+        data_check : bool, optional
+            Whether to check the converted point forecasts again. Density data is
+            checked on ingestion by default, so this defaults to False.
 
         Returns
         -------
-        ForecastData
-            Point forecast data object.
+        None
+            The point forecasts are stored on this object.
+
+        Raises
+        ------
+        ValueError
+            If no density forecasts have been loaded; ``method`` or ``on_missing`` is invalid;
+            ``on_missing='raise'`` and a density lacks the level; a density has no quantile
+            level common to all its dates; or point forecasts already stored under the same
+            source (and keys) have different values.
+        NotImplementedError
+            If ``method`` is 'mean'.
+
+        Warns
+        -----
+        UserWarning
+            Once per call if the level is not stored for some densities and the nearest level
+            was used, naming the requested level, the level used and the distance.
+
+        Notes
+        -----
+        The level is resolved per forecast path (one source, extra ids, variable, metric,
+        frequency and vintage), so one level is used for every date of the path. Levels are
+        matched with a tolerance of 1e-9. If the level is not stored, the nearest level
+        stored at every date of the path is used; an equally near pair resolves to the lower
+        level, independent of row order. No density is dropped silently.
+
+        The derived ``pop`` and ``yoy`` point forecasts are growth rates of the chosen
+        quantile's LEVEL path, not quantiles of the growth distribution. They coincide only
+        if level quantiles at different dates are perfectly dependent.
+
+        Repeating a call with the same arguments changes nothing and emits no warning.
 
         Examples
         --------
-        >>> # Convert using median
-        >>> point_data = density_data.to_point_forecast('median')
-        >>>
-        >>> # Convert using mean via sampling
-        >>> point_data = density_data.to_point_forecast('mean')
-        >>>
-        >>> # Convert using specific quantile
-        >>> point_data = density_data.to_point_forecast('0.75')
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> density_data.to_point_forecast(str(density_data.density_forecasts["quantile"].iloc[0]))
+        >>> density_data.forecasts.empty
+        False
         """
-        import warnings
+        target = _parse_quantile_level(method)
 
-        if method == "median":
-            target_quantile = 0.5
-        elif method == "mean":
-            raise NotImplementedError("Mean estimation from density forecasts is not implemented yet.")
-            return
-        else:
-            try:
-                target_quantile = float(method)
-            except ValueError:
-                raise ValueError(f"Invalid method '{method}'. Use 'median', 'mean', or a quantile value (e.g., '0.5').")
+        if on_missing not in ("nearest", "raise"):
+            raise ValueError(f"Invalid on_missing {on_missing!r}. Use 'nearest' or 'raise'.")
+        if source_suffix is not None and not isinstance(source_suffix, str):
+            raise ValueError(f"source_suffix must be a string or None; got {source_suffix!r}.")
 
-        # Try to find exact match
-        forecast_df = self._density_df[self._density_df["quantile"] == target_quantile].copy()
+        if self._density_df.empty:
+            raise ValueError("No density forecasts loaded. Add density forecasts before calling to_point_forecast.")
 
-        # If no exact match, find closest quantile
-        if forecast_df.empty:
-            available_quantiles = self._density_df["quantile"].unique()
-
-            # Find closest quantile
-            closest_quantile = min(available_quantiles, key=lambda x: abs(x - target_quantile))
-
+        density = self._density_forecasts
+        if density.empty:
             warnings.warn(
-                f"Quantile {target_quantile} not found. Using closest available quantile: {closest_quantile}",
+                "No density forecasts remain after filtering; no point forecasts were added.",
                 UserWarning,
                 stacklevel=2,
             )
+            return
 
-            forecast_df = self._density_df[self._density_df["quantile"] == closest_quantile].copy()
+        extra_ids = self._extra_ids
+        path_cols = [
+            col
+            for col in ["source", *extra_ids, "variable", "metric", "frequency", "vintage_date"]
+            if col in density.columns
+        ]
+        forecast_df, missing_message = _select_quantile_rows(density, path_cols, target, on_missing, method)
 
-        super().add_forecasts(forecast_df)
+        forecast_df = forecast_df.drop(columns=["quantile", "unique_id"], errors="ignore")
+        if source_suffix:
+            forecast_df["source"] = forecast_df["source"].astype(str) + source_suffix
+
+        # An identical repeat is a no-op; a different value under the same keys is a conflict.
+        key_cols = ["source", *extra_ids, "variable", "metric", "frequency", "vintage_date", "date"]
+        forecast_df = _drop_existing_point_rows(forecast_df, self._raw_forecasts, key_cols, target)
+        if forecast_df.empty:
+            return
+
+        if missing_message:
+            warnings.warn(missing_message, UserWarning, stacklevel=2)
+
+        super().add_forecasts(
+            forecast_df,
+            extra_ids=extra_ids,
+            compute_levels=self._compute_levels if compute_levels is None else compute_levels,
+            data_check=data_check,
+        )
+
+    def fit_parametric_density(
+        self,
+        method: Literal["skew_t", "two_piece_normal", "normal", "mpz"],
+        match_levels: Union[None, str, Iterable[float]] = None,
+        *,
+        approx_tol: float = 0.05,
+        **options,
+    ) -> FittedDensityForecasts:
+        """Fit a density family to each stored density forecast, as currently filtered.
+
+        Parametric families are fitted by least squares to the quantile values at the matched
+        levels: (loc, scale) in closed form, the remaining shape parameter by a grid search
+        refined with the exact quantile function.
+
+        Parameters
+        ----------
+        method : {"skew_t", "two_piece_normal", "normal", "mpz"}
+            ``"skew_t"``: Azzalini skew-t on an integer df grid; ``"two_piece_normal"``: two-piece
+            normal; ``"normal"``: normal; ``"mpz"``: the exact semi-parametric MPZ distribution
+            through the matched quantiles (no fitting).
+        match_levels : None, "all" or sequence of float, optional
+            Levels to fit. Each requested level maps to the nearest stored level of each density
+            (ties to the lower level; no interpolation). None uses the method default: skew-t
+            (0.05, 0.25, 0.5, 0.75, 0.95), two-piece normal (0.25, 0.5, 0.75), otherwise "all".
+        approx_tol : float, optional
+            Warn when a fitted density misses any stored quantile by more than ``approx_tol``
+            times its fitted interquartile range. Default 0.05.
+        **options
+            Skew-t only: ``df_grid`` (default 5..30), ``shape_bound`` (default 30),
+            ``n_shape_grid`` (default 41), ``n_refine_df`` (default None: refine every df).
+
+        Returns
+        -------
+        FittedDensityForecasts
+            One row per density with ``params``, ``pdf``/``cdf``/``ppf``, ``moments()``,
+            ``to_value_grid()``, ``to_quantile_grid()`` and ``diagnostics``.
+
+        Raises
+        ------
+        ValueError
+            If no density forecasts remain, ``method``/``match_levels`` is invalid, or the matched
+            levels of a density are fewer than the family needs (normal and MPZ 2, two-piece
+            normal 3, skew-t 4).
+
+        Warns
+        -----
+        UserWarning
+            Once per call if a requested level is more than 0.01 from the stored level used, if
+            some densities cannot be fitted (parameters NaN), or if the approximation error
+            exceeds ``approx_tol``.
+
+        Examples
+        --------
+        >>> from forecast_evaluation.data.sample_data import create_sample_density_forecasts, create_sample_outturns
+        >>> density_data = DensityForecastData(
+        ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
+        ... )
+        >>> fitted = density_data.fit_parametric_density("normal")
+        >>> list(fitted.params.columns[-2:])
+        ['loc', 'scale']
+        """
+        if self._density_forecasts.empty:
+            raise ValueError("No density forecasts to fit (none loaded, or the filter removed them all).")
+        return fit_quantile_densities(
+            self._density_forecasts, method, match_levels, approx_tol=approx_tol, data=self, **options
+        )
 
     def merge(self, other: "ForecastData", compute_levels: bool = True) -> None:
         """Merge another ForecastData or DensityForecastData instance into this one.
@@ -438,80 +629,334 @@ class DensityForecastData(ForecastData):
             Default is True.
         """
 
-        super().merge(other, compute_levels=compute_levels)
+        with _atomic_state(self, *self._forecast_state, "_raw_outturns", "_outturns"):
+            super().merge(other, compute_levels=compute_levels)
 
-        if isinstance(other, DensityForecastData):
-            if not other._density_df.empty:
-                self.add_density_forecasts(other._density_df, extra_ids=other._id_columns)
+            if isinstance(other, DensityForecastData) and not other._density_df.empty:
+                self.add_density_forecasts(other._density_df, extra_ids=other._extra_ids, data_check=False)
 
     def __repr__(self) -> str:
         """Return DataFrame representation when printing the class."""
         return self._density_forecasts.__repr__()
 
+    def _repr_html_(self) -> str | None:
+        """Return the density table as HTML so notebooks match ``__repr__``."""
+        return self._density_forecasts._repr_html_()
+
+    def _no_point_forecasts_message(self) -> str:
+        if self._density_df.empty:
+            return super()._no_point_forecasts_message()
+        return (
+            "No point forecasts loaded. Density forecasts must be converted with "
+            "DensityForecastData.to_point_forecast() before point-forecast analyses."
+        )
+
+    def _print_forecast_sections(self) -> None:
+        """Print the point forecast block (if any) followed by the density block."""
+        if not self._forecasts.empty:
+            self._print_forecast_summary()
+        elif not self._density_df.empty:
+            print("\n[FORECASTS] No point forecasts loaded (density forecasts are loaded: see [DENSITY FORECASTS])")
+        else:
+            print("\n[FORECASTS] No data loaded")
+
+        if not self._density_forecasts.empty:
+            self._print_forecast_summary(
+                self._density_forecasts,
+                "DENSITY FORECASTS",
+                show_metric=True,
+                dropna=False,
+                group_footer=_print_quantile_grids,
+            )
+        elif not self._density_df.empty:
+            print("\n[DENSITY FORECASTS] No data after filtering")
+
     def plot_density_vintage(
         self,
         variable: str,
         vintage_date: str | pd.Timestamp,
-        quantiles: Optional[list[float]] = [0.16, 0.5, 0.84],
         forecast_source: Optional[list[str]] = None,
         outturn_start_date: str | pd.Timestamp | None = None,
-        frequency: Union[Literal["Q", "M"], None] = None,
+        frequency: Optional[Literal["Q", "M"]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
+        *,
+        quantiles: Optional[list[float]] = None,
         return_plot: bool = False,
-        **kwargs,
     ) -> tuple | None:
-        """Plot forecast density plots.
+        """Plot density forecasts for one vintage with quantile bands and outturns.
 
         Parameters
         ----------
-        **kwargs
-            Additional keyword arguments passed to the plotting function.
+        variable : str
+            Variable to plot.
+        vintage_date : str or pd.Timestamp
+            Forecast vintage to plot.
+        forecast_source : list of str, optional
+            Sources to include. If None, all sources are included.
+        outturn_start_date : str or pd.Timestamp, optional
+            First outturn date to display (inclusive). If None, use all available dates.
+        frequency : {"Q", "M"}, optional
+            Frequency to filter on. If None, infer it from the outturns.
+        metric : {"levels", "pop", "yoy"}, default "levels"
+            Metric to plot. Density forecasts must already be stored in this metric.
+        quantiles : sequence of float, optional
+            Keyword-only quantile levels in [0, 1]. Defaults to ``(0.16, 0.5, 0.84)``. A copy is
+            sorted in ascending order. Two or more levels draw one shaded outer band; inner levels
+            are faint dashed lines. The 0.5 level, or the middle requested level for an odd-length
+            list, is solid. Missing levels use the nearest stored value with a warning.
+        return_plot : bool, default False
+            Keyword-only. If True, return the matplotlib figure and axes instead of showing the plot.
+
+        Returns
+        -------
+        tuple or None
+            ``(fig, ax)`` if ``return_plot`` is True; otherwise None.
+
+        See Also
+        --------
+        forecast_evaluation.visualisations.plot_density_vintage
 
         Notes
         -----
-        This method creates density plots for the density forecasts.
+        Outturns use the latest available vintage and are split before and after the forecast vintage.
         """
         from forecast_evaluation.visualisations.density_plots import plot_density_vintage
 
         return plot_density_vintage(
             self,
-            variable,
-            vintage_date,
+            variable=variable,
+            vintage_date=vintage_date,
             forecast_source=forecast_source,
-            quantiles=quantiles,
             outturn_start_date=outturn_start_date,
             frequency=frequency,
             metric=metric,
+            quantiles=quantiles,
             return_plot=return_plot,
-            **kwargs,
         )
 
 
-def _prepare_density_forecasts(df: pd.DataFrame, transform: str) -> pd.DataFrame:
-    df_transformed = []
+def _describe_quantile_grid(levels: Iterable[float]) -> str:
+    """Describe one quantile grid compactly, e.g. ``0.01-0.99 step 0.02 (n=50)``.
 
-    for frequency in df["frequency"].unique():
-        df_freq = df[df["frequency"] == frequency].copy()
+    Levels are rounded to 6 decimals (display only) to remove float noise.
+    """
+    levels = sorted({round(float(q), 6) for q in levels})
+    n = len(levels)
+    if n >= 3:
+        steps = np.diff(levels)
+        if steps.max() - steps.min() < 1e-6:
+            return f"{levels[0]:g}-{levels[-1]:g} step {round(float(steps.mean()), 6):g} (n={n})"
+    if n <= 9:
+        return "{" + ", ".join(f"{q:g}" for q in levels) + "}"
+    return f"{levels[0]:g}-{levels[-1]:g}, n={n}, irregular"
 
-        # the sorting_cols are all cols but value and date
-        grouping_cols = [
-            col for col in df_freq.columns if col not in ["value", "date", "forecast_horizon", "target_minus_vintage"]
+
+def _describe_quantile_grids(grids: Iterable[Iterable[float]]) -> str:
+    """Describe the distinct quantile grids found in one group and flag a missing 0.5."""
+    distinct = sorted({tuple(sorted({round(float(q), 6) for q in grid})) for grid in grids})
+    if len(distinct) == 1:
+        text = _describe_quantile_grid(distinct[0])
+        return text if 0.5 in distinct[0] else f"{text}; no exact 0.5"
+
+    common = set(distinct[0]).intersection(*distinct[1:])
+    text = f"{len(distinct)} distinct grids; common: {_describe_quantile_grid(common) if common else 'none'}"
+    missing = sum(0.5 not in grid for grid in distinct)
+    return f"{text}; 0.5 missing in {missing} of {len(distinct)} grids" if missing else text
+
+
+def _print_quantile_grids(group: pd.DataFrame) -> None:
+    """Print one quantile grid description per (variable, metric) of a summary group."""
+    density_keys = [col for col in ("date", "vintage_date", "forecast_horizon") if col in group.columns]
+    print("  Quantile grid:")
+    for (variable, metric), rows in group.groupby(["variable", "metric"], sort=True, observed=True):
+        grids = [
+            tuple(density["quantile"].astype(float))
+            for _, density in rows.groupby(density_keys, observed=True, dropna=False)
         ]
-        sorting_cols = grouping_cols + ["date"]
-        df_freq = df_freq.sort_values(sorting_cols)
+        print(f"    {variable}, {metric}: {_describe_quantile_grids(grids)}")
 
-        if transform == "pop":
-            df_freq["value"] = df_freq.groupby(grouping_cols)["value"].pct_change(periods=1)
-            df_freq["metric"] = "pop"
-        elif transform == "yoy":
-            n_periods = {"Q": 4, "M": 12}[frequency]
-            df_freq["value"] = df_freq.groupby(grouping_cols)["value"].pct_change(periods=n_periods)
-            df_freq["metric"] = "yoy"
 
-        df_freq = df_freq[df_freq["value"].notna()]
-        df_transformed.append(df_freq)
+def _parse_quantile_level(method: Union[str, float]) -> float:
+    """Return the quantile level for a ``to_point_forecast`` method, or raise."""
+    if isinstance(method, str):
+        if method == "median":
+            return 0.5
+        if method == "mean":
+            raise NotImplementedError("Mean estimation from density forecasts is not implemented yet.")
+        try:
+            level = float(method)
+        except ValueError:
+            raise ValueError(
+                f"Invalid method '{method}'. Use 'median', 'mean', or a quantile value (e.g., '0.5')."
+            ) from None
+    elif isinstance(method, (bool, np.bool_)) or not isinstance(method, numbers.Real):
+        raise ValueError(f"Quantile level must be a number in [0, 1]; got {method!r}.")
+    else:
+        level = float(method)
 
-    return pd.concat(df_transformed, ignore_index=True)
+    if not (np.isfinite(level) and 0 <= level <= 1):
+        raise ValueError(f"Quantile level must be a number in [0, 1]; got {method!r}.")
+    return level
+
+
+def _describe_path(row: pd.Series, columns: list[str]) -> str:
+    """Format the identity of one forecast path, e.g. ``source=B, variable=gdpkp``."""
+    parts = []
+    for column in columns:
+        value = row[column]
+        parts.append(f"{column}={value.date() if isinstance(value, pd.Timestamp) else value}")
+    return ", ".join(parts)
+
+
+def _select_quantile_rows(
+    density: pd.DataFrame,
+    path_cols: list[str],
+    target: float,
+    on_missing: Literal["nearest", "raise"],
+    method: Union[str, float],
+) -> tuple[pd.DataFrame, Optional[str]]:
+    """Pick one quantile level per forecast path and return its rows and an optional warning text.
+
+    A path is the rows sharing ``path_cols`` (its dates are horizons), so one level is used for
+    all its dates. Only levels stored at every date of the path are candidates. The stored level
+    nearest to ``target`` is used; an equally near pair resolves to the lower level.
+    """
+    density = density.reset_index(drop=True)
+    density = density.assign(
+        _path=density.groupby(path_cols, sort=False, dropna=False).ngroup(),
+        _level=density["quantile"].astype(float).round(QUANTILE_DECIMALS),
+    )
+    n_dates = density.groupby("_path")["date"].nunique()
+    at_level = density.groupby(["_path", "_level"])["date"].nunique().rename("n_dates").reset_index()
+    common = at_level[at_level["n_dates"] == at_level["_path"].map(n_dates)].copy()
+    common["distance"] = (common["_level"] - target).abs().round(QUANTILE_DECIMALS)
+    chosen = common.sort_values(["distance", "_level"]).drop_duplicates("_path").sort_values("_path")
+
+    stored = chosen["distance"] == 0
+    lacking = n_dates.index[~n_dates.index.isin(chosen.loc[stored, "_path"])]
+    no_common = lacking[~lacking.isin(chosen["_path"])]
+
+    if len(lacking):
+        info = density.drop_duplicates("_path").set_index("_path")
+        shown = "; ".join(_describe_path(info.loc[p], path_cols) for p in lacking[:5])
+        more = f" and {len(lacking) - 5} more" if len(lacking) > 5 else ""
+        if on_missing == "raise":
+            raise ValueError(
+                f"Quantile level {target:g} is not stored at every date for {len(lacking)} of {len(n_dates)} "
+                f"forecast(s) (on_missing='raise'): {shown}{more}."
+            )
+        if len(no_common):
+            raise ValueError(
+                f"{len(no_common)} forecast(s) have no quantile level stored at every date, so no level can be "
+                f"used for the whole path: {'; '.join(_describe_path(info.loc[p], path_cols) for p in no_common[:5])}."
+            )
+
+        used = chosen[~stored]
+        details = [
+            f"{_describe_path(info.loc[p], path_cols)}: level {level:g} (distance {distance:g})"
+            for p, level, distance in used[["_path", "_level", "distance"]].head(5).itertuples(index=False)
+        ]
+        message = (
+            f"to_point_forecast({method!r}): quantile level {target:g} is not stored at every date for {len(used)} of "
+            f"{len(n_dates)} forecast(s); used the nearest stored level instead (ties go to the lower level), "
+            f"e.g. {'; '.join(details)}{' and others' if len(used) > 5 else ''}. "
+            f"Pass on_missing='raise' to make this an error."
+        )
+    else:
+        message = None
+
+    rows = density.merge(chosen[["_path", "_level"]], on=["_path", "_level"], how="inner")
+    return rows.drop(columns=["_path", "_level"]).reset_index(drop=True), message
+
+
+def _drop_existing_point_rows(
+    new: pd.DataFrame, existing: pd.DataFrame, key_cols: list[str], target: float
+) -> pd.DataFrame:
+    """Drop rows of ``new`` already stored with the same value; raise if a stored value differs."""
+    keys = [col for col in key_cols if col in new.columns and col in existing.columns]
+    if existing.empty or new.empty or not keys:
+        return new
+
+    old = existing[[*keys, "value"]].drop_duplicates(keys).rename(columns={"value": "_old_value"})
+    old_value = new[keys].merge(old, on=keys, how="left")["_old_value"].to_numpy(dtype=float)
+    overlap = ~np.isnan(old_value)
+    if not overlap.any():
+        return new
+
+    differs = overlap.copy()
+    differs[overlap] = ~np.isclose(new["value"].to_numpy(dtype=float)[overlap], old_value[overlap], rtol=1e-9, atol=0)
+    if differs.any():
+        sources = sorted(new.loc[differs, "source"].astype(str).unique())
+        raise ValueError(
+            f"Point forecasts for source(s) {sources} already exist with different values for {differs.sum()} "
+            f"record(s) (for example from an earlier to_point_forecast call). Pass source_suffix (for example "
+            f"source_suffix=' (q{target:g})') to store several levels side by side, or start from a fresh object."
+        )
+    return new.loc[~overlap].reset_index(drop=True)
+
+
+def _rearrange_quantiles(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, int, int, float, list[str]]:
+    """Sort values within each density and report the affected groups."""
+    if df.empty:
+        return df, 0, 0, 0.0, []
+
+    key_columns = [column for column in df.columns if column not in ("quantile", "value")]
+    group_ids = df.groupby(key_columns, sort=False, dropna=False).ngroup().to_numpy()
+    quantiles = df["quantile"].to_numpy(dtype=float)
+    values = df["value"].to_numpy(dtype=float)
+    by_quantile = np.lexsort((quantiles, group_ids))
+    ordered_groups = group_ids[by_quantile]
+    ordered_values = values[by_quantile]
+    decreases = (ordered_groups[1:] == ordered_groups[:-1]) & (ordered_values[1:] < ordered_values[:-1])
+    affected_groups = np.unique(ordered_groups[1:][decreases])
+    total_groups = int(np.unique(group_ids).size)
+
+    if not affected_groups.size:
+        return df, 0, total_groups, 0.0, []
+
+    by_value = np.lexsort((values, group_ids))
+    rearranged_values = values.copy()
+    rearranged_values[by_quantile] = values[by_value]
+    changes = np.abs(rearranged_values - values)
+    rearranged = df.copy()
+    rearranged["value"] = rearranged_values
+
+    examples = []
+    for group_id in affected_groups[:5]:
+        row = df.iloc[np.flatnonzero(group_ids == group_id)[0]]
+        examples.append(_describe_path(row, key_columns))
+
+    return rearranged, int(affected_groups.size), total_groups, float(changes.max()), examples
+
+
+def _apply_crossing_policy(df: pd.DataFrame, crossing: Literal["rearrange", "error", "ignore"]) -> pd.DataFrame:
+    """Apply the selected policy to strict decreases across quantile levels."""
+    if crossing == "ignore":
+        return df
+
+    rearranged, affected, total, largest_change, examples = _rearrange_quantiles(df)
+    if not affected:
+        return df
+
+    extra = f" and {affected - len(examples)} more" if affected > len(examples) else ""
+    example_text = "; ".join(examples) + extra
+    if crossing == "error":
+        raise ValueError(
+            f"{affected} of {total} densities have values that are not non-decreasing in quantile; "
+            f"examples: {example_text}."
+        )
+
+    warnings.warn(
+        f"Rearranged {affected} of {total} densities because values were not non-decreasing in quantile "
+        f"(largest absolute change {largest_change:g}); "
+        f"example key: {example_text}. "
+        "Check the model that produced them.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return rearranged
 
 
 def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
@@ -532,12 +977,11 @@ def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) ->
     Notes
     -----
     Uses linear interpolation between quantiles. Values outside the range
-    are extrapolated using the nearest quantile value.
+    are clamped to the end values (no extrapolation).
     """
     return interp1d(
         quantiles, values, kind="linear", bounds_error=False, fill_value=(values[0], values[-1]), assume_sorted=True
     )
-
 
 def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
     """Create interpolated CDF function from quantile data.
@@ -561,9 +1005,37 @@ def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Call
     """
     return interp1d(values, quantiles, kind="linear", bounds_error=False, fill_value=(0.0, 1.0), assume_sorted=True)
 
+def _warn_if_tails_clamped(levels: pd.DataFrame) -> None:
+    """Warn once if any density's outer quantile levels are far from 0 and 1.
+
+    ``levels`` has one row per density with columns 'min' and 'max' (outer quantile levels).
+    """
+    outer_mass = np.maximum(levels["min"].to_numpy(), 1 - levels["max"].to_numpy())
+    # Small tolerance because 1 - 0.99 is 0.010000000000000009 in floating point
+    flagged = outer_mass > _TAIL_MASS_WARNING_THRESHOLD + 1e-9
+    if not flagged.any():
+        return
+
+    worst = int(np.argmax(outer_mass))
+    p = float(outer_mass[worst])
+    c = norm.ppf(1 - p)
+    # Standard deviation of a standard normal clamped at +/- c, relative to the unclamped value of 1
+    sd_ratio = float(np.sqrt((1 - 2 * p) - 2 * c * norm.pdf(c) + 2 * p * c**2))
+
+    warnings.warn(
+        f"sample_from_density: {int(flagged.sum())} of {len(levels)} densities have outer quantile levels "
+        f"farther than {_TAIL_MASS_WARNING_THRESHOLD} from 0 or 1 (worst: {levels['min'].iloc[worst]:g} and "
+        f"{levels['max'].iloc[worst]:g}). Samples are clamped to the stored range, so about {p * 100:.3g}% of "
+        f"draws sit exactly on each end value and the draws are too narrow: for a normal-like distribution the "
+        f"sample standard deviation will be roughly {sd_ratio * 100:.0f}% of the true value. Supply quantiles "
+        f"closer to 0 and 1, or treat the draws as truncated.",
+        UserWarning,
+        stacklevel=3,
+    )
+
 
 def _sample_from_quantile_function(
-    quantile_func: Callable, n_samples: int, random_state: Optional[int] = None
+    quantile_func: Callable, n_samples: int, rng: Optional[Union[int, np.random.Generator]] = None
 ) -> np.ndarray:
     """Draw samples from distribution using inverse transform sampling.
 
@@ -573,8 +1045,8 @@ def _sample_from_quantile_function(
         Quantile function (inverse CDF) that maps probability → value.
     n_samples : int
         Number of samples to draw.
-    random_state : int, optional
-        Random seed for reproducibility.
+    rng : int or numpy.random.Generator, optional
+        Seed or generator for a private random stream. The global NumPy random state is not touched.
 
     Returns
     -------
@@ -587,34 +1059,12 @@ def _sample_from_quantile_function(
     1. Draw uniform random samples U ~ Uniform(0, 1)
     2. Transform using inverse CDF: X = Q(U)
     """
-    if random_state is not None:
-        np.random.seed(random_state)
+    rng = np.random.default_rng(rng)
 
     # Draw uniform samples
-    uniform_samples = np.random.uniform(0, 1, size=n_samples)
+    uniform_samples = rng.random(n_samples)
 
     # Transform using quantile function (inverse CDF)
     samples = quantile_func(uniform_samples)
 
     return samples
-
-
-# Example usage:
-if __name__ == "__main__":
-    import forecast_evaluation as fe
-
-    # load point forecasts
-    forecast_data = fe.ForecastData(load_fer=True)
-
-    # sample density forecasts
-    density_forecast_df = create_sample_density_forecasts()
-    outturns_df = forecast_data.outturns
-    outturns_df = outturns_df[outturns_df["metric"] == "levels"]
-
-    density_data = fe.DensityForecastData(outturns_data=outturns_df, forecasts_data=density_forecast_df)
-
-    # merge
-    density_data.merge(forecast_data)
-
-    # run dashboard
-    density_data.run_dashboard()

@@ -49,6 +49,8 @@ def rolling_analysis(
     if window_size <= 0:
         raise ValueError("window_size must be at least one.\n")
 
+    data._require_point_forecasts()
+
     main_table = data._main_table.copy()
 
     # Set default start and end vintage if not provided

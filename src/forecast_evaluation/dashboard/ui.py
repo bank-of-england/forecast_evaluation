@@ -2,20 +2,36 @@
 
 from shiny import ui
 
-from forecast_evaluation import DensityForecastData
-
 
 def get_selector_info(col, data):
-    """Generate selector info for a given column."""
+    """Generate selector info for a given column from the point and density tables."""
 
-    if isinstance(data, DensityForecastData):
-        col_choices = sorted(data._density_forecasts[col].dropna().unique().tolist())
-    else:
-        col_choices = sorted(data.forecasts[col].dropna().unique().tolist())
+    tables = [data.forecasts, getattr(data, "_density_forecasts", None)]
+    values = {v for t in tables if t is not None and col in t.columns for v in t[col].dropna().unique().tolist()}
+    col_choices = sorted(values)
 
     id_single = col.replace(" ", "_")
     id_multi = id_single + "_s"
     return col_choices, id_single, id_multi
+
+
+def get_quantile_choices(data):
+    """Return (choices, lower default, upper default) from the stored density quantile levels."""
+
+    density = getattr(data, "_density_forecasts", None)
+    if density is None or density.empty:
+        return [0.0], 0.0, 0.0
+
+    levels = sorted(float(q) for q in density["quantile"].unique())
+
+    def label(q):
+        return f"{q:.10g}"
+
+    return (
+        [label(q) for q in levels],
+        label(min(levels, key=lambda q: abs(q - 0.16))),
+        label(min(levels, key=lambda q: abs(q - 0.84))),
+    )
 
 
 def create_sidebar(data):
@@ -44,6 +60,7 @@ def create_sidebar(data):
         unique_ids_set = set()
         transformations_set = set()
         period_label = "periods"
+        horizons = set()
 
     if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
         vintages_set.update([str(v)[:10] for v in data._density_forecasts["vintage_date"].unique().tolist()])
@@ -67,6 +84,12 @@ def create_sidebar(data):
     transformations = sorted(list(transformations_set))
     horizons = sorted(list(horizons))
 
+    if not sources:
+        raise ValueError(
+            "The dashboard needs at least one forecast; none found. Add point forecasts, or density forecasts "
+            "and call to_point_forecast() for the point-forecast tabs."
+        )
+
     loss_functions = ["rmse", "rmedse", "mean_abs_error"]
     loss_functions_tests = ["mse", "mae"]
     if hasattr(data, "_main_table") and not data._main_table.empty:
@@ -89,20 +112,7 @@ def create_sidebar(data):
     else:
         release_choices = ["1"]
 
-    if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
-        quantiles = data._density_forecasts["quantile"].unique()
-        closest_to_16 = min(quantiles, key=lambda x: abs(x - 0.16))
-        closest_to_84 = min(quantiles, key=lambda x: abs(x - 0.84))
-
-        # rounding
-        closest_to_16 = round(float(closest_to_16), 2)
-        closest_to_84 = round(float(closest_to_84), 2)
-        quantiles = [round(float(q), 2) for q in quantiles]
-        quantiles = sorted(list(set(quantiles)))
-    else:
-        quantiles = [0.0]
-        closest_to_84 = 0.0
-        closest_to_16 = 0.0
+    quantiles, closest_to_16, closest_to_84 = get_quantile_choices(data)
 
     _or = "||"
     _and = "&&"
@@ -703,6 +713,17 @@ def create_sidebar(data):
         ui.panel_conditional(
             "input.tabs != 'About' && !(input.tabs == 'Accuracy' && input.accuracy_subtabs == 'Diebold Mariano') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Revisions predictability') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Optimal scaling') && !(input.tabs == 'Efficiency' && input.efficiency_subtabs == 'Correlation of revisions and errors')",
             ui.input_slider("legend_height", "Legend height (px):", min=50, max=1000, value=200, step=50),
+        ),
+    )
+
+
+def create_no_point_forecasts_tab(title):
+    """Create a placeholder tab for point-forecast analyses on an object with density forecasts only"""
+    return ui.nav_panel(
+        title,
+        ui.card(
+            "No point forecasts: call to_point_forecast() to derive them from the density forecasts, "
+            "then create the dashboard again."
         ),
     )
 

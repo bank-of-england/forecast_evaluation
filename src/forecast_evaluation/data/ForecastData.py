@@ -10,7 +10,7 @@ import pandas as pd
 import pandera.pandas as pa
 
 from forecast_evaluation.core.main_table import build_main_table
-from forecast_evaluation.core.transformations import prepare_forecasts, prepare_outturns
+from forecast_evaluation.core.transformations import drop_superseded_outturns, prepare_forecasts, prepare_outturns
 from forecast_evaluation.data._plotting_mixin import PlottingMixin
 from forecast_evaluation.data.loader import load_fer_forecasts, load_fer_outturns
 from forecast_evaluation.data.schema import FORECAST_REQUIRED_COLUMNS, OUTTURN_REQUIRED_COLUMNS, create_data_schema
@@ -25,14 +25,12 @@ from forecast_evaluation.data.utils import (
 BENCHMARK_MODELS = ["AR", "random_walk"]
 _UNSET = object()
 
-# Instance attributes mutated while adding forecasts, restored on failure.
-_FORECAST_STATE = (
-    "first_forecast_horizon",
-    "_id_columns",
-    "_raw_forecasts",
-    "_forecasts",
-    "_main_table",
-)
+_TABLE_LABELS = {
+    "_forecasts": "forecasts",
+    "_outturns": "outturns",
+    "_main_table": "main table",
+    "_density_forecasts": "density forecasts",
+}
 
 
 def _add_compatibility_forecast_horizon(
@@ -102,6 +100,9 @@ class ForecastData(PlottingMixin):
 
     default_k = 12
 
+    # Forecast tables that carry the id columns; subclasses may store more.
+    _forecast_tables = ("_raw_forecasts", "_forecasts")
+
     def __init__(
         self,
         outturns_data: Optional[pd.DataFrame] = None,
@@ -122,6 +123,8 @@ class ForecastData(PlottingMixin):
         ----------
         outturns_data : pd.DataFrame, optional
             DataFrame containing outturn records to add on initialisation. Default is None.
+            May already contain ``pop``/``yoy`` rows (for example another object's ``outturns``);
+            see :meth:`add_outturns`.
         forecasts_data : pd.DataFrame, optional
             DataFrame containing forecast records to add on initialisation. Default is None.
         load_fer : bool, optional
@@ -201,6 +204,14 @@ class ForecastData(PlottingMixin):
     def add_outturns(self, df: pd.DataFrame, *, metric: Literal["levels", "pop", "yoy"] = "levels") -> None:
         """Validate new outturns and add them to the outturns dataset
 
+        ``pop`` and ``yoy`` are derived from the ``levels`` rows. Supplied ``pop``/``yoy`` rows (for example
+        ``other.outturns``) are kept instead of the derived rows with the same variable, frequency, date,
+        vintage_date and metric, so nothing is duplicated; this also applies to derived rows already stored
+        (supplied rows supersede them, and stored supplied rows supersede newly derived ones). If a supplied
+        value differs from the derived value by more than a small tolerance, the supplied value is kept and
+        one ``UserWarning`` reports how many rows differ and the largest absolute difference. Aligned nowcast
+        snapshot rows (``_aligned``) are exempt from that warning.
+
         Parameters
         ----------
         df : pd.DataFrame
@@ -247,7 +258,15 @@ class ForecastData(PlottingMixin):
         # Transform outturns (prepare_outturns handles metric-specific logic)
         outturns = prepare_outturns(df_validated_unique)
 
-        self._outturns = pd.concat([self._outturns, outturns], ignore_index=True)
+        # Supplied pop/yoy rows win over derived rows already stored, and vice versa.
+        existing_outturns = self._outturns
+        if not self._raw_outturns.empty:
+            stored_supplied = self._raw_outturns[self._raw_outturns["metric"] != "levels"]
+            outturns = drop_superseded_outturns(outturns, stored_supplied)
+            new_supplied = df_validated_unique[df_validated_unique["metric"] != "levels"]
+            existing_outturns = drop_superseded_outturns(existing_outturns, new_supplied)
+
+        self._outturns = pd.concat([existing_outturns, outturns], ignore_index=True)
         self._raw_outturns = pd.concat([self._raw_outturns, df_validated_unique], ignore_index=True)
 
     def add_forecasts(
@@ -317,7 +336,7 @@ class ForecastData(PlottingMixin):
         When compute_levels is True, sufficient historical outturn data is required for transformation,
         especially for 'yoy' metrics which need data from one year prior.
         """
-        with _atomic_state(self, *_FORECAST_STATE):
+        with _atomic_state(self, *self._forecast_state):
             self._add_forecasts(
                 df,
                 extra_ids=extra_ids,
@@ -338,6 +357,73 @@ class ForecastData(PlottingMixin):
         first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
     ) -> None:
         """Add forecasts without rolling back on failure; see :meth:`add_forecasts`."""
+        df = self._validate_new_forecasts(
+            df,
+            stored="_raw_forecasts",
+            extra_ids=extra_ids,
+            metric=metric,
+            first_forecast_horizon=first_forecast_horizon,
+        )
+
+        # data-check forecast values against outturns
+        if data_check:
+            _check_forecast_data(df, self._outturns)
+
+        df = df[df["forecast_horizon"] >= 0].copy()
+        if df.empty:
+            warnings.warn("No forecasts available after filtering/validation.", UserWarning, stacklevel=2)
+            return
+
+        # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
+        forecasts = prepare_forecasts(
+            df,
+            self._raw_outturns,
+            self._id_columns,
+            compute_levels=compute_levels,
+        )
+
+        main_table = build_main_table(
+            forecasts,
+            self._outturns,
+            self._id_columns,
+            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
+            outturn_vintages=self._outturn_vintages,
+        )
+
+        # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
+        # This is needed because derived/transformed rows (e.g. levels back-computed from
+        # pop/yoy, or pop/yoy derived from levels) can slip through _check_duplicates when
+        # add_forecasts is called repeatedly with already-transformed data.
+        raw_id_cols = [c for c in df.columns if c != "value"]
+        df = _exclude_existing_rows(df, self._raw_forecasts, raw_id_cols)
+        self._raw_forecasts = pd.concat([self._raw_forecasts, df], ignore_index=True)
+
+        forecast_id_cols = [c for c in forecasts.columns if c != "value"]
+        forecasts = _exclude_existing_rows(forecasts, self._forecasts, forecast_id_cols)
+        self._forecasts = pd.concat([self._forecasts, forecasts], ignore_index=True)
+
+        main_table_id_cols = [
+            c for c in main_table.columns if c not in ("value_forecast", "value_outturn", "forecast_error")
+        ]
+        main_table = _exclude_existing_rows(main_table, self._main_table, main_table_id_cols)
+        self._main_table = pd.concat([self._main_table, main_table], ignore_index=True)
+
+    def _validate_new_forecasts(
+        self,
+        df: pd.DataFrame,
+        *,
+        stored: str,
+        extra_ids: Optional[list[str]] = None,
+        extra_columns: Optional[list[str]] = None,
+        metric: Literal["levels", "pop", "yoy"] = "levels",
+        first_forecast_horizon: Optional[Union[int, dict[str, int]]] = _UNSET,
+        density_data: bool = False,
+    ) -> pd.DataFrame:
+        """Validate a batch of forecasts against the ``stored`` table and label it with a ``unique_id``.
+
+        Aligns the id columns of the batch with those of the stored forecast tables.
+        ``extra_columns`` are validated like ``extra_ids`` but do not identify a forecast.
+        """
         if self._raw_outturns is None or self._raw_outturns.empty:
             raise ValueError(
                 "Outturns must be added before forecasts. Call add_outturns(outturns_df) before add_forecasts(...)."
@@ -374,13 +460,14 @@ class ForecastData(PlottingMixin):
             raise ValueError(f"Invalid metric values found: {invalid_metrics}. Valid options: {valid_metrics}")
 
         # Convert extra col names to contain only letters, numbers, and underscores
-        if extra_ids is not None:
-            df, extra_ids = _fix_extra_columns(df, extra_ids)
+        df, extra_ids = _fix_extra_columns(df, list(extra_ids or []))
 
-        # Validate records using the ForecastRecord model
-        # Include 'metric' as an optional column in validation
-        optional_cols = ["metric"] if extra_ids is None else ["metric"] + extra_ids
-        df = _validate_records(df, forecast=True, optional_columns=optional_cols)
+        df = _validate_records(
+            df,
+            forecast=True,
+            optional_columns=["metric", *extra_ids, *(extra_columns or [])],
+            density_data=density_data,
+        )
         df = compute_target_minus_vintage(df)
 
         # Check frequency uniqueness and consistency
@@ -392,92 +479,61 @@ class ForecastData(PlottingMixin):
                 f"Please add forecasts with different frequencies separately using different ForecastData instances."
             )
 
-        if not self._forecasts.empty:
-            existing_frequencies = self._forecasts["frequency"].unique()
-            existing_freq = existing_frequencies[0]
+        if len(new_frequencies):
             new_freq = new_frequencies[0]
-            if new_freq != existing_freq:
-                raise ValueError(
-                    f"New forecasts have frequency '{new_freq}' but existing data has frequency '{existing_freq}'. "
-                    f"Each ForecastData instance should only contain forecasts of a single frequency. "
-                    f"Please create a new ForecastData instance for forecasts with different frequencies."
-                )
+            for table in self._forecast_tables:
+                existing_forecasts = getattr(self, table)
+                if not existing_forecasts.empty:
+                    existing_freq = existing_forecasts["frequency"].iloc[0]
+                    if new_freq == existing_freq:
+                        continue
+                    raise ValueError(
+                        f"New forecasts have frequency '{new_freq}' but existing data has frequency '{existing_freq}'. "
+                        f"Each ForecastData instance should only contain forecasts of a single frequency. "
+                        f"Please create a new ForecastData instance for forecasts with different frequencies."
+                    )
 
         # ID columns
-        id_cols = ["source"] if extra_ids is None else ["source"] + extra_ids
+        id_cols = ["source", *extra_ids]
         if self._id_columns is None:
             self._id_columns = id_cols
         else:
             # check that the id columns of the new forecasts match the existing ones
             # and if not adjust the datasets
             if set(self._id_columns) != set(id_cols):
-                all_id_cols = list(set(self._id_columns).union(set(id_cols)))
+                all_id_cols = self._id_columns + [col for col in id_cols if col not in self._id_columns]
                 for col in all_id_cols:
                     if col not in self._id_columns:
                         # add missing columns to existing data
-                        self._raw_forecasts = self._raw_forecasts.assign(**{col: pd.NA})
-                        self._forecasts = self._forecasts.assign(**{col: pd.NA})
+                        for table in self._forecast_tables:
+                            setattr(self, table, getattr(self, table).assign(**{col: pd.NA}))
                         self._id_columns = self._id_columns + [col]
                     if col not in id_cols:
                         # add missing columns to new data
                         df[col] = pd.NA
 
-        # Check for duplicates if there are already some records stored
-        # Compare against raw forecasts (original input data), not self._forecasts
-        # (which contains derived/transformed rows like levels computed from pop/yoy).
-        # Comparing against transformed data causes false positives: e.g. adding levels
-        # forecasts after pop forecasts were auto-converted to levels by compute_levels=True.
-        if not self._raw_forecasts.empty:
-            df = _check_duplicates(df, self._raw_forecasts)
+                for table_name in (*self._forecast_tables, "_main_table"):
+                    table = getattr(self, table_name)
+                    if table.empty:
+                        continue
+                    missing_id_cols = {col: pd.NA for col in self._id_columns if col not in table.columns}
+                    if missing_id_cols:
+                        table = table.assign(**missing_id_cols)
+                    setattr(
+                        self,
+                        table_name,
+                        table.assign(unique_id=construct_unique_id(table, self._id_columns)),
+                    )
 
-        # Check if forecasts have corresponding outturns
+        # Compare against the raw input records, not derived ones such as levels computed
+        # from pop/yoy, which would raise false positives.
+        if not getattr(self, stored).empty:
+            df = _check_duplicates(df, getattr(self, stored))
+
         _check_missing_outturns(df, self._raw_outturns)
 
-        # data-check forecast values against outturns
-        if data_check:
-            _check_forecast_data(df, self._outturns)
-
-        df = df[df["forecast_horizon"] >= 0].copy()
-        if df.empty:
-            warnings.warn("No forecasts available after filtering/validation.", UserWarning, stacklevel=2)
-            return
-
-        # create a unique identifier for forecasts
         df["unique_id"] = construct_unique_id(df, self._id_columns)
-
-        # Transform forecasts (prepare_forecasts handles metric-specific logic and auto-transformation)
-        forecasts = prepare_forecasts(
-            df,
-            self._raw_outturns,
-            self._id_columns,
-            compute_levels=compute_levels,
-        )
-
-        main_table = build_main_table(
-            forecasts,
-            self._outturns,
-            self._id_columns,
-            frequency=forecasts["frequency"].iloc[0] if not forecasts.empty else "Q",
-            outturn_vintages=self._outturn_vintages,
-        )
-
-        # Filter out rows already present before appending (anti-join, O(n_new + n_existing)).
-        # This is needed because derived/transformed rows (e.g. levels back-computed from
-        # pop/yoy, or pop/yoy derived from levels) can slip through _check_duplicates when
-        # add_forecasts is called repeatedly with already-transformed data.
-        raw_id_cols = [c for c in df.columns if c != "value"]
-        df = _exclude_existing_rows(df, self._raw_forecasts, raw_id_cols)
-        self._raw_forecasts = pd.concat([self._raw_forecasts, df], ignore_index=True)
-
-        forecast_id_cols = [c for c in forecasts.columns if c != "value"]
-        forecasts = _exclude_existing_rows(forecasts, self._forecasts, forecast_id_cols)
-        self._forecasts = pd.concat([self._forecasts, forecasts], ignore_index=True)
-
-        main_table_id_cols = [
-            c for c in main_table.columns if c not in ("value_forecast", "value_outturn", "forecast_error")
-        ]
-        main_table = _exclude_existing_rows(main_table, self._main_table, main_table_id_cols)
-        self._main_table = pd.concat([self._main_table, main_table], ignore_index=True)
+        return df
 
     def create_pseudo_vintages(
         self,
@@ -625,9 +681,23 @@ class ForecastData(PlottingMixin):
         self.add_fer_forecasts()
 
     def filter_fer(self) -> None:
-        """Filter the main dataset to only include specific variable-metric and model combinations"""
+        """Filter the main dataset to only include specific variable-metric and model combinations.
+
+        Does nothing when the main table is empty (for example a density-only object). Density
+        tables are not filtered: the FER model list does not contain density sources.
+        """
+        if self._main_table.empty:
+            return
         self._main_table = filter_fer_variables(self._main_table)
         self._main_table = filter_fer_models(self._main_table)
+
+    def _require_point_forecasts(self) -> None:
+        """Raise a ValueError if no point forecasts have been loaded (filters are not considered)."""
+        if self._raw_forecasts.empty:
+            raise ValueError(self._no_point_forecasts_message())
+
+    def _no_point_forecasts_message(self) -> str:
+        return "No point forecasts loaded. Add them with add_forecasts() before running point-forecast analyses."
 
     def _apply_filter_with_standardized_columns(
         self,
@@ -642,13 +712,19 @@ class ForecastData(PlottingMixin):
         sources: Optional[Union[str, list[str]]] = None,
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
+        table: Optional[str] = None,
+        skipped: Optional[dict[str, str]] = None,
     ) -> pd.DataFrame:
-        """Apply filter_tables with standardized column names."""
+        """Apply filter_tables with standardized column names.
+
+        If ``skipped`` is given, ``skipped[table]`` records the column that made ``custom_filter`` skip this table.
+        """
         # Temporarily rename if needed
         if rename_cols:
             df = df.rename(columns={"vintage_date": "vintage_date_forecast"})
 
         # Apply filter
+        missing = []
         df = filter_tables(
             df,
             start_date,
@@ -660,7 +736,10 @@ class ForecastData(PlottingMixin):
             sources,
             frequencies,
             custom_filter,
+            skipped=missing,
         )
+        if missing and skipped is not None:
+            skipped[table] = missing[0]
 
         # Rename back if needed
         if rename_cols:
@@ -680,7 +759,7 @@ class ForecastData(PlottingMixin):
         frequencies: Optional[Union[str, list[str]]] = None,
         custom_filter: Optional[Callable[[pd.DataFrame], pd.DataFrame]] = None,
     ) -> None:
-        """Filter the forecasts and main tables to only include data within specified
+        """Filter the forecasts, outturns and main tables to only include data within specified
         date and vintage ranges, and optionally by variables, metrics, sources, or a custom filter.
 
         Parameters
@@ -709,51 +788,68 @@ class ForecastData(PlottingMixin):
             A custom filtering function that takes a DataFrame as input and returns a filtered DataFrame.
             Default is None. Custom filters should use 'vintage_date_forecast' as the column name.
         """
-        if not self._forecasts.empty:
-            self._forecasts = self._apply_filter_with_standardized_columns(
-                self._forecasts,
-                rename_cols=True,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
-            )
-
-        self._outturns = self._apply_filter_with_standardized_columns(
-            self._outturns,
-            rename_cols=True,
+        updates, skipped = self._filtered_tables(
             start_date=start_date,
             end_date=end_date,
             start_vintage=start_vintage,
             end_vintage=end_vintage,
             variables=variables,
             metrics=metrics,
+            sources=sources,
             frequencies=frequencies,
             custom_filter=custom_filter,
         )
+        self._commit_filter(updates, skipped)
 
-        if not self._main_table.empty:
-            self._main_table = self._apply_filter_with_standardized_columns(
-                self._main_table,
-                rename_cols=False,
-                start_date=start_date,
-                end_date=end_date,
-                start_vintage=start_vintage,
-                end_vintage=end_vintage,
-                variables=variables,
-                metrics=metrics,
-                sources=sources,
-                frequencies=frequencies,
-                custom_filter=custom_filter,
+    def _filtered_tables(
+        self, skipped: Optional[dict[str, str]] = None, **criteria
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
+        """Return the filtered forecasts, outturns and main tables without assigning them.
+
+        Also returns the tables (and missing column) for which ``custom_filter`` was skipped.
+        """
+        skipped = {} if skipped is None else skipped
+        updates = {}
+        if not self._forecasts.empty:
+            updates["_forecasts"] = self._apply_filter_with_standardized_columns(
+                self._forecasts, rename_cols=True, table="_forecasts", skipped=skipped, **criteria
             )
 
+        # Outturns have no source dimension.
+        updates["_outturns"] = self._apply_filter_with_standardized_columns(
+            self._outturns, rename_cols=True, table="_outturns", skipped=skipped, **{**criteria, "sources": None}
+        )
+
+        if not self._main_table.empty:
+            updates["_main_table"] = self._apply_filter_with_standardized_columns(
+                self._main_table, rename_cols=False, table="_main_table", skipped=skipped, **criteria
+            )
+        return updates, skipped
+
+    def _commit_filter(self, updates: dict[str, pd.DataFrame], skipped: dict[str, str]) -> None:
+        """Assign the filtered tables, warning if ``custom_filter`` was skipped on every one."""
+        for name, table in updates.items():
+            setattr(self, name, table)
+
+        # A column present in only some tables is a table-specific filter, not a typo.
+        if skipped and len(skipped) == len(updates):
+            for name, column in skipped.items():
+                warnings.warn(
+                    f"custom_filter was not applied to the '{_TABLE_LABELS[name]}' table: "
+                    f"column '{column}' not found.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
     def clear_filter(self) -> None:
-        """Reset the forecasts, main and revisions tables to include all original data."""
+        """Reset the forecasts, outturns and main tables to include all original data."""
+        # Density-only instances have no point forecasts for build_main_table to join.
+        if self._raw_forecasts.empty:
+            self._forecasts = self._raw_forecasts.copy()
+            self._outturns = prepare_outturns(self._raw_outturns)
+            self._main_table = pd.DataFrame()
+            return
+
         # Separate forecasts and outturns
         forecasts = prepare_forecasts(
             self._raw_forecasts,
@@ -808,6 +904,16 @@ class ForecastData(PlottingMixin):
     def id_columns(self) -> Optional[list[str]]:
         """Get identification / labelling columns."""
         return self._id_columns
+
+    @property
+    def _forecast_state(self) -> tuple[str, ...]:
+        """Attributes mutated while adding forecasts, restored on failure."""
+        return ("first_forecast_horizon", "_id_columns", "_main_table", *self._forecast_tables)
+
+    @property
+    def _extra_ids(self) -> list[str]:
+        """Id columns other than 'source'."""
+        return [col for col in self._id_columns or [] if col != "source"]
 
     @property
     def outturn_vintages(self) -> bool:
@@ -892,15 +998,21 @@ class ForecastData(PlottingMixin):
         if self._outturn_vintages != other._outturn_vintages:
             raise ValueError("Cannot merge ForecastData instances with different outturn_vintages settings.")
 
+        density_forecasts = getattr(other, "_density_df", None)
+        if density_forecasts is not None and not density_forecasts.empty and not hasattr(self, "_density_df"):
+            warnings.warn(
+                "Density forecasts in `other` cannot be stored by this ForecastData instance and were not merged. "
+                "Merge into a DensityForecastData instance to retain them.",
+                UserWarning,
+                stacklevel=2,
+            )
+
         if not other._raw_outturns.empty:
             self.add_outturns(other._raw_outturns)
 
         if not other._raw_forecasts.empty:
-            # Filter out 'source' from id_columns to get only the extra_ids
-            extra_ids = [col for col in other._id_columns if col != "source"] if other._id_columns else None
-            extra_ids = extra_ids if extra_ids else None  # Convert empty list to None
             self.add_forecasts(
-                other._raw_forecasts, extra_ids=extra_ids, compute_levels=compute_levels, data_check=False
+                other._raw_forecasts, extra_ids=other._extra_ids, compute_levels=compute_levels, data_check=False
             )
 
     def add_benchmarks(
@@ -1012,15 +1124,22 @@ class ForecastData(PlottingMixin):
         else:
             print("\n[OUTTURNS] No data loaded")
 
+        self._print_forecast_sections()
+
+        print("=" * 80 + "\n")
+
+    def _print_forecast_sections(self):
+        """Print the forecast part of the summary."""
         if not self._forecasts.empty:
             self._print_forecast_summary()
         else:
             print("\n[FORECASTS] No data loaded")
 
-        print("=" * 80 + "\n")
+    def _print_variable_table(self, df, show_horizon=False, group_label=None, show_metric=False):
+        """Print a table of variables with date/vintage/horizon info.
 
-    def _print_variable_table(self, df, show_horizon=False, group_label=None):
-        """Print a table of variables with date/vintage/horizon info."""
+        With ``show_metric`` there is one row per (variable, metric) and a Metric column.
+        """
         if group_label:
             print(f"\n  {group_label}")
 
@@ -1028,8 +1147,18 @@ class ForecastData(PlottingMixin):
         max_var_len = max(len(var) for var in variables) if variables else 0
         var_col_width = max(max_var_len, 8)
 
+        if show_metric:
+            pairs = sorted(df[["variable", "metric"]].drop_duplicates().itertuples(index=False, name=None))
+            entries = [(var, metric, df[(df["variable"] == var) & (df["metric"] == metric)]) for var, metric in pairs]
+            metric_col_width = max([len("Metric"), *(len(str(metric)) for _, metric, _ in entries)])
+        else:
+            entries = [(var, None, df[df["variable"] == var]) for var in variables]
+
         # Build header
-        header_parts = [f"  {'Variable':<{var_col_width}}", "Freq", f"{'Date':<24}", f"{'Vintage':<24}"]
+        header_parts = [f"  {'Variable':<{var_col_width}}"]
+        if show_metric:
+            header_parts.append(f"{'Metric':<{metric_col_width}}")
+        header_parts += ["Freq", f"{'Date':<24}", f"{'Vintage':<24}"]
         if show_horizon:
             header_parts.append(f"{'Horizon':<8}")
 
@@ -1040,8 +1169,7 @@ class ForecastData(PlottingMixin):
         print(separator)
 
         # Print rows for each variable
-        for var in variables:
-            var_data = df[df["variable"] == var]
+        for var, metric, var_data in entries:
             frequency = var_data["frequency"].iloc[0]
             date_range = (
                 f"{var_data['date'].min().strftime('%Y-%m-%d')} to {var_data['date'].max().strftime('%Y-%m-%d')}"
@@ -1049,7 +1177,10 @@ class ForecastData(PlottingMixin):
             vintage_range = f"{var_data['vintage_date'].min().strftime('%Y-%m-%d')} "
             vintage_range += f"to {var_data['vintage_date'].max().strftime('%Y-%m-%d')}"
 
-            row_parts = [f"  {var:<{var_col_width}}", f"{frequency:4}", f"{date_range:<24}", f"{vintage_range:<24}"]
+            row_parts = [f"  {var:<{var_col_width}}"]
+            if show_metric:
+                row_parts.append(f"{metric!s:<{metric_col_width}}")
+            row_parts += [f"{frequency:4}", f"{date_range:<24}", f"{vintage_range:<24}"]
             if show_horizon:
                 horizon_range = f"{var_data['forecast_horizon'].min()} to {var_data['forecast_horizon'].max()}"
                 row_parts.append(f"{horizon_range:<8}")
@@ -1069,10 +1200,15 @@ class ForecastData(PlottingMixin):
 
         self._print_variable_table(df)
 
-    def _print_forecast_summary(self):
-        """Print summary statistics for forecasts data."""
-        print("\n[FORECASTS]")
-        df = self._forecasts
+    def _print_forecast_summary(
+        self, df=None, title="FORECASTS", *, show_metric=False, dropna=True, group_footer: Optional[Callable] = None
+    ):
+        """Print summary statistics for forecasts data (``df`` defaults to the filtered point forecasts).
+
+        ``group_footer`` is called with each group's rows after its table is printed.
+        """
+        print(f"\n[{title}]")
+        df = self._forecasts if df is None else df
 
         variables = sorted(df["variable"].unique())
         print(f"  Number of variables: {len(variables)}")
@@ -1093,12 +1229,12 @@ class ForecastData(PlottingMixin):
 
         if extra_id_cols:
             for col in extra_id_cols:
-                vals = sorted(df[col].astype(str).unique())
+                vals = sorted(df[col].astype(object).map(str).unique())
                 print(f"  {col}: {', '.join(vals)}")
 
         # One table per unique (source, extra_id_cols) combination
         group_cols = ["source"] + extra_id_cols
-        for group_key, group_data in df.groupby(group_cols, observed=True):
+        for group_key, group_data in df.groupby(group_cols, observed=True, dropna=dropna):
             keys = (group_key,) if not isinstance(group_key, tuple) else group_key
             source = keys[0]
             id_values = keys[1:]
@@ -1109,7 +1245,9 @@ class ForecastData(PlottingMixin):
                 id_label = "  ".join(f"{col}: {val}" for col, val in zip(extra_id_cols, id_values))
                 group_label = f"{source}  [{id_label}]"
 
-            self._print_variable_table(group_data, show_horizon=True, group_label=group_label)
+            self._print_variable_table(group_data, show_horizon=True, group_label=group_label, show_metric=show_metric)
+            if group_footer is not None:
+                group_footer(group_data)
 
 
 def _format_schema_errors(exc: "pa.errors.SchemaErrors", max_examples: int = 5) -> str:
@@ -1209,6 +1347,7 @@ def _validate_records(
     forecast=False,
     optional_columns: Optional[list[str]] = None,
     nullable_vintage: bool = False,
+    density_data: bool = False,
 ) -> pd.DataFrame:
     """Validate a DataFrame of forecast records using the Pandera ForecastSchema.
 
@@ -1222,6 +1361,8 @@ def _validate_records(
         List of optional labelling columns to include in the schema validation. Default is None.
     nullable_vintage : bool, optional
         Whether to allow nullable vintage_date values. Default is False.
+    density_data : bool, optional
+        Whether the records are density forecasts and require finite values. Default is False.
 
     Returns
     -------
@@ -1242,7 +1383,12 @@ def _validate_records(
             )
         raise ValueError(error_col)
 
-    schema = create_data_schema(forecast, optional_columns, nullable_vintage=nullable_vintage)
+    schema = create_data_schema(
+        forecast,
+        optional_columns,
+        nullable_vintage=nullable_vintage,
+        density_data=density_data,
+    )
     try:
         validated_df = schema.validate(df, lazy=True)
     except pa.errors.SchemaErrors as exc:

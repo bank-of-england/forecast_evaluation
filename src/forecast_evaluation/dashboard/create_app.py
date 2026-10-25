@@ -26,6 +26,7 @@ from .ui import (
     create_correlation_tab,
     create_efficiency_tab,
     create_hedgehog_tab,
+    create_no_point_forecasts_tab,
     create_outturn_revisions_tab,
     create_radar_tab,
     create_sidebar,
@@ -33,7 +34,7 @@ from .ui import (
     create_quantile_time_machine_tab,
 )
 from .theme.brand import brand as _brand
-from .utils import patch_render_plot
+from .utils import has_point_forecasts, patch_render_plot
 
 # Apply global error handling
 patch_render_plot()
@@ -46,23 +47,27 @@ def dashboard_app(data) -> App:
         """Main UI function"""
 
         is_nowcast = data.uses_intra_period_vintages
+        has_points = has_point_forecasts(data)
+
+        def point_tab(title, create_tab, **kwargs):
+            return create_tab(**kwargs) if has_points else create_no_point_forecasts_tab(title)
 
         tabs = [
             about(),
-            create_accuracy_tab(show_intra_period=is_nowcast),
-            create_bias_tab(show_intra_period=is_nowcast),
+            point_tab("Accuracy", create_accuracy_tab, show_intra_period=is_nowcast),
+            point_tab("Bias", create_bias_tab, show_intra_period=is_nowcast),
         ]
 
         # Efficiency tests are not supported for nowcasting data
         if not is_nowcast:
-            tabs.append(create_efficiency_tab())
+            tabs.append(point_tab("Efficiency", create_efficiency_tab))
 
-        tabs.extend([create_time_machine_tab(), create_hedgehog_tab()])
+        tabs.extend([point_tab("Time Machine", create_time_machine_tab), point_tab("Hedgehog", create_hedgehog_tab)])
 
         # Correlation and radar analyses are not supported for nowcasting
         # data, so do not expose tabs whose handlers cannot be used.
         if not is_nowcast:
-            tabs.extend([create_correlation_tab(), create_radar_tab()])
+            tabs.extend([point_tab("Correlation", create_correlation_tab), point_tab("Radar", create_radar_tab)])
 
         if data.supports_outturn_revision_analysis:
             tabs.append(create_outturn_revisions_tab())
@@ -87,37 +92,39 @@ def dashboard_app(data) -> App:
         """Main server function"""
 
         # Register all handlers from different modules
-        average_accuracy(input, output, session, data)
-        relative_accuracy(input, output, session, data)
-        rolling_accuracy(input, output, session, data)
-        rolling_relative_accuracy(input, output, session, data)
-        diebold_mariano(input, output, session, data)
-        error_distribution(input, output, session, data)
-        errors(input, output, session, data)
-        rolling_errors(input, output, session, data)
-        bias(input, output, session, data)
-        rolling_bias(input, output, session, data)
+        if has_point_forecasts(data):
+            average_accuracy(input, output, session, data)
+            relative_accuracy(input, output, session, data)
+            rolling_accuracy(input, output, session, data)
+            rolling_relative_accuracy(input, output, session, data)
+            diebold_mariano(input, output, session, data)
+            error_distribution(input, output, session, data)
+            errors(input, output, session, data)
+            rolling_errors(input, output, session, data)
+            bias(input, output, session, data)
+            rolling_bias(input, output, session, data)
 
-        # Efficiency, correlation and radar handlers are not needed for nowcasting data
-        if not data.uses_intra_period_vintages:
-            blanchard_leigh(input, output, session, data)
-            revisions_predictability(input, output, session, data)
-            weak_efficiency(input, output, session, data)
-            revisions_errors_correlation(input, output, session, data)
-            correlation_heatmap(input, output, session, data)
-            rolling_correlation(input, output, session, data)
-        else:
-            # Intra-period handlers only for nowcasting data
-            intra_period_accuracy(input, output, session, data)
-            intra_period_bias(input, output, session, data)
+            # Efficiency, correlation and radar handlers are not needed for nowcasting data
+            if not data.uses_intra_period_vintages:
+                blanchard_leigh(input, output, session, data)
+                revisions_predictability(input, output, session, data)
+                weak_efficiency(input, output, session, data)
+                revisions_errors_correlation(input, output, session, data)
+                correlation_heatmap(input, output, session, data)
+                rolling_correlation(input, output, session, data)
+            else:
+                # Intra-period handlers only for nowcasting data
+                intra_period_accuracy(input, output, session, data)
+                intra_period_bias(input, output, session, data)
 
-        hedgehog(input, output, session, data)
+            hedgehog(input, output, session, data)
+            if not data.uses_intra_period_vintages:
+                radar(input, output, session, data)
+            time_machine(input, output, session, data)
+
         if data.supports_outturn_revision_analysis:
             outturn_revisions(input, output, session, data)
             outturns(input, output, session, data)
-        if not data.uses_intra_period_vintages:
-            radar(input, output, session, data)
-        time_machine(input, output, session, data)
 
         if hasattr(data, "_density_forecasts") and not data._density_forecasts.empty:
             quantile_time_machine(input, output, session, data)

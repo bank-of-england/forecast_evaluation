@@ -3,7 +3,13 @@ import pandas as pd
 
 
 def create_sample_outturns() -> pd.DataFrame:
-    """Create sample outturns DataFrame for testing and examples."""
+    """Create deterministic quarterly index-level outturns for examples.
+
+    Return 26 rows: 13 quarter-end targets from 2022-03-31 to 2025-03-31
+    for each of ``cpisa`` and ``gdpkp``. Both variables have index levels
+    100 through 112, increasing by one per quarter, frequency ``Q``, and
+    a single outturn vintage of 2025-09-30. No random numbers are used.
+    """
     df_outturn_1 = pd.DataFrame(
         {
             "date": pd.date_range(start="2022-01-01", periods=13, freq="QE"),
@@ -30,7 +36,14 @@ def create_sample_outturns() -> pd.DataFrame:
 
 
 def create_sample_forecasts() -> pd.DataFrame:
-    """Create sample forecasts DataFrame for testing and examples."""
+    """Create deterministic quarterly index-level point forecasts.
+
+    Return 13 quarter-end targets from 2022-03-31 to 2025-03-31 for
+    ``gdpkp`` from source ``mpr2``. Index levels run from 100 through 112
+    and explicit forecast horizons run from 0 through 12. All rows have
+    frequency ``Q`` and vintage 2025-03-31, independent of target dates.
+    No random numbers are used.
+    """
     df_forecasts = pd.DataFrame(
         {
             "date": pd.date_range(start="2022-01-01", periods=13, freq="QE"),
@@ -66,6 +79,16 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
     - Subsequent revision vintages (quarterly for GDP, monthly for CPI) up to
       2026-03-31, with white noise shrinking as the vintage matures.
 
+    For zero-based target index ``i``, the underlying index-level paths are
+    ``99 + 0.3*i + 0.5*sin(i/4)`` for GDP and
+    ``98 + 0.45*i + 0.8*cos(i/4)`` for CPI. Each release adds independent
+    zero-mean normal noise with standard deviation ``0.5 / (1 + abs(k))``,
+    where ``k`` is the vintage quarter minus the target quarter, and values
+    are rounded to four decimal places. Revision month-ends stop at
+    2026-03-31; CPI's 14-day release lag extends vintages to 2026-04-14.
+    A fresh local ``default_rng(42)`` makes calls repeatable without changing
+    NumPy's global random state.
+
     The realistic first-release dates mean that intra-quarter nowcast vintages
     before the publication date have no backcast (h=-1) outturn available for
     pairing, while later vintages within that quarter do.
@@ -75,7 +98,7 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
     pd.DataFrame
         DataFrame with outturn data suitable for nowcasting evaluation.
     """
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
     target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
 
     # True outturn values
@@ -113,7 +136,7 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
 
             for vintage_date in target_vintages:
                 k = (vintage_date.to_period("Q") - target_date.to_period("Q")).n
-                noise = np.random.normal(0, 0.5 / (1 + abs(k)))
+                noise = rng.normal(0, 0.5 / (1 + abs(k)))
                 rows.append(
                     {
                         "date": target_date,
@@ -131,20 +154,24 @@ def create_sample_nowcast_outturns() -> pd.DataFrame:
 def create_sample_nowcast_forecasts() -> pd.DataFrame:
     """Create sample nowcasting forecasts with weekly vintage dates.
 
-    Generates nowcasts (2020-2025) from two models for two variables (``gdp``
-    and ``cpi``). Vintages are produced once per week across the full sample.
-    Each vintage targets two consecutive releases:
+    Generates index-level forecasts for 24 quarterly targets from 2020Q1 to
+    2025Q4, for ``gdp`` and ``cpi`` from ``nowcast_dfm`` and ``nowcast_bridge``.
+    Weekly vintages run every seven days from 2020-01-01 through 2026-03-31.
+    Target quarter offsets are ``(-1, 0, 1)`` relative to the vintage quarter:
+    previous, current, and next quarter. The previous-quarter path stops at
+    publication (GDP: target end + 42 days; CPI: target end + 14 days).
+    Explicit ``forecast_horizon`` is ``max(offset, 0)``, so both the previous
+    and current quarter use horizon zero.
 
-    - **h = 1** (forecast): the next quarter (not yet started or in progress).
-    - **h = 0** (nowcast): the current quarter (in progress).
-        - the previous quarter while its official outturn has not yet been
-            published (gdp: 6 weeks after quarter-end; cpi: 2 weeks after
-            quarter-end). Once the data is released, that vintage-relative path
-            stops.
-
-    Forecast errors converge toward zero as the vintage date approaches the
-    end of the target quarter, with additive noise so that convergence is
-    realistic rather than perfectly monotonic.
+    Truth is ``99 + 0.3*i + 0.5*sin(i/4)`` for GDP and
+    ``98 + 0.45*i + 0.8*cos(i/4)`` for CPI, with zero-based target index ``i``.
+    Initial biases (GDP, CPI) are (2.0, -2.5) for the DFM and (-1.5, 3.0)
+    for the bridge. Set ``r = min(1, max(0, days_before_publication) / 182)``.
+    Each forecast is truth plus ``bias*r`` plus independent zero-mean normal
+    noise of standard deviation ``0.25*abs(bias)*r``, rounded to two decimal
+    places. Errors converge to zero at publication, not at target quarter-end.
+    A fresh local ``default_rng(42)`` makes calls repeatable without changing
+    NumPy's global random state.
 
     Returns
     -------
@@ -158,14 +185,8 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     >>> df["source"].unique()
     array(['nowcast_dfm', 'nowcast_bridge'], dtype=object)
 
-    Visualize how forecasts evolve over weekly vintages:
-
-    >>> # Import the plotting function from the end of this module
-    >>> import matplotlib.pyplot as plt
-    >>> from forecast_evaluation.data.sample_data import plot_sample_nowcasts
-    >>> plot_sample_nowcasts()  # Plots forecasts by horizon, colored by vintage date
     """
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # 24 target quarters: 2020Q1 – 2025Q4
     target_dates = pd.date_range("2020-03-31", periods=24, freq="QE")
@@ -222,7 +243,7 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
                     days_before_pub = max(0, (pub_date - vintage).days)
                     remaining_fraction = min(1.0, days_before_pub / max_days)
                     error = bias * remaining_fraction
-                    noise = np.random.normal(0, noise_scale * abs(bias) * remaining_fraction)
+                    noise = rng.normal(0, noise_scale * abs(bias) * remaining_fraction)
 
                     rows.append(
                         {
@@ -243,28 +264,36 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
 def create_sample_density_forecasts() -> pd.DataFrame:
     """Create sample density forecasts DataFrame with multiple quantiles.
 
-    Generates forecasts by sampling from a normal distribution for each horizon,
-    then extracts 100 quantiles from the samples. This ensures quantiles don't cross.
+    Return 13 quarterly targets from 2025-12-31 through 2028-12-31 with
+    explicit horizons 0 through 12, variable ``gdpkp``, source ``mpr2``,
+    frequency ``Q``, and vintage 2025-12-31. Values are index levels aligned
+    with the point/outturn examples, with a normal mean of ``115 + horizon``
+    and constant standard deviation 0.5 at every horizon.
+
+    Draw 10,000 independent normal samples per horizon, then extract 50
+    noncrossing empirical quantiles equally spaced from 0.01 to 0.99.
+    This even-sized grid does not contain 0.5; nearest-quantile conversion
+    is needed to obtain a median path. Return 650 rows sorted by date and
+    quantile. A fresh local ``default_rng(42)`` makes calls repeatable without
+    changing NumPy's global random state.
 
     Returns
     -------
     pd.DataFrame
         DataFrame with density forecast data including a 'quantile' column.
-        Contains forecasts for 100 quantiles from 0.01 to 0.99.
+        Contains forecasts for 50 quantiles from 0.01 to 0.99.
 
     Examples
     --------
     >>> df = create_sample_density_forecasts()
     >>> len(df['quantile'].unique())
-    100
+    50
     >>> # Verify quantiles don't cross for a given date
     >>> sample = df[df['date'] == df['date'].iloc[0]].sort_values('quantile')
     >>> assert all(sample['value'].diff().dropna() > 0)  # Values strictly increasing
     """
-    # Set random seed for reproducibility
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
-    # Define 100 quantiles from 0.01 to 0.99
     quantiles = np.linspace(0.01, 0.99, 50)
 
     # Create base structure
@@ -276,13 +305,12 @@ def create_sample_density_forecasts() -> pd.DataFrame:
     # For each forecast horizon
     for i, date in enumerate(dates):
         # Mean value increases with time (trend)
-        mean = i + 1
+        mean = 115 + i
 
-        # Standard deviation proportional to mean (5% uncertainty)
         std = 0.5
 
         # Generate 10000 samples from normal distribution for this horizon
-        samples = np.random.normal(mean, std, 10000)
+        samples = rng.normal(mean, std, 10000)
 
         # Extract quantiles from the samples
         for quantile in quantiles:

@@ -26,7 +26,7 @@ to use the package in this [notebook](https://github.com/bank-of-england/forecas
 
 
 ## Features
-The package contains tools to inspect the accuracy, unbiasedness and efficiency of economic forecasts. It includes visualisation tools, statistical tests and accuracy metrics commonly used for forecast evaluation. In handles both point forecasts (with the `ForecastData` object) and density forecasts (with the `DensityForecastData` object).
+The package contains tools to inspect the accuracy, unbiasedness and efficiency of economic forecasts. It includes visualisation tools, statistical tests and accuracy metrics commonly used for forecast evaluation. It handles point forecasts (with the `ForecastData` object) and quantile-based density forecasts (with the `DensityForecastData` object). The statistical tests and accuracy metrics below apply to point forecasts, including those explicitly selected from a density.
 
 ### Visualisation for forecasts, outturns and errors:
 * Forecast vintages plot
@@ -50,7 +50,7 @@ The package contains tools to inspect the accuracy, unbiasedness and efficiency 
 * Mean absolute error
 * Median absolute error
 
-All of the above features can be explored interactively in a dashboard.
+All of the above features can be explored interactively in a dashboard. Density-only objects support density plots and outturn views; point-analysis tabs show placeholders until point forecasts are added or explicitly converted. Forecast error distribution plots describe point forecast errors, not predictive densities. Density-specific scoring and calibration diagnostics, such as CRPS and PIT, are not implemented.
 
 ## Loading data
 
@@ -91,6 +91,29 @@ forecast_data = fe.ForecastData(load_fer=True)
 The forecast_data object has methods to filter, analyse and visualise the data and resulting analysis. These are illustrated in the [example notebook](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/example_notebook.ipynb).
 
 Results from the Bank of England 2026 Forecast Evaluation [Macro Technical Paper](https://www.bankofengland.co.uk/macro-technical-paper/2026/learning-from-forecast-errors-the-banks-enhanced-approach-to-forecast-evaluation) can also be replicated with [this notebook](https://github.com/bank-of-england/forecast_evaluation/blob/main/notebooks/mtp_replication_notebook.ipynb).
+
+### Density forecasts
+
+Density input uses the forecast columns above plus a finite `quantile` in `[0, 1]` and finite `value` entries. Load outturns before adding densities:
+
+```python
+density_data = fe.DensityForecastData(outturns_data=outturns_dataframe)
+density_data.add_density_forecasts(density_dataframe, crossing="rearrange")
+```
+
+In a density-only object, `density_forecasts` and `outturns` are populated, while `forecasts` and `df` remain empty until explicit point conversion. Density ingestion does not automatically derive additional `pop` or `yoy` densities. Supplied outturn `pop`/`yoy` values are retained; discrepancies from levels-derived growth warn, except for library-created `_aligned` snapshots.
+
+The default crossing policy, `crossing="rearrange"`, sorts crossed values within each density and warns. Use `"error"` to reject crossings or `"ignore"` to keep supplied values. Filtering applies to density, point, outturn and analysis views by default; `clear_filter()` restores all views without discarding the backing density data.
+
+```python
+density_data.to_point_forecast(method="median")
+```
+
+Conversion uses the nearest stored quantile when the requested level is missing and warns. `on_missing="raise"` is an opt-in conversion-only alternative; missing-quantile interpolation remains deferred, not implemented. Derived point `pop`/`yoy` values are growth rates of the selected level-quantile path, not quantiles of a marginal growth distribution.
+
+`sample_from_density(n_samples=10000, random_state=42)` produces independent marginal draws, not joint paths. It linearly interpolates between stored quantiles and clamps tails to the endpoint values, warning when outer levels are farther than 0.02 from 0 or 1. Each density needs at least two distinct quantile levels.
+
+`plot_density_vintage(variable=..., vintage_date=..., quantiles=(0.16, 0.5, 0.84))` uses nearest stored levels with warnings rather than interpolating. The plot overlays latest-vintage outturns before and after the forecast vintage; `outturn_start_date` controls how far back they extend. See the [density user guide](docs/source/user_guide.rst) for details.
 
 
 ## Run the dashboard
