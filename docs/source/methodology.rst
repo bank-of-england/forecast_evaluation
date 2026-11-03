@@ -292,10 +292,10 @@ The (weighted) continuous ranked probability score is the quantile-weighted inte
 
 with :math:`v(\tau) = 1` for the CRPS, :math:`\tau^2` for the right tail (e.g. upside inflation risk) and :math:`(1-\tau)^2` for the left tail (e.g. downside GDP risk). It is integrated over a 2000-point value grid between the :math:`10^{-6}` and :math:`1-10^{-6}` quantiles, with the outturn added as a node. Lower is better. Sharpness is summarised by interval widths :math:`F^{-1}(u) - F^{-1}(l)`: by default the central 30%, 50% and 90% intervals and the 5-25% and 75-95% tail bands.
 
-Replication
-^^^^^^^^^^^
+Validation
+^^^^^^^^^^
 
-An opt-in parity test tier (``pytest -m parity``, local only) checks each statistic against the original MATLAB code. It also reproduces the published evaluation tables from the MATLAB forecast parameters. Two differences are by design. Path-test decisions come from a single bootstrap rather than rejection frequencies over repeated bootstraps. The skew-t CRPS uses the exact cdf rather than a numerically integrated one, so it differs from the MATLAB value by at most the MATLAB grid spacing. The inflation fan-chart inputs store the 2020-06-30 origin (no published fan chart) as zero mean, mode and uncertainty. MATLAB scores these 13 forecasts as a point mass at zero, with PIT 1. The package rejects a zero scale, so the replication keeps MATLAB's values for those forecasts only.
+The regular Python test suite checks analytical cases, numerical integration, agreement with SciPy distributions and reproducibility with fixed simulation inputs. These checks do not require external reference files.
 
 
 Practical Guidance for Users
