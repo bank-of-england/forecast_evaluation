@@ -242,6 +242,7 @@ logs/
 notebooks/*
 !notebooks/example_notebook.ipynb
 !notebooks/mtp_replication_notebook.ipynb
+!notebooks/density_evaluation_example.ipynb
 review/
 plans/
 *.tmp
