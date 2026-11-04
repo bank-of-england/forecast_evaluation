@@ -122,9 +122,9 @@ def test_nowcast_forecast_targets_and_publication_cutoff():
     assert set(forecasts["variable"]) == {"gdp", "cpi"}
     weekly_dates = pd.date_range("2020-01-01", "2026-03-31", freq="7D")
     assert forecasts["vintage_date"].isin(weekly_dates).all()
-    offsets = forecasts["date"].dt.to_period("Q").astype("int64") - forecasts["vintage_date"].dt.to_period(
-        "Q"
-    ).astype("int64")
+    offsets = forecasts["date"].dt.to_period("Q").astype("int64") - forecasts["vintage_date"].dt.to_period("Q").astype(
+        "int64"
+    )
     assert set(offsets) == {-1, 0, 1}
     np.testing.assert_array_equal(forecasts["forecast_horizon"], offsets.clip(lower=0))
     lags = forecasts["variable"].map({"gdp": 42, "cpi": 14})

@@ -195,9 +195,11 @@ def test_init_with_extra_ids(sample_outturns, sample_density_forecasts):
         outturns_data=sample_outturns, forecasts_data=forecasts, extra_ids=["region"], data_check=False
     )
     assert dfd.id_columns == ["source", "region"]
-    expected = forecasts.assign(quantile=forecasts["quantile"].round(10)).sort_values(
-        ["region", "date", "quantile"]
-    ).reset_index(drop=True)
+    expected = (
+        forecasts.assign(quantile=forecasts["quantile"].round(10))
+        .sort_values(["region", "date", "quantile"])
+        .reset_index(drop=True)
+    )
     for table in (dfd._density_df, dfd.density_forecasts):
         assert set(table["unique_id"]) == {"mpr2 + UK", "mpr2 + US"}
         assert table.groupby("region")["unique_id"].nunique().to_dict() == {"UK": 1, "US": 1}
@@ -309,9 +311,9 @@ def test_density_data_check_uses_near_median_path(sample_outturns, quantiles, da
                 "forecast_horizon": 1,
                 "metric": "levels",
                 "quantile": quantile,
-                    "value": float(outturn["value"]) + date_index * 10 + quantiles.index(quantile) * 100,
+                "value": float(outturn["value"]) + date_index * 10 + quantiles.index(quantile) * 100,
             }
-                for date_index, (_, outturn) in enumerate(outturns.iterrows())
+            for date_index, (_, outturn) in enumerate(outturns.iterrows())
             for quantile in quantiles
         ]
     )
@@ -638,9 +640,7 @@ def test_default_crossing_rearrangement_warns_once_with_summary(sample_outturns,
     assert "variable=gdpkp" in message
     assert "date=2026-06-30" in message
 
-    expected = DensityForecastData(
-        outturns_data=sample_outturns, forecasts_data=density_df, data_check=False
-    )
+    expected = DensityForecastData(outturns_data=sample_outturns, forecasts_data=density_df, data_check=False)
     for table in (data._density_df, data._density_forecasts):
         actual_sorted = table.sort_values(["date", "quantile"]).reset_index(drop=True)
         expected_sorted = expected._density_df.sort_values(["date", "quantile"]).reset_index(drop=True)
@@ -648,9 +648,7 @@ def test_default_crossing_rearrangement_warns_once_with_summary(sample_outturns,
         _assert_density_values_monotone(table)
 
 
-def test_crossing_error_mode_forwards_from_constructor_and_rolls_back_add(
-    sample_outturns, density_df
-):
+def test_crossing_error_mode_forwards_from_constructor_and_rolls_back_add(sample_outturns, density_df):
     crossed = _swap_quantile_values(density_df, "2027-03-31", 0.15, 0.83)
 
     with pytest.raises(ValueError, match="not non-decreasing") as constructor_error:
@@ -721,9 +719,9 @@ def test_crossing_ignore_preserves_values_without_rearrangement_warning(sample_o
     date_rows = data.density_forecasts[data.density_forecasts["date"].eq(pd.Timestamp("2027-03-31"))]
     assert not date_rows.sort_values("quantile")["value"].is_monotonic_increasing
     actual = data.density_forecasts.sort_values(["date", "quantile"]).reset_index(drop=True)
-    expected = crossed.assign(quantile=crossed["quantile"].round(10)).sort_values(
-        ["date", "quantile"]
-    ).reset_index(drop=True)
+    expected = (
+        crossed.assign(quantile=crossed["quantile"].round(10)).sort_values(["date", "quantile"]).reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(
         actual[["date", "quantile", "value"]],
         expected[["date", "quantile", "value"]],

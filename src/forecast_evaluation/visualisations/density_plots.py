@@ -178,9 +178,7 @@ def plot_density_vintage(
     resolutions = []
     missing_quantiles = []
     for requested in requested_quantiles:
-        matching = available_quantiles[
-            np.isclose(available_quantiles, requested, rtol=0, atol=_QUANTILE_TOLERANCE)
-        ]
+        matching = available_quantiles[np.isclose(available_quantiles, requested, rtol=0, atol=_QUANTILE_TOLERANCE)]
         if matching.size:
             used = float(matching[0])
         else:
@@ -217,11 +215,7 @@ def plot_density_vintage(
     colors = plt.cm.tab10(np.linspace(0, 1, len(forecasts_filtered["unique_id"].unique())))
 
     central_quantile = next(
-        (
-            used
-            for requested, used in resolutions
-            if np.isclose(requested, 0.5, rtol=0, atol=_QUANTILE_TOLERANCE)
-        ),
+        (used for requested, used in resolutions if np.isclose(requested, 0.5, rtol=0, atol=_QUANTILE_TOLERANCE)),
         None,
     )
     if central_quantile is None and len(quantiles_used) % 2:

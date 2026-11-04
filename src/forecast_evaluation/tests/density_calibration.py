@@ -233,9 +233,7 @@ def knuppel_test(
         return {"stat": stat, "p_value": p}
 
     df, data, k = _grouped_test(fitted, k, same_date_range, data, stat_fn)
-    metadata = _metadata(
-        "knuppel_test", fitted, df, k=k, lags=lags, prewhite=prewhite, same_date_range=same_date_range
-    )
+    metadata = _metadata("knuppel_test", fitted, df, k=k, lags=lags, prewhite=prewhite, same_date_range=same_date_range)
     return TestResult(df, data.id_columns, metadata)
 
 

@@ -223,9 +223,7 @@ class DensityForecastData(ForecastData):
                 df = df.loc[~negative_horizons].copy()
 
             if df.empty:
-                warnings.warn(
-                    "No density forecasts available after filtering/validation.", UserWarning, stacklevel=2
-                )
+                warnings.warn("No density forecasts available after filtering/validation.", UserWarning, stacklevel=2)
                 return
 
             self._density_df = pd.concat([self._density_df, df], ignore_index=True)
@@ -983,6 +981,7 @@ def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) ->
         quantiles, values, kind="linear", bounds_error=False, fill_value=(values[0], values[-1]), assume_sorted=True
     )
 
+
 def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
     """Create interpolated CDF function from quantile data.
 
@@ -1004,6 +1003,7 @@ def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Call
     between values. Probabilities outside the range are clipped to [0, 1].
     """
     return interp1d(values, quantiles, kind="linear", bounds_error=False, fill_value=(0.0, 1.0), assume_sorted=True)
+
 
 def _warn_if_tails_clamped(levels: pd.DataFrame) -> None:
     """Warn once if any density's outer quantile levels are far from 0 and 1.
