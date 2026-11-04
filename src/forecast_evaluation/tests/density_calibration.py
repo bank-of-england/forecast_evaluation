@@ -92,8 +92,8 @@ def build_density_eval_table(fitted, k: int | Literal["latest"] | None = None, *
 
     Parameters
     ----------
-    fitted : FittedDensityForecasts
-        Fitted densities (from ``DensityForecastData.fit_parametric_density``).
+    fitted : ForecastDistributions
+        Distributions from ``DensityForecastData.to_distribution``.
     k : int, "latest" or None, optional
         Outturn revision; None uses ``data.default_k``.
     data : DensityForecastData, optional
