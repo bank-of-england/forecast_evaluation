@@ -152,9 +152,7 @@ def test_unsorted_quantiles_use_sorted_outer_band(density_df, density_outturns_d
     assert band_values.max() == pytest.approx(13.84)
 
 
-def test_crossed_density_input_has_a_non_inverted_plot_band(
-    density_outturns_df, crossed_density_df, monkeypatch
-):
+def test_crossed_density_input_has_a_non_inverted_plot_band(density_outturns_df, crossed_density_df, monkeypatch):
     captured_bands = []
     original_fill_between = Axes.fill_between
 

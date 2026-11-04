@@ -279,4 +279,3 @@ def test_interpolate_quantile_function_clamps_outside_range():
     func = _interpolate_quantile_function(np.array([0.1, 0.5, 0.9]), np.array([-1.0, 0.0, 2.0]))
 
     np.testing.assert_array_equal(func(np.array([0.0, 0.05, 0.95, 1.0])), [-1.0, -1.0, 2.0, 2.0])
-

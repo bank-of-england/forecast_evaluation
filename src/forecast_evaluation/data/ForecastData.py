@@ -835,8 +835,7 @@ class ForecastData(PlottingMixin):
         if skipped and len(skipped) == len(updates):
             for name, column in skipped.items():
                 warnings.warn(
-                    f"custom_filter was not applied to the '{_TABLE_LABELS[name]}' table: "
-                    f"column '{column}' not found.",
+                    f"custom_filter was not applied to the '{_TABLE_LABELS[name]}' table: column '{column}' not found.",
                     UserWarning,
                     stacklevel=3,
                 )

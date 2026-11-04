@@ -176,9 +176,7 @@ def crps_analysis(
         )
         .reset_index()
     )
-    metadata = _metadata(
-        "crps_analysis", fitted, df, k=k, weight=weight, grid=grid, same_date_range=same_date_range
-    )
+    metadata = _metadata("crps_analysis", fitted, df, k=k, weight=weight, grid=grid, same_date_range=same_date_range)
     return TestResult(df, data.id_columns, metadata)
 
 
