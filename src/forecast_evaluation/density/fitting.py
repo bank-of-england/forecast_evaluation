@@ -29,7 +29,7 @@ from forecast_evaluation.density.distributions import (
     _skt_std_ppf,
 )
 
-__all__ = ["FittedDensityForecasts", "fit_quantile_arrays", "fit_quantile_densities"]
+__all__ = ["ForecastDistributions", "fit_quantile_arrays", "fit_quantile_densities"]
 
 METHODS = ("normal", "two_piece_normal", "skew_t", "mpz")
 _FAMILIES = {"normal": Normal, "two_piece_normal": TwoPieceNormal, "skew_t": AzzaliniSkewT, "mpz": SemiParametricMPZ}
@@ -276,12 +276,12 @@ def fit_quantile_arrays(levels, values, method: str, **options):
 
 
 # -----------------------
-# Fitted densities container
+# Forecast distributions container
 # -----------------------
 
 
-class FittedDensityForecasts:
-    """Fitted densities, one row per stored density forecast.
+class ForecastDistributions:
+    """Forecast distributions, one row per stored density forecast.
 
     Row ``i`` of every array output corresponds to row ``i`` of ``keys``/``params``. ``x``
     (and ``q``) broadcast as for the distribution families: scalar -> (N,), (M,) -> (N, M) and
@@ -292,9 +292,9 @@ class FittedDensityForecasts:
     keys : pd.DataFrame
         Identifying columns of each density (all density-table columns except quantile/value).
     method : str
-        Fitted family.
+        Distribution construction method.
     diagnostics : pd.DataFrame or None
-        Fit diagnostics (``fit_parametric_density`` only): ``levels_used``,
+        Fit diagnostics (``to_distribution`` only): ``levels_used``,
         ``max_level_distance``, ``sse`` (over the levels used), ``max_abs_error`` and
         ``relative_error`` (largest gap to all stored quantiles, absolute and over the fitted
         interquartile range) and ``success``.
@@ -310,7 +310,7 @@ class FittedDensityForecasts:
         self.data = data
 
     @classmethod
-    def from_params(cls, params: pd.DataFrame, method: str, *, data=None) -> FittedDensityForecasts:
+    def from_params(cls, params: pd.DataFrame, method: str, *, data=None) -> ForecastDistributions:
         """Build from known parameters (e.g. BoE fan-chart TPN or MATLAB fitted params).
 
         ``params`` holds the family's parameter columns (``Normal``: loc, scale; ``TwoPieceNormal``:
@@ -342,13 +342,13 @@ class FittedDensityForecasts:
     def __len__(self) -> int:
         return len(self.keys)
 
-    def take(self, rows) -> FittedDensityForecasts:
+    def take(self, rows) -> ForecastDistributions:
         """New object with the given rows (positions, repeats allowed); diagnostics are dropped."""
         params = self.params.iloc[np.asarray(rows, dtype=int)]
-        return FittedDensityForecasts.from_params(params, self.method, data=self.data)
+        return ForecastDistributions.from_params(params, self.method, data=self.data)
 
     def __repr__(self) -> str:
-        return f"FittedDensityForecasts(method={self.method!r}, n_densities={len(self)})"
+        return f"ForecastDistributions(method={self.method!r}, n_densities={len(self)})"
 
     @property
     def params(self) -> pd.DataFrame:
@@ -461,8 +461,8 @@ def fit_quantile_densities(
     approx_tol: float = 0.05,
     data: Any = None,
     **options,
-) -> FittedDensityForecasts:
-    """Fit a family to every density in a long density table (see ``fit_parametric_density``)."""
+) -> ForecastDistributions:
+    """Construct distributions from a long density table (see ``to_distribution``)."""
     method = _check_method(method)
     targets = _resolve_targets(method, match_levels)
     if density.empty:
@@ -530,7 +530,7 @@ def fit_quantile_densities(
     success = np.isfinite(diag["sse"])
     diagnostics = keys.assign(**diag, success=success)
     _warn_fit_issues(method, far, success, diag["relative_error"], approx_tol)
-    return FittedDensityForecasts(keys, method, blocks, diagnostics=diagnostics, data=data)
+    return ForecastDistributions(keys, method, blocks, diagnostics=diagnostics, data=data)
 
 
 def _warn_fit_issues(method, far, success, relative_error, approx_tol) -> None:
@@ -555,7 +555,7 @@ def _warn_fit_issues(method, far, success, relative_error, approx_tol) -> None:
         warnings.warn(
             f"Fitted {method} quantiles differ from the stored quantiles by more than {approx_tol:g} x the fitted "
             f"interquartile range for {int(poor.sum())} of {success.size} densities (largest "
-            f"{np.nanmax(relative_error):.3g}); see FittedDensityForecasts.diagnostics.",
+            f"{np.nanmax(relative_error):.3g}); see ForecastDistributions.diagnostics.",
             UserWarning,
             stacklevel=3,
         )

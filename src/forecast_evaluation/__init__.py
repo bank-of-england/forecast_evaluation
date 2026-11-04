@@ -18,7 +18,7 @@ from .data import (
     create_sample_outturns,
 )
 from .data.utils import filter_fer_variables
-from .density import FittedDensityForecasts
+from .density import ForecastDistributions
 from .tests import (
     bias_analysis,
     blanchard_leigh_horizon_analysis,
@@ -86,7 +86,7 @@ __all__ = [
     "ForecastData",
     "NowcastData",
     "DensityForecastData",
-    "FittedDensityForecasts",
+    "ForecastDistributions",
     # Sample data functions
     "create_sample_forecasts",
     "create_sample_density_forecasts",

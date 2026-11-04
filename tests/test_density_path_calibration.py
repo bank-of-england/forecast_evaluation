@@ -65,7 +65,7 @@ def test_gmm_statistic_shapes_and_weights():
 
 
 def test_testresult_interfaces():
-    fitted = _make_data(n=60, horizons=(0, 1, 2)).fit_parametric_density("normal")
+    fitted = _make_data(n=60, horizons=(0, 1, 2)).to_distribution("normal")
     rs = rossi_sekhposyan_test(fitted, seed=1)
     df = rs.to_df()
     assert len(df) == 3 and {"ks_stat", "ks_cv_5", "cvm_reject_10", "block_length"} <= set(df.columns)
@@ -83,6 +83,6 @@ def test_testresult_interfaces():
 
 
 def test_narrow_density_rejects():
-    fitted = _make_data(n=80, scale=0.5).fit_parametric_density("normal")
+    fitted = _make_data(n=80, scale=0.5).to_distribution("normal")
     df = rossi_sekhposyan_test(fitted, seed=2).to_df()
     assert df["ks_reject_5"].all() and df["cvm_reject_5"].all()

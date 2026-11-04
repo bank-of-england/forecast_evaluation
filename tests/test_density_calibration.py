@@ -69,7 +69,7 @@ def test_nw_hac_zero_lags_is_plain_covariance():
 
 def test_eval_table_respects_k_and_latest():
     data = _make_data(n=8, n_vintages=3)
-    fitted = data.fit_parametric_density("normal")
+    fitted = data.to_distribution("normal")
     base = build_density_eval_table(fitted, k=0)["outturn"].to_numpy()
     assert len(base) == 8
     for k, shift in ((1, 0.5), (2, 1.0), ("latest", 1.0), (12, 1.0), (None, 1.0)):
@@ -81,7 +81,7 @@ def test_eval_table_respects_k_and_latest():
 
 
 def test_uniform_pits_do_not_reject():
-    fitted = _make_data().fit_parametric_density("normal")
+    fitted = _make_data().to_distribution("normal")
     pit = compute_pit(fitted)
     assert len(pit) == 200 and pit["pit"].between(0, 1).all()
     assert knuppel_test(fitted)["p_value"].iloc[0] > 0.01
@@ -89,13 +89,13 @@ def test_uniform_pits_do_not_reject():
 
 
 def test_shifted_density_rejects():
-    fitted = _make_data(scale=0.5).fit_parametric_density("normal")
+    fitted = _make_data(scale=0.5).to_distribution("normal")
     assert knuppel_test(fitted)["p_value"].iloc[0] < 1e-3
     assert mitchell_weale_test(fitted)["p_value"].iloc[0] < 1e-3
 
 
 def test_grouping_and_testresult_metadata():
-    fitted = _make_data(n=40, horizons=(0, 1), sources=("a", "b")).fit_parametric_density("normal")
+    fitted = _make_data(n=40, horizons=(0, 1), sources=("a", "b")).to_distribution("normal")
     result = knuppel_test(fitted, lags=2)
     df = result.to_df()
     assert len(df) == 4

@@ -12,7 +12,7 @@ from scipy.stats import norm
 from tqdm import tqdm
 
 from forecast_evaluation.data.ForecastData import _UNSET, ForecastData, _atomic_state, _check_forecast_data
-from forecast_evaluation.density.fitting import FittedDensityForecasts, fit_quantile_densities
+from forecast_evaluation.density.fitting import ForecastDistributions, fit_quantile_densities
 
 # Outer quantile levels farther than this from 0 or 1 trigger the tail-clamping warning in sample_from_density.
 _TAIL_MASS_WARNING_THRESHOLD = 0.02
@@ -542,19 +542,20 @@ class DensityForecastData(ForecastData):
             data_check=data_check,
         )
 
-    def fit_parametric_density(
+    def to_distribution(
         self,
         method: Literal["skew_t", "two_piece_normal", "normal", "mpz"],
         match_levels: Union[None, str, Iterable[float]] = None,
         *,
         approx_tol: float = 0.05,
         **options,
-    ) -> FittedDensityForecasts:
-        """Fit a density family to each stored density forecast, as currently filtered.
+    ) -> ForecastDistributions:
+        """Construct a distribution for each stored density forecast, as currently filtered.
 
         Parametric families are fitted by least squares to the quantile values at the matched
         levels: (loc, scale) in closed form, the remaining shape parameter by a grid search
-        refined with the exact quantile function.
+        refined with the exact quantile function. ``"mpz"`` uses the stored quantiles directly,
+        without parameter fitting.
 
         Parameters
         ----------
@@ -575,7 +576,7 @@ class DensityForecastData(ForecastData):
 
         Returns
         -------
-        FittedDensityForecasts
+        ForecastDistributions
             One row per density with ``params``, ``pdf``/``cdf``/``ppf``, ``moments()``,
             ``to_value_grid()``, ``to_quantile_grid()`` and ``diagnostics``.
 
@@ -599,7 +600,7 @@ class DensityForecastData(ForecastData):
         >>> density_data = DensityForecastData(
         ...     outturns_data=create_sample_outturns(), forecasts_data=create_sample_density_forecasts()
         ... )
-        >>> fitted = density_data.fit_parametric_density("normal")
+        >>> fitted = density_data.to_distribution("normal")
         >>> list(fitted.params.columns[-2:])
         ['loc', 'scale']
         """

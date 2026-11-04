@@ -53,7 +53,7 @@ def density_scores(
 
     Parameters
     ----------
-    fitted : FittedDensityForecasts
+    fitted : ForecastDistributions
     y : array-like, shape (N,)
     weight : str or callable, optional
         Quantile weight ``v(tau)``: "none" (CRPS), "centre" tau(1-tau), "tails" (2tau-1)^2,

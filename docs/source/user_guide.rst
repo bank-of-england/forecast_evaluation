@@ -624,12 +624,15 @@ Optional arguments let you restrict the benchmark generation to selected variabl
 or frequencies, control the number of forecast periods, and supply an estimation
 start date.
 
+.. _density-forecasts:
+
 Density Forecasts
 -----------------
 
 For probabilistic forecasts with quantiles, use
 :class:`forecast_evaluation.data.DensityForecastData`, which extends
-``ForecastData``.
+``ForecastData``. It stores predictive quantiles for individual target dates,
+not joint forecast paths across dates or variables.
 
 Density forecast input uses the point forecast columns plus a ``quantile`` column.
 Quantile levels must be finite and in the inclusive range [0, 1]; density ``value``
@@ -750,14 +753,23 @@ Existing forecast error distribution plots describe point forecast errors,
 including errors after explicit conversion, not predictive density calibration.
 Density calibration and scoring are covered next.
 
-Fitting densities to quantiles
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Preparing densities for evaluation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Evaluation works on a continuous density fitted to each stored set of quantiles:
+CRPS and PIT evaluate a continuous distribution constructed from the stored
+quantiles, not necessarily a parametric fit. ``to_distribution`` supports
+both parametric families and the semi-parametric ``"mpz"`` construction, which
+uses the quantiles directly without parameter fitting:
 
 .. code-block:: python
 
-   fitted = density_data.fit_parametric_density("skew_t")
+   fitted = density_data.to_distribution("mpz")
+
+To fit a skew-t instead:
+
+.. code-block:: python
+
+   fitted = density_data.to_distribution("skew_t")
    fitted.params        # one row per density: keys plus loc, scale, shape, df
    fitted.diagnostics   # levels used, fit errors, success flag
    fitted.moments()     # mean, variance, skewness
@@ -775,7 +787,7 @@ without fitting:
 .. code-block:: python
 
    params = keys.assign(mode=..., sigma1=..., sigma2=...)  # keys: density_forecasts key columns
-   fitted = fe.FittedDensityForecasts.from_params(params, "two_piece_normal", data=density_data)
+   fitted = fe.ForecastDistributions.from_params(params, "two_piece_normal", data=density_data)
 
 Calibration, scoring and sharpness
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

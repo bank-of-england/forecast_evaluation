@@ -1,4 +1,4 @@
-"""Tests for fitting density families to stored quantiles (``fit_parametric_density``)."""
+"""Tests for constructing distributions from stored quantiles (``to_distribution``)."""
 
 import time
 import warnings
@@ -53,7 +53,7 @@ def _density_data(dist, levels=LEVELS, n_dates=N_DATES) -> DensityForecastData:
 def _fit_quietly(data, *args, **kwargs):
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
-        return data.fit_parametric_density(*args, **kwargs)
+        return data.to_distribution(*args, **kwargs)
 
 
 @pytest.mark.parametrize("family", ["normal", "two_piece_normal", "skew_t", "mpz"])
@@ -80,7 +80,7 @@ def test_nearest_level_matching_and_warning():
     data = _density_data(Normal(115 + _i, 0.5), levels=SPARSE)
 
     with pytest.warns(UserWarning, match="nearest stored level") as record:
-        fitted = data.fit_parametric_density("two_piece_normal", match_levels=(0.25, 0.5, 0.77))
+        fitted = data.to_distribution("two_piece_normal", match_levels=(0.25, 0.5, 0.77))
     assert len([w for w in record if "nearest stored level" in str(w.message)]) == 1
     # 0.25 ties between 0.2 and 0.3 and resolves to the lower level.
     assert set(fitted.diagnostics["levels_used"]) == {(0.2, 0.5, 0.8)}
@@ -94,13 +94,13 @@ def test_nearest_level_matching_and_warning():
 def test_raises_when_too_few_levels():
     bvar = _density_data(Normal(115 + _i, 0.5), levels=[0.16, 0.5, 0.84])
     with pytest.raises(ValueError, match="at least 4 distinct"):
-        bvar.fit_parametric_density("skew_t")
+        bvar.to_distribution("skew_t")
     with pytest.raises(ValueError, match="at least 2 distinct"):
-        bvar.fit_parametric_density("normal", match_levels=[0.5, 0.52])
+        bvar.to_distribution("normal", match_levels=[0.5, 0.52])
     with pytest.raises(ValueError, match="Unknown method"):
-        bvar.fit_parametric_density("kde")
+        bvar.to_distribution("kde")
     with pytest.raises(TypeError, match="df_grid"):
-        bvar.fit_parametric_density("normal", df_grid=range(5, 10))
+        bvar.to_distribution("normal", df_grid=range(5, 10))
 
 
 def test_value_grid_contract_columns():
@@ -137,19 +137,19 @@ def test_value_grid_contract_columns():
 
 def test_from_params_roundtrip():
     fitted = _fit_quietly(_density_data(KNOWN["two_piece_normal"][0]), "two_piece_normal")
-    rebuilt = fitting.FittedDensityForecasts.from_params(fitted.params, "two_piece_normal")
+    rebuilt = fitting.ForecastDistributions.from_params(fitted.params, "two_piece_normal")
     pd.testing.assert_frame_equal(rebuilt.keys, fitted.keys)
     np.testing.assert_allclose(rebuilt.ppf(LEVELS), fitted.ppf(LEVELS))
 
     mpz = _fit_quietly(_density_data(Normal(115 + _i, 0.5)), "mpz")
-    rebuilt = fitting.FittedDensityForecasts.from_params(mpz.params, "mpz")
+    rebuilt = fitting.ForecastDistributions.from_params(mpz.params, "mpz")
     np.testing.assert_allclose(rebuilt.cdf([114.0, 116.0]), mpz.cdf([114.0, 116.0]))
 
 
 def test_approximation_warning():
     skewed = TwoPieceNormal(np.zeros(N_DATES), np.full(N_DATES, 0.3), np.full(N_DATES, 2.0))
     with pytest.warns(UserWarning, match="differ from the stored quantiles"):
-        fitted = _density_data(skewed).fit_parametric_density("normal")
+        fitted = _density_data(skewed).to_distribution("normal")
     assert (fitted.diagnostics["relative_error"] > 0.05).all()
 
 

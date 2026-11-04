@@ -50,7 +50,7 @@ The package contains tools to inspect the accuracy, unbiasedness and efficiency 
 * Mean absolute error
 * Median absolute error
 
-All of the above features can be explored interactively in a dashboard. Density-only objects support density plots and outturn views; point-analysis tabs show placeholders until point forecasts are added or explicitly converted. Forecast error distribution plots describe point forecast errors, not predictive densities. Density-specific scoring and calibration diagnostics, such as CRPS and PIT, are not implemented.
+All of the above features can be explored interactively in a dashboard. Density-only objects support density plots and outturn views; point-analysis tabs show placeholders until point forecasts are added or explicitly converted. Forecast error distribution plots describe point forecast errors, not predictive densities. Density-specific scoring and calibration diagnostics, including CRPS and PIT, are available through the Python API after constructing distributions with `to_distribution`.
 
 ## Loading data
 

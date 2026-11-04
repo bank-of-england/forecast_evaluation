@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from scipy import stats
 
-from forecast_evaluation.density import FittedDensityForecasts
+from forecast_evaluation.density import ForecastDistributions
 from forecast_evaluation.tests import compute_crps, crps_analysis, sharpness_analysis
 from forecast_evaluation.tests.density_scoring import DEFAULT_INTERVALS, density_scores, interval_widths
 from tests.test_density_calibration import _make_data
@@ -16,7 +16,7 @@ Y = np.array([0.3, -1.0, 4.0, 2.0, 10.0])  # last outturn lies far outside the d
 
 
 def _normal_fit():
-    return FittedDensityForecasts.from_params(pd.DataFrame({"id": range(5), "loc": MU, "scale": SIGMA}), "normal")
+    return ForecastDistributions.from_params(pd.DataFrame({"id": range(5), "loc": MU, "scale": SIGMA}), "normal")
 
 
 def _normal_crps(y, mu, sigma):
@@ -54,7 +54,7 @@ def test_sharpness_widths_exact():
     for name, (lo, hi) in DEFAULT_INTERVALS.items():
         np.testing.assert_allclose(widths[name], SIGMA * (stats.norm.ppf(hi) - stats.norm.ppf(lo)), rtol=1e-12)
 
-    fitted = _make_data(n=30, scale=2.0, horizons=(0, 1)).fit_parametric_density("normal")
+    fitted = _make_data(n=30, scale=2.0, horizons=(0, 1)).to_distribution("normal")
     result = sharpness_analysis(fitted, intervals={"central_90": (0.05, 0.95)})
     df = result.to_df()
     assert len(df) == 2 and set(df["horizon"]) == {0, 1}
@@ -65,7 +65,7 @@ def test_sharpness_widths_exact():
 
 
 def test_crps_analysis_grouping_and_metadata():
-    fitted = _make_data(n=30, horizons=(0, 1), sources=("a", "b")).fit_parametric_density("normal")
+    fitted = _make_data(n=30, horizons=(0, 1), sources=("a", "b")).to_distribution("normal")
     per_obs = compute_crps(fitted).to_df()
     assert len(per_obs) == 120
     np.testing.assert_allclose(per_obs["crps"], _normal_crps(per_obs["outturn"], 100, 1), rtol=1e-5)

@@ -34,7 +34,7 @@ def _close_figures():
 
 @pytest.fixture(scope="module")
 def results():
-    fitted = _make_data(n=40, horizons=(0, 1), sources=("a", "b")).fit_parametric_density("normal")
+    fitted = _make_data(n=40, horizons=(0, 1), sources=("a", "b")).to_distribution("normal")
     return {
         "fitted": fitted,
         "pit": compute_pit(fitted),
@@ -96,7 +96,7 @@ def test_testresult_plot_unsupported_density_tests(results):
 
 def test_exports_present():
     names = [
-        "FittedDensityForecasts",
+        "ForecastDistributions",
         "build_density_eval_table",
         "compute_pit",
         "knuppel_test",
