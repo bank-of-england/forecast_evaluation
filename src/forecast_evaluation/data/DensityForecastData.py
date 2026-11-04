@@ -983,29 +983,6 @@ def _interpolate_quantile_function(quantiles: np.ndarray, values: np.ndarray) ->
     )
 
 
-def _interpolate_cdf_function(quantiles: np.ndarray, values: np.ndarray) -> Callable:
-    """Create interpolated CDF function from quantile data.
-
-    Parameters
-    ----------
-    quantiles : np.ndarray
-        Array of quantile levels (between 0 and 1).
-    values : np.ndarray
-        Array of values corresponding to each quantile.
-
-    Returns
-    -------
-    Callable
-        Interpolation function mapping value → cumulative probability.
-
-    Notes
-    -----
-    This is the inverse of the quantile function. Uses linear interpolation
-    between values. Probabilities outside the range are clipped to [0, 1].
-    """
-    return interp1d(values, quantiles, kind="linear", bounds_error=False, fill_value=(0.0, 1.0), assume_sorted=True)
-
-
 def _warn_if_tails_clamped(levels: pd.DataFrame) -> None:
     """Warn once if any density's outer quantile levels are far from 0 and 1.
 
