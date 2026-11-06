@@ -748,6 +748,25 @@ def test_merge_with_different_extra_ids():
     assert set(merged.id_columns) == {"source", "label1", "label2"}
 
 
+def test_add_forecasts_accepts_single_extra_id_string(sample_outturns, sample_forecasts):
+    """A single extra_ids column name passed as a string is treated as one column."""
+    sample_forecasts["region"] = "UK"
+
+    forecast_data = ForecastData(outturns_data=sample_outturns)
+    forecast_data.add_forecasts(sample_forecasts, extra_ids="region")
+
+    assert forecast_data.id_columns == ["source", "region"]
+    assert "region" in forecast_data.forecasts.columns
+
+
+def test_add_forecasts_names_missing_extra_id_column(sample_outturns, sample_forecasts):
+    """The validation error names an extra_ids column that is missing from the data."""
+    forecast_data = ForecastData(outturns_data=sample_outturns)
+
+    with pytest.raises(ValueError, match="column 'region'"):
+        forecast_data.add_forecasts(sample_forecasts, extra_ids=["region"])
+
+
 def test_merge_with_different_outturns():
     """Test merging with different outturn datasets."""
     outturns_df_1 = create_sample_outturns()

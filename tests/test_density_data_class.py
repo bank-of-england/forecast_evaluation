@@ -82,6 +82,15 @@ def test_init_with_extra_ids(sample_outturns, sample_density_forecasts):
     assert "region" in dfd.id_columns
 
 
+def test_init_with_single_extra_id_string(sample_outturns, sample_density_forecasts):
+    """A single extra_ids column name passed as a string is treated as one column."""
+    sample_density_forecasts["region"] = "UK"
+    dfd = DensityForecastData(
+        outturns_data=sample_outturns, forecasts_data=sample_density_forecasts, extra_ids="region"
+    )
+    assert "region" in dfd.id_columns
+
+
 # -----------------------
 # Add Forecasts Tests
 # -----------------------

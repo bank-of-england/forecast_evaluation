@@ -344,6 +344,7 @@ class ForecastData(PlottingMixin):
             )
 
         df = df.copy()
+        extra_ids = _normalise_extra_ids(extra_ids)
 
         if first_forecast_horizon is not _UNSET:
             if isinstance(self.first_forecast_horizon, dict) and isinstance(first_forecast_horizon, dict):
@@ -1128,7 +1129,11 @@ def _format_schema_errors(exc: "pa.errors.SchemaErrors", max_examples: int = 5) 
 
     for err in exc.schema_errors:
         reason = getattr(err.reason_code, "name", str(err.reason_code))
-        column = err.column_name or getattr(err.schema, "name", None) or "?"
+        column = err.column_name or getattr(err.schema, "name", None)
+        if column is None and reason == "COLUMN_NOT_IN_DATAFRAME" and isinstance(err.failure_cases, str):
+            # pandera reports the missing column's name as the failure case
+            column = err.failure_cases
+        column = column or "?"
         check_name = str(err.check) if err.check is not None else ""
         key = (column, f"{reason}:{check_name}")
         if key in rendered_columns:
@@ -1364,6 +1369,15 @@ def _check_duplicates(new_df: pd.DataFrame, old_df: pd.DataFrame) -> pd.DataFram
         filtered_new_df_unique = new_df
 
     return filtered_new_df_unique
+
+
+def _normalise_extra_ids(extra_ids: Optional[Union[str, list[str]]]) -> Optional[list[str]]:
+    """Return extra_ids as a list, so a single column name is not split into characters."""
+    if extra_ids is None:
+        return None
+    if isinstance(extra_ids, str):
+        return [extra_ids]
+    return list(extra_ids)
 
 
 def _fix_extra_columns(df: pd.DataFrame, optional_columns: list[str]) -> tuple[pd.DataFrame, list[str]]:

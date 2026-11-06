@@ -14,6 +14,7 @@ from forecast_evaluation.data.ForecastData import (
     _check_duplicates,
     _check_missing_outturns,
     _fix_extra_columns,
+    _normalise_extra_ids,
     _validate_records,
 )
 from forecast_evaluation.data.sample_data import (
@@ -141,6 +142,8 @@ class DensityForecastData(ForecastData):
         # Check for quantile column
         if "quantile" not in df.columns:
             raise ValueError("Density forecasts must include a 'quantile' column")
+
+        extra_ids = _normalise_extra_ids(extra_ids)
 
         # Add 'quantile' to extra_ids if not already there
         if extra_ids is None:
