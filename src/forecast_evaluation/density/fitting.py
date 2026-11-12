@@ -534,12 +534,13 @@ def fit_quantile_densities(
 
 
 def _warn_fit_issues(method, far, success, relative_error, approx_tol) -> None:
+    # Frames: this helper -> fit_quantile_densities -> to_distribution -> caller.
     if far:
         detail = "; ".join(f"{t:g} -> {u:g} (distance {d:.3g}, {k} densities)" for (t, u, d), k in sorted(far.items()))
         warnings.warn(
             f"Requested quantile level(s) not stored; the nearest stored level was used: {detail}.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
     n_failed = int((~success).sum())
     if n_failed:
@@ -547,7 +548,7 @@ def _warn_fit_issues(method, far, success, relative_error, approx_tol) -> None:
             f"{n_failed} of {success.size} densities could not be fitted (missing, constant or decreasing "
             "quantile values); their parameters are NaN.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
     with np.errstate(invalid="ignore"):
         poor = relative_error > approx_tol
@@ -557,5 +558,5 @@ def _warn_fit_issues(method, far, success, relative_error, approx_tol) -> None:
             f"interquartile range for {int(poor.sum())} of {success.size} densities (largest "
             f"{np.nanmax(relative_error):.3g}); see ForecastDistributions.diagnostics.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
