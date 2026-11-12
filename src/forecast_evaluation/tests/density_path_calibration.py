@@ -277,11 +277,17 @@ def rossi_sekhposyan_test(
     *,
     rvec=None,
     n_boot: int = 200,
-    seed=None,
+    seed=42,
     same_date_range: bool = True,
     data=None,
 ) -> TestResult:
     """Rossi-Sekhposyan (2019) PIT calibration test per variable, unique_id, metric, frequency, horizon.
+
+    Parameters
+    ----------
+    seed : int, np.random.Generator or None, optional
+        Seed or generator for the bootstrap multipliers. Defaults to 42 for repeatable results;
+        pass None for fresh randomness or a shared generator to advance its stream.
 
     Returns
     -------
@@ -325,7 +331,7 @@ def galvao_mantoan_mitchell_test(
     bonferroni: bool = False,
     alpha: float = 0.05,
     n_boot: int = 200,
-    seed=None,
+    seed=42,
     n_sim_h1: int = 200_000,
     same_date_range: bool = True,
     data=None,
@@ -342,6 +348,9 @@ def galvao_mantoan_mitchell_test(
         Horizon weights for the sup statistic; GMM linear weights sum to one.
     bonferroni : bool, optional
         Decide with Bonferroni-corrected per-horizon critical values instead of the joint bootstrap.
+    seed : int, np.random.Generator or None, optional
+        Seed or generator for the bootstrap multipliers. Defaults to 42 for repeatable results;
+        pass None for fresh randomness or a shared generator to advance its stream.
 
     Returns
     -------

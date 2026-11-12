@@ -1,6 +1,7 @@
 """Tests for the Rossi-Sekhposyan and Galvao-Mantoan-Mitchell path calibration tests."""
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from forecast_evaluation.tests import galvao_mantoan_mitchell_test, rossi_sekhposyan_test
@@ -80,6 +81,45 @@ def test_testresult_interfaces():
     assert gmm._metadata["test_name"] == "galvao_mantoan_mitchell_test"
     bonf = galvao_mantoan_mitchell_test(fitted, seed=1, n_sim_h1=5000, bonferroni=True, weights="increasing")
     assert bonf._metadata["parameters"]["bonferroni"] is True
+
+
+@pytest.mark.parametrize(
+    ("test_function", "options"),
+    [
+        pytest.param(rossi_sekhposyan_test, {}, id="rossi-sekhposyan"),
+        pytest.param(galvao_mantoan_mitchell_test, {"n_sim_h1": 1000}, id="gmm"),
+    ],
+)
+def test_path_tests_are_reproducible_by_default(test_function, options):
+    fitted = _make_data(n=30, horizons=(0, 1, 2)).to_distribution("normal")
+    first = test_function(fitted, n_boot=50, **options)
+    second = test_function(fitted, n_boot=50, **options)
+    explicit_seed = test_function(fitted, n_boot=50, seed=42, **options)
+
+    pd.testing.assert_frame_equal(first.to_df(), second.to_df())
+    pd.testing.assert_frame_equal(first.to_df(), explicit_seed.to_df())
+    assert first._metadata["parameters"]["seed"] == 42
+
+
+@pytest.mark.parametrize(
+    ("test_function", "options"),
+    [
+        pytest.param(rossi_sekhposyan_test, {}, id="rossi-sekhposyan"),
+        pytest.param(galvao_mantoan_mitchell_test, {"n_sim_h1": 1000}, id="gmm"),
+    ],
+)
+def test_path_tests_respect_random_state(test_function, options):
+    fitted = _make_data(n=30, horizons=(0, 1, 2)).to_distribution("normal")
+    generator = np.random.default_rng(7)
+    first = test_function(fitted, n_boot=50, seed=generator, **options)
+    second = test_function(fitted, n_boot=50, seed=generator, **options)
+    explicit_seed = test_function(fitted, n_boot=50, seed=7, **options)
+    fresh = test_function(fitted, n_boot=50, seed=None, **options)
+    critical_values = [column for column in first.to_df().columns if "_cv" in column]
+
+    pd.testing.assert_frame_equal(first.to_df(), explicit_seed.to_df())
+    assert not first.to_df()[critical_values].equals(second.to_df()[critical_values])
+    assert fresh._metadata["parameters"]["seed"] is None
 
 
 def test_narrow_density_rejects():
