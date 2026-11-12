@@ -237,14 +237,8 @@ logs/
 *.bin
 *.dmg
 
-# Files from Nades testing
-.github/agents/
-notebooks/*
-!notebooks/example_notebook.ipynb
-!notebooks/mtp_replication_notebook.ipynb
-!notebooks/density_evaluation_example.ipynb
+# Review notes
 review/
-plans/
+
+# Temporary files
 *.tmp
-notebooks/MTP/
-notebooks/OaR-main/
