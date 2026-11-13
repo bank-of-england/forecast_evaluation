@@ -176,7 +176,7 @@ def test_sample_density_fan_starts_near_outturn_index_levels():
     from forecast_evaluation.data import DensityForecastData
 
     data = DensityForecastData(
-        outturns_data=create_sample_outturns().assign(metric="levels"),
+        outturns_data=create_sample_outturns().assign(metric="levels", vintage_date=pd.Timestamp("2025-12-31")),
         forecasts_data=create_sample_density_forecasts().assign(metric="levels"),
         data_check=False,
     )
@@ -188,7 +188,7 @@ def test_sample_density_fan_starts_near_outturn_index_levels():
         assert len(caught) == 3
         lines = {line.get_label(): line for line in axes.lines}
         center = lines["mpr2 (q=0.49)"]
-        history = lines["Outturns (latest vintage, before forecast)"]
+        history = lines["Outturns (at the time of forecast)"]
         center_values = np.asarray(center.get_ydata(), dtype=float)
         np.testing.assert_allclose(center_values, 115 + np.arange(13), atol=0.05)
         assert history.get_ydata()[-1] == 112

@@ -17,7 +17,10 @@ import forecast_evaluation as fe  # noqa: E402
 import forecast_evaluation.data as data_package  # noqa: E402
 import forecast_evaluation.visualisations as visualisations_package  # noqa: E402
 from forecast_evaluation.data import DensityForecastData, create_sample_density_forecasts  # noqa: E402
-from forecast_evaluation.visualisations.density_plots import plot_density_vintage  # noqa: E402
+from forecast_evaluation.visualisations.density_plots import (  # noqa: E402
+    _select_post_forecast_outturns,
+    plot_density_vintage,
+)
 from forecast_evaluation.visualisations.forecast import plot_vintage  # noqa: E402
 
 VINTAGE = "2025-12-31"
@@ -229,23 +232,23 @@ def test_one_quantile_draws_a_line_without_a_band(density_df, density_outturns_d
     assert "mpr2 (median)" in ax.get_legend_handles_labels()[1]
 
 
-def test_outturn_labels_show_latest_vintage_and_forecast_split(density_only):
-    latest = density_only._outturns.copy()
-    older = latest.copy()
+def test_outturn_labels_follow_point_plot_split(density_only):
+    at_forecast = density_only._outturns.assign(vintage_date=pd.Timestamp(VINTAGE))
+    older = at_forecast.copy()
     older["vintage_date"] = pd.Timestamp("2025-06-30")
     older["value"] = -999.0
-    future = latest[(latest["variable"] == "gdpkp") & (latest["metric"] == "levels")].iloc[[-1]].copy()
+    future = at_forecast[(at_forecast["variable"] == "gdpkp") & (at_forecast["metric"] == "levels")].iloc[[-1]].copy()
     future["date"] = pd.Timestamp("2026-03-31")
     future["value"] = 113.0
-    density_only._outturns = pd.concat([latest, older, future], ignore_index=True)
+    density_only._outturns = pd.concat([at_forecast, older, future], ignore_index=True)
 
     _, ax = _plot(density_only, quantiles=[0.15, 0.49, 0.83])
     labels = ax.get_legend_handles_labels()[1]
     outturn_lines = [line for line in ax.lines if line.get_label().startswith("Outturns")]
     outturn_values = np.concatenate([line.get_ydata() for line in outturn_lines])
 
-    assert "Outturns (latest vintage, before forecast)" in labels
-    assert "Outturns (latest vintage, post forecast)" in labels
+    assert "Outturns (at the time of forecast)" in labels
+    assert "Outturns (post forecast)" in labels
     assert not any("(solid)" in label or "(dashed)" in label for label in labels)
     assert -999.0 not in outturn_values
     assert 113.0 in outturn_values
@@ -332,3 +335,21 @@ def test_plot_docstrings_document_quantiles():
 def test_missing_density_data_raises_value_error(density_only):
     with pytest.raises(ValueError, match="No density forecasts found"):
         _plot(density_only, variable="cpisa")
+
+
+def test_post_forecast_outturns_pick_maturity_k_plus_one_else_furthest():
+    outturns = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2025-03-31"] * 3 + ["2025-06-30"] * 2),
+            "vintage_date": pd.to_datetime(["2025-06-30", "2025-12-31", "2026-03-31", "2025-09-30", "2025-12-31"]),
+            "frequency": "Q",
+            "value": [1.0, 2.0, 3.0, 4.0, 5.0],
+        }
+    )
+    # maturities: 2025-03-31 -> -1, -3, -4; 2025-06-30 -> -1, -2
+    selected = _select_post_forecast_outturns(outturns, k=2)
+
+    assert selected.set_index("date")["value"].to_dict() == {
+        pd.Timestamp("2025-03-31"): 2.0,
+        pd.Timestamp("2025-06-30"): 5.0,
+    }

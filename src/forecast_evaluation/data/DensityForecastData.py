@@ -678,6 +678,7 @@ class DensityForecastData(ForecastData):
         outturn_start_date: str | pd.Timestamp | None = None,
         frequency: Optional[Literal["Q", "M"]] = None,
         metric: Literal["levels", "pop", "yoy"] = "levels",
+        k: int = 12,
         *,
         quantiles: Optional[list[float]] = None,
         convert_to_percentage: bool = False,
@@ -699,6 +700,8 @@ class DensityForecastData(ForecastData):
             Frequency to filter on. If None, infer it from the outturns.
         metric : {"levels", "pop", "yoy"}, default "levels"
             Metric to plot. Density forecasts must already be stored in this metric.
+        k : int, default 12
+            Revision maturity used for post-forecast outturns, as in ``plot_vintage``.
         quantiles : sequence of float, optional
             Keyword-only quantile levels in [0, 1]. Defaults to ``(0.16, 0.5, 0.84)``. A copy is
             sorted in ascending order. Two or more levels draw one shaded outer band; inner levels
@@ -720,7 +723,8 @@ class DensityForecastData(ForecastData):
 
         Notes
         -----
-        Outturns use the latest available vintage and are split before and after the forecast vintage.
+        Outturns at the forecast vintage are shown before the forecast; post-forecast outturns
+        follow the maturity rule of ``plot_vintage``, using ``k``.
         """
         from forecast_evaluation.visualisations.density_plots import plot_density_vintage
 
@@ -732,6 +736,7 @@ class DensityForecastData(ForecastData):
             outturn_start_date=outturn_start_date,
             frequency=frequency,
             metric=metric,
+            k=k,
             quantiles=quantiles,
             convert_to_percentage=convert_to_percentage,
             return_plot=return_plot,
