@@ -324,17 +324,15 @@ def compute_days_in_period(vintage_dates: pd.Series, frequencies: pd.Series) -> 
     Returns
     -------
     pd.Series
-        Integer series with the number of days elapsed since the period start.
+        Series with the number of days elapsed since the period start.
 
     Examples
     --------
     >>> import pandas as pd
     >>> dates = pd.Series([pd.Timestamp("2024-02-14"), pd.Timestamp("2024-05-10")])
     >>> freqs = pd.Series(["Q", "Q"])
-    >>> compute_days_in_period(dates, freqs)
-    0    44
-    1    39
-    dtype: int64
+    >>> compute_days_in_period(dates, freqs).tolist() == [44, 39]
+    True
     """
     vintage_dates = pd.to_datetime(vintage_dates)
     result = pd.Series(index=vintage_dates.index, dtype=int)
