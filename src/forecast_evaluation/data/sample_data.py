@@ -182,8 +182,8 @@ def create_sample_nowcast_forecasts() -> pd.DataFrame:
     Examples
     --------
     >>> df = create_sample_nowcast_forecasts()
-    >>> df["source"].unique()
-    array(['nowcast_dfm', 'nowcast_bridge'], dtype=object)
+    >>> df["source"].unique().tolist()
+    ['nowcast_dfm', 'nowcast_bridge']
 
     """
     rng = np.random.default_rng(42)

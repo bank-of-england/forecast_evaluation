@@ -611,7 +611,7 @@ def test_quantiles_outside_bounds_are_not_rounded_into_range(sample_outturns, de
     forecasts = density_df.iloc[[0]].copy()
     forecasts["quantile"] = quantile
 
-    with pytest.raises(Exception, match="quantile"):
+    with pytest.raises(ValueError, match="quantile must be between 0 and 1"):
         DensityForecastData(outturns_data=sample_outturns, forecasts_data=forecasts, data_check=False)
 
 
