@@ -680,6 +680,7 @@ class DensityForecastData(ForecastData):
         metric: Literal["levels", "pop", "yoy"] = "levels",
         *,
         quantiles: Optional[list[float]] = None,
+        convert_to_percentage: bool = False,
         return_plot: bool = False,
     ) -> tuple | None:
         """Plot density forecasts for one vintage with quantile bands and outturns.
@@ -703,6 +704,8 @@ class DensityForecastData(ForecastData):
             sorted in ascending order. Two or more levels draw one shaded outer band; inner levels
             are faint dashed lines. The 0.5 level, or the middle requested level for an odd-length
             list, is solid. Missing levels use the nearest stored value with a warning.
+        convert_to_percentage : bool, default False
+            Keyword-only. If True, multiplies values on the y-axis by 100.
         return_plot : bool, default False
             Keyword-only. If True, return the matplotlib figure and axes instead of showing the plot.
 
@@ -730,6 +733,7 @@ class DensityForecastData(ForecastData):
             frequency=frequency,
             metric=metric,
             quantiles=quantiles,
+            convert_to_percentage=convert_to_percentage,
             return_plot=return_plot,
         )
 

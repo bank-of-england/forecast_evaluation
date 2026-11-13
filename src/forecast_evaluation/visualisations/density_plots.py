@@ -28,6 +28,7 @@ def plot_density_vintage(
     metric: Literal["levels", "pop", "yoy"] = "levels",
     *,
     quantiles: Optional[Sequence[float]] = None,
+    convert_to_percentage: bool = False,
     return_plot: bool = False,
 ) -> tuple[plt.Figure, plt.Axes] | None:
     """Plot density forecasts for one vintage with quantile bands and outturns.
@@ -55,6 +56,8 @@ def plot_density_vintage(
         band between the outermost levels; inner levels are faint dashed lines. The solid line is
         the 0.5 level when requested, or the middle requested level for an odd-length list. An
         even-length list without 0.5 has no solid central line.
+    convert_to_percentage : bool, default False
+        Keyword-only. If True, multiplies values on the y-axis by 100. Not valid for ``metric='levels'``.
     return_plot : bool, default False
         Keyword-only. If True, return the matplotlib figure and axes instead of showing the plot.
 
@@ -66,7 +69,8 @@ def plot_density_vintage(
     Raises
     ------
     ValueError
-        If ``quantiles`` is empty, non-finite, outside [0, 1], duplicated, or if no density
+        If ``quantiles`` is empty, non-finite, outside [0, 1], duplicated, if
+        ``convert_to_percentage`` is True with ``metric='levels'``, or if no density
         forecasts match the selection or frequency cannot be inferred.
 
     Warns
@@ -128,6 +132,9 @@ def plot_density_vintage(
     for lower, upper in zip(requested_quantiles, requested_quantiles[1:]):
         if np.isclose(lower, upper, rtol=0, atol=_QUANTILE_TOLERANCE):
             raise ValueError(f"Duplicate quantile requests: {lower:g} and {upper:g}.")
+
+    if convert_to_percentage and metric == "levels":
+        raise ValueError("convert_to_percentage is only valid for 'pop' and 'yoy' metrics, not 'levels'.")
 
     if frequency is None:
         inferred = data._raw_outturns["frequency"].unique()
@@ -209,6 +216,9 @@ def plot_density_vintage(
 
     quantiles_used = sorted(used for _, used in resolutions)
 
+    multiplier = 100 if convert_to_percentage else 1
+    forecasts_filtered = forecasts_filtered.assign(value=multiplier * forecasts_filtered["value"])
+
     fig, ax = create_themed_figure()
 
     # Plot each source separately with quantile bands
@@ -263,6 +273,7 @@ def plot_density_vintage(
 
     # Overlay the latest outturn vintage, split at the selected forecast vintage.
     outturns_data = compute_target_minus_vintage(outturns.assign(vintage_date=vintage_date)).sort_values("date")
+    outturns_data = outturns_data.assign(value=multiplier * outturns_data["value"])
     if not outturns_data.empty:
         solid_outturns = outturns_data[outturns_data["target_minus_vintage"] < 0]
         dashed_outturns = outturns_data[outturns_data["target_minus_vintage"] >= 0]
@@ -288,7 +299,8 @@ def plot_density_vintage(
             )
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
-    ax.set_ylabel(f"{variable} ({metric})")
+    y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
+    ax.set_ylabel(y_label)
     ax.legend()
 
     # Return or show the plot

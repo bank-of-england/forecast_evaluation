@@ -272,6 +272,41 @@ def test_string_forecast_sources_are_not_reinterpreted_as_quantiles(density_only
     assert not [warning for warning in caught if issubclass(warning.category, DeprecationWarning)]
 
 
+@pytest.mark.parametrize("route", ["function", "method"])
+def test_convert_to_percentage_scales_values_and_labels_axis(density_df, density_outturns_df, route):
+    data = _density_on_grid(
+        density_outturns_df.assign(metric="yoy"), density_df.assign(metric="yoy"), [0.16, 0.5, 0.84]
+    )
+
+    if route == "function":
+        _, plain_ax = _plot(data, metric="yoy", quantiles=[0.16, 0.5, 0.84])
+        _, scaled_ax = _plot(data, metric="yoy", quantiles=[0.16, 0.5, 0.84], convert_to_percentage=True)
+    else:
+        _, plain_ax = data.plot_density_vintage(
+            "gdpkp", VINTAGE, metric="yoy", quantiles=[0.16, 0.5, 0.84], return_plot=True
+        )
+        _, scaled_ax = data.plot_density_vintage(
+            "gdpkp", VINTAGE, metric="yoy", quantiles=[0.16, 0.5, 0.84], convert_to_percentage=True, return_plot=True
+        )
+
+    plain_median = next(line for line in plain_ax.lines if line.get_label() == "mpr2 (median)")
+    scaled_median = next(line for line in scaled_ax.lines if line.get_label() == "mpr2 (median)")
+    np.testing.assert_allclose(scaled_median.get_ydata(), 100 * np.asarray(plain_median.get_ydata()))
+    assert scaled_ax.get_ylabel() == "gdpkp (yoy) (p.p.)"
+    assert plain_ax.get_ylabel() == "gdpkp (yoy)"
+
+
+def test_convert_to_percentage_rejects_levels(density_only):
+    with pytest.raises(ValueError, match="not 'levels'"):
+        _plot(density_only, convert_to_percentage=True)
+
+
+def test_convert_to_percentage_is_keyword_only():
+    parameters = inspect.signature(plot_density_vintage).parameters
+    assert parameters["convert_to_percentage"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["convert_to_percentage"].default is False
+
+
 def test_wrapper_rejects_unknown_keywords(density_only):
     assert "kwargs" not in inspect.signature(DensityForecastData.plot_density_vintage).parameters
     with pytest.raises(TypeError, match="foo"):
