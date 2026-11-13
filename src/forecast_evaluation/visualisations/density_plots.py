@@ -18,6 +18,16 @@ _DEFAULT_QUANTILES = (0.16, 0.5, 0.84)
 _QUANTILE_TOLERANCE = 1e-9
 
 
+def _select_post_forecast_outturns(outturns: pd.DataFrame, k: int) -> pd.DataFrame:
+    """Keep, per target date, the outturn at maturity -(k+1), or the furthest maturity if absent."""
+    rows = compute_target_minus_vintage(outturns).dropna(subset=["target_minus_vintage"])
+    maturity = rows["target_minus_vintage"].astype(int)
+    per_date = maturity.groupby(rows["date"])
+    has_target = per_date.transform(lambda s: (s == -(k + 1)).any()).to_numpy()
+    selected = np.where(has_target, -(k + 1), per_date.transform("min").to_numpy())
+    return rows[maturity.to_numpy() == selected]
+
+
 def plot_density_vintage(
     data: DensityForecastData,
     variable: str,
@@ -26,6 +36,7 @@ def plot_density_vintage(
     outturn_start_date: str | pd.Timestamp | None = None,
     frequency: Optional[Literal["Q", "M"]] = None,
     metric: Literal["levels", "pop", "yoy"] = "levels",
+    k: int = 12,
     *,
     quantiles: Optional[Sequence[float]] = None,
     convert_to_percentage: bool = False,
@@ -49,6 +60,8 @@ def plot_density_vintage(
         Frequency to filter on. If None, infer it from the outturns.
     metric : {"levels", "pop", "yoy"}, default "levels"
         Metric to plot. Density forecasts must already be stored in this metric.
+    k : int, default 12
+        Revision maturity used for post-forecast outturns, as in ``plot_vintage``.
     quantiles : sequence of float, optional
         Keyword-only quantile levels in [0, 1]. Defaults to ``(0.16, 0.5, 0.84)``. A copy is
         sorted in ascending order. Missing levels are replaced by the nearest stored level,
@@ -81,10 +94,10 @@ def plot_density_vintage(
     Notes
     -----
     Quantiles are resolved against the selected density table using a tolerance of 1e-9; the
-    stored values are used for plotting. Outturns come from the latest available outturn vintage
-    and are split before and after the forecast vintage. A numeric ``forecast_source`` list in
-    [0, 1] is treated as deprecated positional ``quantiles`` for one release; pass
-    ``quantiles=`` instead.
+    stored values are used for plotting. Outturns at the forecast vintage are shown before the
+    forecast; post-forecast outturns follow the maturity rule of ``plot_vintage``, using ``k``.
+    A numeric ``forecast_source`` list in [0, 1] is treated as deprecated positional ``quantiles``
+    for one release; pass ``quantiles=`` instead.
     """
     legacy_quantiles = (
         isinstance(forecast_source, (list, tuple))
@@ -167,12 +180,13 @@ def plot_density_vintage(
             f"vintage_date='{vintage_date:%Y-%m-%d}', frequency='{frequency}'."
         )
 
-    # filter outturns (they are not filtered with filter())(we select the last vintage only)
+    # filter outturns (they are not filtered with filter())(we select the forecast vintage only)
     outturns = data._outturns.copy()
     min_date = outturn_start_date if outturn_start_date is not None else outturns["date"].min()
+    real_time_vintage = vintage_date if data.outturn_vintages else outturns["vintage_date"].max()
 
     outturns = outturns[
-        (outturns["vintage_date"] == outturns["vintage_date"].max())
+        (outturns["vintage_date"] == real_time_vintage)
         & (outturns["variable"].isin(forecasts_filtered["variable"].unique()))
         & (outturns["metric"] == metric)
         & (outturns["date"] <= forecasts_filtered["date"].max())
@@ -271,32 +285,44 @@ def plot_density_vintage(
                     label=f"{forecast_id} ({quantiles_used[0]:g}-{quantiles_used[-1]:g})",
                 )
 
-    # Overlay the latest outturn vintage, split at the selected forecast vintage.
+    # Overlay outturns split at the forecast vintage, as in plot_vintage: pre-forecast uses the
+    # forecast vintage; post-forecast uses the k maturity rule when outturn vintages are available.
     outturns_data = compute_target_minus_vintage(outturns.assign(vintage_date=vintage_date)).sort_values("date")
-    outturns_data = outturns_data.assign(value=multiplier * outturns_data["value"])
-    if not outturns_data.empty:
-        solid_outturns = outturns_data[outturns_data["target_minus_vintage"] < 0]
+    solid_outturns = outturns_data[outturns_data["target_minus_vintage"] < 0]
+    if data.outturn_vintages:
+        all_outturns = data._outturns[
+            (data._outturns["variable"].isin(forecasts_filtered["variable"].unique()))
+            & (data._outturns["metric"] == metric)
+            & (data._outturns["date"] <= forecasts_filtered["date"].max())
+            & (data._outturns["date"] >= min_date)
+        ]
+        post_outturns = _select_post_forecast_outturns(all_outturns, k).assign(vintage_date=vintage_date)
+        post_outturns = compute_target_minus_vintage(post_outturns).sort_values("date")
+        dashed_outturns = post_outturns[post_outturns["target_minus_vintage"] >= 0]
+    else:
         dashed_outturns = outturns_data[outturns_data["target_minus_vintage"] >= 0]
+    solid_outturns = solid_outturns.assign(value=multiplier * solid_outturns["value"])
+    dashed_outturns = dashed_outturns.assign(value=multiplier * dashed_outturns["value"])
 
-        if not solid_outturns.empty:
-            ax.plot(
-                solid_outturns["date"],
-                solid_outturns["value"],
-                color="darkblue",
-                marker="o",
-                markersize=3,
-                label="Outturns (latest vintage, before forecast)",
-            )
-        if not dashed_outturns.empty:
-            ax.plot(
-                dashed_outturns["date"],
-                dashed_outturns["value"],
-                color="darkblue",
-                marker="o",
-                markersize=3,
-                linestyle="--",
-                label="Outturns (latest vintage, post forecast)",
-            )
+    if not solid_outturns.empty:
+        ax.plot(
+            solid_outturns["date"],
+            solid_outturns["value"],
+            color="darkblue",
+            marker="o",
+            markersize=3,
+            label="Outturns (at the time of forecast)",
+        )
+    if not dashed_outturns.empty:
+        ax.plot(
+            dashed_outturns["date"],
+            dashed_outturns["value"],
+            color="darkblue",
+            marker="o",
+            markersize=3,
+            linestyle="--",
+            label="Outturns (post forecast)",
+        )
 
     ax.set_title(f"{variable} [{frequency}] - {metric} - Vintage: {vintage_date.date()}")
     y_label = f"{variable} ({metric}) (p.p.)" if convert_to_percentage else f"{variable} ({metric})"
