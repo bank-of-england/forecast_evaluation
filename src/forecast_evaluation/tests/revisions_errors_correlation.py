@@ -180,6 +180,12 @@ def revisions_errors_correlation_analysis(
     if data.uses_intra_period_vintages:
         raise ValueError("Revisions-errors correlation analysis is not supported for nowcasting data. ")
 
+    if k is None:
+        k = data.default_k
+
+    if data.uses_intra_period_vintages:
+        raise ValueError("Revisions-errors correlation analysis is not supported for nowcasting data. ")
+
     df = create_revision_dataframe(data._main_table, data._forecasts, k)
     df = df.assign(horizon=lambda d: d["target_minus_vintage"].astype(int))
 

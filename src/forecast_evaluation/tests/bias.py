@@ -203,6 +203,9 @@ def bias_analysis(
     if k is None:
         k = data.default_k
 
+    if k is None:
+        k = data.default_k
+
     data_filtered = data.copy()
     data_filtered.filter(sources=source, variables=variable)
 

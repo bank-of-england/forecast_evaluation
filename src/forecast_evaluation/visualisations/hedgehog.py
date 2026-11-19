@@ -72,6 +72,13 @@ def plot_hedgehog(
             stacklevel=2,
         )
 
+    if frequency is not None:
+        warnings.warn(
+            "The 'frequency' argument is deprecated and will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     df_forecasts = data._forecasts.copy()
     df_outturns = data._main_table.copy()
     df_outturns = filter_k(df_outturns, k)

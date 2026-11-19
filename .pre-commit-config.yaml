@@ -4,11 +4,13 @@ repos:
       - id: ruff-check
         name: Run Ruff linter
         entry: ruff check --fix
+        args: [--force-exclude]
         language: system
         types_or: [python, pyi, jupyter]
       - id: ruff-format
         name: Run Ruff formatter
         entry: ruff format
+        args: [--force-exclude]
         language: system
         types_or: [python, pyi, jupyter]
       - id: pytest
