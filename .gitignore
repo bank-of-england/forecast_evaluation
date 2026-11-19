@@ -236,3 +236,9 @@ logs/
 *.iso
 *.bin
 *.dmg
+
+# Review notes
+review/
+
+# Temporary files
+*.tmp

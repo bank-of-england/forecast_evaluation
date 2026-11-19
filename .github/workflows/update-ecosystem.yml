@@ -111,7 +111,7 @@ jobs:
       - name: Install published module and pinned ecosystem
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[models]" -e "./opera-eco[modules]"
+          python -m pip install . -e "./opera-eco[modules]"
 
       - name: Update generated skill APIs
         working-directory: opera-eco

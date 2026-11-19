@@ -1,6 +1,13 @@
+import warnings
 from typing import Literal
 
+import numpy as np
 import pandas as pd
+
+_OUTTURN_KEY = ["variable", "frequency", "date", "vintage_date", "metric"]
+# Supplied pop/yoy values within this tolerance of the re-derived value are treated as equal.
+_DERIVED_RTOL = 1e-6
+_DERIVED_ATOL = 1e-9
 
 
 def transform_series(
@@ -213,8 +220,69 @@ def prepare_forecasts(
     return df_forecasts
 
 
+def drop_superseded_outturns(derived: pd.DataFrame, supplied: pd.DataFrame) -> pd.DataFrame:
+    """Drop the rows of ``derived`` that ``supplied`` already provides.
+
+    Rows match on (variable, frequency, date, vintage_date, metric); null vintage dates match each other.
+    A single aggregated ``UserWarning`` is emitted if any supplied value differs from the matching
+    ``derived`` value by more than a small tolerance. Supplied rows flagged by a boolean ``_aligned``
+    column (nowcast snapshots, NaN counts as False) still supersede derived rows but are exempt from
+    that warning, since they may legitimately differ from values re-derived from the latest levels.
+
+    Parameters
+    ----------
+    derived : pd.DataFrame
+        Outturn rows (for example pop/yoy derived from levels) that yield to ``supplied`` rows.
+    supplied : pd.DataFrame
+        Outturn rows to prefer, with unique keys.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``derived`` without the rows that have a match in ``supplied``, in the original order.
+    """
+    if derived.empty or supplied.empty:
+        return derived
+
+    has_aligned = "_aligned" in supplied.columns
+    supplied_keys = supplied[_OUTTURN_KEY + ["value"] + (["_aligned"] if has_aligned else [])].drop_duplicates(
+        subset=_OUTTURN_KEY
+    )
+    merged = derived[_OUTTURN_KEY + ["value"]].merge(
+        supplied_keys, on=_OUTTURN_KEY, how="left", suffixes=("", "_supplied"), indicator=True
+    )
+    matched = (merged["_merge"] == "both").to_numpy()
+    if not matched.any():
+        return derived
+
+    derived_values = merged.loc[matched, "value"].to_numpy(dtype=float)
+    supplied_values = merged.loc[matched, "value_supplied"].to_numpy(dtype=float)
+    abs_diff = np.abs(derived_values - supplied_values)
+    differs = abs_diff > _DERIVED_ATOL + _DERIVED_RTOL * np.abs(supplied_values)
+    if has_aligned:
+        aligned = merged.loc[matched, "_aligned"].eq(True).to_numpy()  # NaN -> False without a downcast warning
+        differs &= ~aligned
+    if differs.any():
+        warnings.warn(
+            f"{int(differs.sum())} supplied pop/yoy outturn rows differ from the values re-derived from levels "
+            f"(largest absolute difference {abs_diff[differs].max():.6g}); keeping the supplied values.",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    return derived[~matched]
+
+
 def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
     """Prepare outturn data by applying transformations across different frequencies.
+
+    ``pop`` and ``yoy`` rows are derived from the ``levels`` rows. Rows of those metrics that are
+    already present in ``outturns`` (for example when re-wrapping ``ForecastData.outturns``) are
+    kept as supplied and the derived row with the same (variable, frequency, date, vintage_date,
+    metric) is dropped, so no row is duplicated. If a supplied value differs from the re-derived
+    value by more than a small tolerance, the supplied value is kept and one ``UserWarning`` reports
+    how many rows differ and the largest absolute difference. Rows flagged ``_aligned`` (nowcast
+    snapshots) supersede derived rows like any other but are exempt from that warning.
 
     Parameters
     ----------
@@ -256,6 +324,9 @@ def prepare_outturns(outturns: pd.DataFrame) -> pd.DataFrame:
 
     # Combine transformed levels outturns with pass-through non-levels outturns
     if not non_levels_outturns.empty:
+        derived = df_outturns[df_outturns["metric"] != "levels"]
+        kept = drop_superseded_outturns(derived, non_levels_outturns)
+        df_outturns = df_outturns.drop(index=derived.index.difference(kept.index))
         df_outturns = pd.concat([df_outturns, non_levels_outturns], ignore_index=True)
 
     return df_outturns

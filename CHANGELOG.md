@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+### Added
+- Normal, two-piece normal, Azzalini skew-t and semi-parametric MPZ distributions, with PDF, CDF, quantile and moment calculations. Two-piece normals support Bank of England fan-chart parameter conversion.
+- `to_distribution()` and `ForecastDistributions.from_params()` for fitted or known-parameter densities, with diagnostics. MPZ uses stored quantiles directly without parametric fitting.
+- `compute_pit()` and density evaluation tables with `k` revision selection, including `"latest"`.
+- Knuppel, Mitchell-Weale, Rossi-Sekhposyan and Galvao-Mantoan-Mitchell calibration tests, including joint-horizon calibration.
+- CRPS, quantile-weighted CRPS and sharpness analysis, with PIT, CRPS and sharpness plots through `TestResult.plot()`.
+- `plot_density_vintage()` options: `k=12` and keyword-only `convert_to_percentage` for growth metrics.
+- Density summaries, top-level API exports including `create_sample_density_forecasts()`, a worked notebook, dashboard example and methodology documentation.
+
+### Adjustments
+- Aligned density constructors and validation with `ForecastData`; supplied density metrics remain unchanged, with point conversion explicit.
+- Finite quantiles in [0, 1] and finite values required. By default, `crossing="rearrange"` sorts crossings with warnings; `"error"` rejects and `"ignore"` preserves them. Negative information horizons are dropped with warnings.
+- `to_point_forecast()` preserves sources, supports `source_suffix` and `on_missing="raise"`, and otherwise selects the nearest quantile common across each path, breaking ties downwards. Numeric and string levels are accepted. Repeated conversions are idempotent; conflicts raise errors.
+- Sampling uses filtered densities, requires two distinct quantiles and warns about clamped tails. Draws are independent, not joint paths. Sampling and sample generators use private random generators; example density levels match point examples.
+- Vintage plots use keyword-only `quantiles` and `return_plot`; positional quantiles are deprecated. Positional support remains for one release; defaults are `(0.16, 0.5, 0.84)`. Missing quantiles warn and use nearest levels; invalid or duplicate selections raise errors.
+- Historical outturns use the forecast vintage; subsequent outturns use `k`, falling back to the furthest maturity.
+
+### Fixed
+- Density identifiers exclude `quantile` and retain extra IDs; failed additions and merges restore state. Merges into plain `ForecastData` warn about discarded densities.
+- Density-only filtering, dashboards and notebook representations. Skipped custom filters warn; point-only analyses require conversion. `clear_filter()` restores all stored views. Dashboards show placeholders until point forecasts are available.
+- Supplied growth outturns override derived duplicates, warning on discrepancies except for aligned nowcast snapshots.
+- Rossi-Sekhposyan and Galvao-Mantoan-Mitchell bootstrap tests default to `seed=42`; fitting warnings identify callers.
+
+### Development
+- Density regression tests, numerical snapshots and shared fixtures.
+- Package quality and OPERA ecosystem checks; post-publication dependency-pin and generated-API updates through pull requests after PyPI availability.
+- Local Ruff, pytest and doctest hooks, plus protected-branch contribution guidance.
+
 ## 0.1.13
 ### Added
 - New `NowcastData` class to handle intra-period vintages.
