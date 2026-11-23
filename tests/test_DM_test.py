@@ -202,3 +202,52 @@ def test_power_with_autocorrelation():
         f"Test power {power:.3f} with autocorrelation is too low. "
         f"DM test should handle autocorrelated errors via HAC adjustment."
     )
+
+
+def test_dm_invariant_to_loss_reporting_units():
+    losses = np.arange(1.0, 6.0)
+    expected_dm = 3 * np.sqrt(2)
+    expected_p = 0.013235599563682681
+    for exponent in (-600, -40, 0, 600):
+        for sign in (-1, 1):
+            result = diebold_mariano_test(pd.Series(np.ldexp(sign * losses, exponent)), horizon=0)
+            np.testing.assert_allclose(result["dm_statistic"], sign * expected_dm, rtol=1e-14)
+            np.testing.assert_allclose(result["p_value"], expected_p, rtol=1e-14)
+            assert result["n_observations"] == 5
+
+
+def test_dm_bartlett_fallback_for_negative_rectangular_estimate():
+    # C(0)=1 and C(1)=-5/6 imply Bartlett variance of the mean=1/36.
+    losses = pd.Series([2.0, 0, 2, 0, 2, 0])
+    result = diebold_mariano_test(losses, horizon=1)
+    np.testing.assert_allclose(result["dm_statistic"], 2 * np.sqrt(5), rtol=1e-14)
+    np.testing.assert_allclose(result["p_value"], 0.006566271827563002, rtol=1e-13)
+
+
+def test_dm_bartlett_fallback_for_zero_rectangular_estimate():
+    # C(0)=2/3 and C(1)=-1/3 give a zero rectangular estimate but
+    # Bartlett variance of the mean=1/9, so a finite test is possible.
+    result = diebold_mariano_test(pd.Series([0.0, 2, 1]), horizon=1)
+    np.testing.assert_allclose(result["dm_statistic"], np.sqrt(2), rtol=1e-14)
+    np.testing.assert_allclose(result["p_value"], 1 - 1 / np.sqrt(2), rtol=1e-14)
+
+
+def test_dm_zero_loss_differences_are_neutral():
+    import warnings
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        result = diebold_mariano_test(pd.Series(np.zeros(5)), horizon=1)
+    assert len(captured) == 1
+    assert "exactly zero" in str(captured[0].message)
+    assert result["dm_statistic"] == 0
+    assert result["p_value"] == 1
+
+
+def test_dm_constant_nonzero_loss_is_not_identical():
+    # Preserve the limiting signed infinite statistic, independent of units.
+    for sign in (-1, 1):
+        with np.errstate(divide="raise", invalid="raise"):
+            result = diebold_mariano_test(pd.Series(np.full(5, sign * 2.0**-400)), horizon=1)
+        assert result["dm_statistic"] == sign * np.inf
+        assert result["p_value"] == 0

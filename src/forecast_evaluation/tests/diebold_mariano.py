@@ -24,7 +24,7 @@ def diebold_mariano_test(
 
     We use the correction for small sample of Harvey, Leybourne, and Newbold (1997).
     We use the approach of Harvey, Leybourne, and Whitehouse (2017) which suggests
-    using only the Bartlett kernel when the variance is negative. The standard
+    using the Bartlett kernel when the standard variance estimate is not positive. The standard
     variance estimator has better small sample properties.
 
     Parameters
@@ -54,6 +54,8 @@ def diebold_mariano_test(
     - Alternative hypothesis: The models have different predictive accuracy
     - A negative DM statistic indicates the model is more accurate than the benchmark
     - Uses Newey-West HAC standard errors with lags = horizon (because we start a horizon = 0)
+    - Exactly zero loss differences give a neutral result. Constant nonzero differences
+      retain the signed infinite-statistic convention when the small-sample factor is positive.
 
     References
     Diebold and Mariano (1995) : https://doi.org/10.2307/1392185
@@ -61,49 +63,44 @@ def diebold_mariano_test(
     Harvey, Leybourne, and Whitehouse (2017) https://doi.org/10.1016/j.ijforecast.2017.05.001
     """
 
-    # Mean loss differential
-    mean_loss_diff = error_difference.mean()
-
-    # Number of observations
-    n = len(error_difference)
-
+    loss = np.asarray(error_difference, dtype=float)
+    n = len(loss)
     if n < 2:
         raise ValueError("Insufficient observations for Diebold-Mariano test (need at least 2)")
 
-    # WARNING in the future we should work only with horizon starting at 1
-    # Nowcast should be horizon=1 - otherwise we can't guess if a user's horizon = 1 corresponds
-    # to one-step ahead forecasts or two-step ahead forecasts
-    # In the meantime add one to horizon
+    # The statistic is homogeneous of degree zero. Rescale by a power of
+    # two before taking squares to preserve units and avoid tiny or huge
+    # products in the autocovariance estimate.
+    scale = np.max(np.abs(loss))
+    _, exponent = np.frexp(scale)
+    loss = np.ldexp(loss, -exponent)
+    mean_loss_diff = loss.mean()
+
+    # The input horizon starts at zero; the HLN horizon starts at one.
     H = horizon + 1
-
-    # Calculate HAC standard error using Newey-West ------------
     maxlags = H - 1
-
-    # Get autocovariances from lag 0 to maxlags
-    error_cov = acovf(error_difference, nlag=maxlags, fft=False)
-
-    # standard variance estimator
+    error_cov = acovf(loss, nlag=maxlags, fft=False)
     variance = (error_cov[0] + 2 * np.sum(error_cov[1:])) / n
 
-    if variance < 0:
-        # Use Bartlett kernel weights
+    if variance <= 0 and error_cov[0] > 0:
+        # The rectangular estimate must be positive for studentization.
+        # Bartlett weighting also handles an exact zero from cancellation.
         variance = error_cov[0] / n
         for i in range(1, H):
             variance += error_cov[i] * 2 * (1 - i / H) / n
-    # -----------------------------------------------------------
 
-    # Calculate DM statistic
-    dm_statistic = mean_loss_diff / np.sqrt(variance)
-
-    if (np.abs(mean_loss_diff) < 1e-6) & (np.sqrt(variance) < 1e-6):
-        # more or less identical forecasts which gives a variance too close to zero
-        # this inflates the DM stat, and we don't want that
+    if scale == 0:
         warnings.warn(
-            "Diebold-Mariano test: Mean loss difference and its variance are both very close to zero. "
-            "This suggests identical forecasts. "
-            "Setting DM statistic to zero to avoid artificially high stats."
+            "Diebold-Mariano test: All loss differences are exactly zero. Setting DM statistic to zero.",
+            stacklevel=2,
         )
         dm_statistic = 0.0
+    elif np.all(loss == loss[0]):
+        # Preserve the existing limiting convention for a constant nonzero
+        # differential, without relying on division by zero.
+        dm_statistic = np.copysign(np.inf, loss[0])
+    else:
+        dm_statistic = mean_loss_diff / np.sqrt(variance)
 
     # Adjustment for small sample sizes (Harvey et al. 1997, eq. 9)
     # https://doi.org/10.1016/S0169-2070(96)00719-4
