@@ -1,4 +1,3 @@
-import warnings
 from typing import Literal, Optional
 
 import numpy as np
@@ -93,17 +92,10 @@ def diebold_mariano_test(
     # -----------------------------------------------------------
 
     # Calculate DM statistic
-    dm_statistic = mean_loss_diff / np.sqrt(variance)
-
-    if (np.abs(mean_loss_diff) < 1e-6) & (np.sqrt(variance) < 1e-6):
-        # more or less identical forecasts which gives a variance too close to zero
-        # this inflates the DM stat, and we don't want that
-        warnings.warn(
-            "Diebold-Mariano test: Mean loss difference and its variance are both very close to zero. "
-            "This suggests identical forecasts. "
-            "Setting DM statistic to zero to avoid artificially high stats."
-        )
+    if (error_difference == 0).all():
         dm_statistic = 0.0
+    else:
+        dm_statistic = mean_loss_diff / np.sqrt(variance)
 
     # Adjustment for small sample sizes (Harvey et al. 1997, eq. 9)
     # https://doi.org/10.1016/S0169-2070(96)00719-4

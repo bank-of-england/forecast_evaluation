@@ -202,3 +202,18 @@ def test_power_with_autocorrelation():
         f"Test power {power:.3f} with autocorrelation is too low. "
         f"DM test should handle autocorrelated errors via HAC adjustment."
     )
+
+
+def test_dm_identical_forecasts_are_neutral():
+    with np.errstate(invalid="raise"):
+        result = diebold_mariano_test(pd.Series(np.zeros(5)), horizon=0)
+    assert result["dm_statistic"] == 0.0
+    assert result["p_value"] == 1.0
+
+
+def test_dm_small_nonzero_loss_differences():
+    # At horizon zero the corrected statistic is the ordinary one-sample t statistic.
+    losses = pd.Series(np.arange(1.0, 6.0) * 1e-8)
+    result = diebold_mariano_test(losses, horizon=0)
+    np.testing.assert_allclose(result["dm_statistic"], 3 * np.sqrt(2))
+    np.testing.assert_allclose(result["p_value"], 0.013235599563682681)
