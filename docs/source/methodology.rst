@@ -251,7 +251,6 @@ For outturn :math:`y_t` and fitted cdf :math:`F_t`, the PIT is :math:`z_t = F_t(
 - **Knüppel (2015)**: with :math:`s_t = \sqrt{12}(z_t - 1/2)`, the moments :math:`(s_t, s_t^2 - 1, s_t^3, s_t^4 - 1.8)` have zero mean under uniformity. Odd and even pairs give separate Wald statistics with Newey-West covariances (automatic lag, Andrews 1991), summed and compared with :math:`\chi^2_4`.
 - **Mitchell and Weale (2023)**: the Knüppel moments of PITs inside :math:`[\alpha/2, 1-\alpha/2]`, rescaled to that region, plus a HAC test that the share inside equals :math:`1-\alpha` (default :math:`\alpha = 0.10`); :math:`\chi^2_5`.
 - **Rossi and Sekhposyan (2019)**: Kolmogorov-Smirnov and Cramér-von Mises distances between the empirical PIT cdf and the 45-degree line, with block-bootstrap critical values (block length :math:`\lfloor T^{1/3} \rfloor`). This allows for serial correlation at multi-step horizons.
-- **Galvão, Mantoan and Mitchell**: a joint test across horizons from the same forecast origins. The statistic is the maximum (unweighted or with decreasing or increasing horizon weights) of the per-horizon Rossi-Sekhposyan statistics. Bootstrap draws share multipliers across horizons, and the first horizon uses the Brownian-bridge limit. Sup-test and Bonferroni critical values are reported.
 
 Accuracy and sharpness
 ^^^^^^^^^^^^^^^^^^^^^^

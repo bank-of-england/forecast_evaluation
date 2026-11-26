@@ -15,7 +15,6 @@ from forecast_evaluation.tests import (
     compute_crps,
     compute_pit,
     crps_analysis,
-    galvao_mantoan_mitchell_test,
     knuppel_test,
     mitchell_weale_test,
     rossi_sekhposyan_test,
@@ -23,8 +22,6 @@ from forecast_evaluation.tests import (
 )
 from forecast_evaluation.tests._hac import nw_hac
 from forecast_evaluation.tests.density_path_calibration import (
-    brownian_bridge_h1_draws,
-    galvao_mantoan_mitchell_statistic,
     rossi_sekhposyan_statistic,
 )
 from forecast_evaluation.tests.density_scoring import density_scores, interval_widths
@@ -118,28 +115,15 @@ def test_density_scoring_snapshot(snapshot):
     assert _snapshot_values(results) == snapshot
 
 
-@pytest.mark.parametrize("weights", ["unweighted", "decreasing", "increasing"])
-def test_path_statistics_snapshot(weights, snapshot):
+def test_path_statistics_snapshot(snapshot):
     rng = np.random.default_rng(23)
     pits = stats.norm.cdf(1.3 * rng.standard_normal((60, 3)) + 0.2)
     rvec = np.linspace(0, 1, 101)
     block_length = 3
     rs_multipliers = rng.standard_normal((60 - block_length + 1, 200))
-    gmm_multipliers = rng.standard_normal((60 - block_length + 1 + 3, 200))
-    h1_draws = brownian_bridge_h1_draws(rvec, n_sim=2000, seed=19)
     results = {
         "rossi_sekhposyan": rossi_sekhposyan_statistic(
             pits[:, 0], rvec=rvec, block_length=block_length, eta=rs_multipliers
-        ),
-        "galvao_mantoan_mitchell": galvao_mantoan_mitchell_statistic(
-            pits,
-            weights=weights,
-            alpha=0.05,
-            rvec_stats=rvec,
-            rvec=rvec,
-            block_length=block_length,
-            eta=gmm_multipliers,
-            h1_draws=h1_draws,
         ),
     }
     assert _snapshot_values(results) == snapshot
@@ -152,8 +136,5 @@ def test_path_calibration_snapshot(snapshot):
         "rossi_sekhposyan": rossi_sekhposyan_test(fitted, k="latest", n_boot=200, seed=17)
         .to_df()
         .sort_values("horizon"),
-        "galvao_mantoan_mitchell": galvao_mantoan_mitchell_test(
-            fitted, k="latest", n_boot=200, seed=17, n_sim_h1=2000
-        ).to_df(),
     }
     assert _snapshot_values(results) == snapshot

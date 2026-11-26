@@ -22,7 +22,6 @@ _DENSITY_TESTS_WITHOUT_PLOT = (
     "knuppel_test",
     "mitchell_weale_test",
     "rossi_sekhposyan_test",
-    "galvao_mantoan_mitchell_test",
 )
 
 

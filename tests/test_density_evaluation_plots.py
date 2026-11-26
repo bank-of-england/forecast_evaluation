@@ -102,7 +102,6 @@ def test_exports_present():
         "knuppel_test",
         "mitchell_weale_test",
         "rossi_sekhposyan_test",
-        "galvao_mantoan_mitchell_test",
         "compute_crps",
         "crps_analysis",
         "sharpness_analysis",

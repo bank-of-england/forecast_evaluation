@@ -803,7 +803,6 @@ results are grouped by variable, source, metric, frequency and horizon
    fe.knuppel_test(fitted)                  # PIT moments, HAC
    fe.mitchell_weale_test(fitted)           # censored moments + coverage, alpha=0.10
    rs = fe.rossi_sekhposyan_test(fitted, seed=0)
-   fe.galvao_mantoan_mitchell_test(fitted, seed=0)   # joint test across horizons
    crps = fe.crps_analysis(fitted)                   # mean CRPS by horizon
    fe.crps_analysis(fitted, weight="left")           # downside-weighted CRPS
    fe.sharpness_analysis(fitted)                     # interval widths
@@ -813,8 +812,7 @@ results are grouped by variable, source, metric, frequency and horizon
    crps.plot()
 
 ``weight`` is ``"none"``, ``"centre"``, ``"tails"``, ``"left"``, ``"right"``,
-``"heavy_tails"`` or a callable of the quantile level. Rossi-Sekhposyan and
-Galvao-Mantoan-Mitchell critical values come from a block bootstrap; pass
+``"heavy_tails"`` or a callable of the quantile level. Rossi-Sekhposyan critical values come from a block bootstrap; pass
 ``seed`` for reproducible results. The path test needs PITs for every
 horizon from the same forecast origins and treats the first horizon as one step
 ahead. See :doc:`methodology` for definitions.
