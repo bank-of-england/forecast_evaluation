@@ -257,8 +257,7 @@ def weak_efficiency_analysis(
         - 'hac_maxlags' : int - Newey-West truncation lag used (max information horizon in the group)
         - 'ols_model' : object - Full OLS model results (statsmodels RegressionResults object)
     """
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

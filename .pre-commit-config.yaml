@@ -1,17 +1,25 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.3
-    hooks:
-      - id: ruff
-        name: Run Ruff linter
-        args: [--fix]
-        additional_dependencies: []
-        language: system  # Use the system Python environment
-
   - repo: local
     hooks:
+      - id: ruff-check
+        name: Run Ruff linter
+        entry: ruff check --fix
+        args: [--force-exclude]
+        language: system
+        types_or: [python, pyi, jupyter]
+      - id: ruff-format
+        name: Run Ruff formatter
+        entry: ruff format
+        args: [--force-exclude]
+        language: system
+        types_or: [python, pyi, jupyter]
       - id: pytest
         name: Run pytest
         entry: pytest
+        language: system
+        pass_filenames: false
+      - id: doctest
+        name: Run package doctests
+        entry: pytest --doctest-modules --import-mode=importlib src/forecast_evaluation
         language: system
         pass_filenames: false

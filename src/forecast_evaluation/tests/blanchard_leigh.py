@@ -226,8 +226,7 @@ def blanchard_leigh_horizon_analysis(
     """
 
     # Validating inputs:
-    if data._main_table is None:
-        raise ValueError("ForecastData main table is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     if k is None:
         k = data.default_k

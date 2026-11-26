@@ -30,8 +30,7 @@ def plot_average_revision_by_period(data, source, variable, metric, frequency=No
         If return_plot is True, returns the figure and axes objects. Otherwise, displays the plot and returns None.
     """
     # Prepare revisions data
-    if data._forecasts is None:
-        raise ValueError("ForecastData forecasts is not available. Please ensure data has been added and processed.")
+    data._require_point_forecasts()
 
     forecasts = data._forecasts.copy()
 
